@@ -1,55 +1,94 @@
 "use client";
 
-import { useRef } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
-import Navbar from "@/components/sections/Navbar";
-import Hero from "@/components/sections/Hero";
-import Diagnostic from "@/components/sections/Diagnostic";
-import AgentsOverview from "@/components/sections/AgentsOverview";
-import SetupSteps from "@/components/sections/SetupSteps";
-import ScriptsSection from "@/components/sections/ScriptsSection";
-import RoadmapSection from "@/components/sections/RoadmapSection";
-import RecapSection from "@/components/sections/RecapSection";
-import CTASection from "@/components/sections/CTASection";
-import Footer from "@/components/sections/Footer";
-import ParticleField from "@/components/ParticleField";
+import { useAppStore } from "@/store/appStore";
+import Sidebar from "@/components/app/Sidebar";
+import DashboardView from "@/components/app/DashboardView";
+import SetupView from "@/components/app/SetupView";
+import AgentDetailView from "@/components/app/AgentDetailView";
+import ICPView from "@/components/app/ICPView";
+import LeadsView from "@/components/app/LeadsView";
+import TemplatesView from "@/components/app/TemplatesView";
+import MonitoringView from "@/components/app/MonitoringView";
+import SettingsView from "@/components/app/SettingsView";
+import { Menu, X } from "lucide-react";
+import { useState } from "react";
 
 export default function Home() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start start", "end end"],
-  });
+  const { currentView } = useAppStore();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const backgroundY = useTransform(scrollYProgress, [0, 1], ["0%", "20%"]);
+  const renderView = () => {
+    switch (currentView) {
+      case "dashboard":
+        return <DashboardView />;
+      case "setup":
+        return <SetupView />;
+      case "agent-contenu":
+        return <AgentDetailView agentId="contenu" />;
+      case "agent-qualif":
+        return <AgentDetailView agentId="qualif" />;
+      case "agent-prospection":
+        return <AgentDetailView agentId="prospection" />;
+      case "icp":
+        return <ICPView />;
+      case "leads":
+        return <LeadsView />;
+      case "templates":
+        return <TemplatesView />;
+      case "monitoring":
+        return <MonitoringView />;
+      case "settings":
+        return <SettingsView />;
+      default:
+        return <DashboardView />;
+    }
+  };
 
   return (
-    <div ref={containerRef} className="relative min-h-screen bg-[#080C10] overflow-hidden">
-      {/* Animated background gradient that moves with scroll */}
-      <motion.div
-        style={{ y: backgroundY }}
-        className="fixed inset-0 pointer-events-none z-0"
-      >
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-[radial-gradient(ellipse_at_center,rgba(0,212,255,0.06)_0%,transparent_70%)]" />
-        <div className="absolute bottom-0 left-1/4 w-[800px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(0,196,140,0.04)_0%,transparent_70%)]" />
-        <div className="absolute top-1/2 right-0 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(0,212,255,0.03)_0%,transparent_70%)]" />
-      </motion.div>
+    <div className="min-h-screen bg-[#080C10] text-white">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block">
+        <Sidebar />
+      </div>
 
-      {/* Particle field */}
-      <ParticleField />
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="relative z-10 w-[240px]">
+            <Sidebar />
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
-      <div className="relative z-10">
-        <Navbar />
-        <Hero />
-        <Diagnostic />
-        <AgentsOverview />
-        <SetupSteps />
-        <ScriptsSection />
-        <RoadmapSection />
-        <RecapSection />
-        <CTASection />
-        <Footer />
+      <div className="lg:ml-[240px]">
+        {/* Mobile Header */}
+        <div className="lg:hidden sticky top-0 z-40 bg-[#0A0E14]/95 backdrop-blur-xl border-b border-white/[0.06] px-4 h-14 flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="text-[#F0F4F8] hover:text-[#00D4FF] transition-colors cursor-pointer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <svg viewBox="0 0 36 48" fill="none" className="h-6 w-auto">
+              <rect x="0" y="28" width="7" height="16" rx="2" fill="#00D4FF" />
+              <rect x="11" y="18" width="7" height="26" rx="2" fill="#00D4FF" />
+              <rect x="22" y="8" width="7" height="36" rx="2" fill="#00D4FF" />
+            </svg>
+            <span className="text-sm font-semibold text-[#F0F4F8]">HERMÈS</span>
+          </div>
+          <div className="w-5" />
+        </div>
+
+        {/* Content */}
+        <main className="p-4 sm:p-6 lg:p-8 max-w-[1200px]">
+          {renderView()}
+        </main>
       </div>
     </div>
   );

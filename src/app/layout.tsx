@@ -14,15 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "3 agents HERMÈS — 35 RDVs, acquisition LinkedIn 100% automatisée | A.R.C Système",
+  title: "HERMÈS — Dashboard d'acquisition LinkedIn automatisée",
   description:
-    "Sans assistant. Sans SDR. Sans passer vos journées en DM. Ce guide vous montre exactement comment paramétrer les 3 agents HERMÈS qui gèrent votre acquisition LinkedIn de bout en bout, 24h/7j.",
-  keywords: ["HERMÈS", "LinkedIn", "acquisition", "agents IA", "automatisation", "prospection", "A.R.C Système"],
-  authors: [{ name: "A.R.C Système" }],
-  openGraph: {
-    title: "3 agents HERMÈS — 35 RDVs, acquisition LinkedIn 100% automatisée",
-    description: "Le système à 3 agents IA qui gère votre acquisition LinkedIn de bout en bout, 24h/7j.",
-    type: "website",
+    "Gérez vos 3 agents IA (Contenu, Qualification, Prospection) pour automatiser 100% de votre acquisition LinkedIn.",
+  icons: {
+    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
 };
 
