@@ -17,6 +17,7 @@ import {
   FastForward,
   ChevronRight,
   Circle,
+  Sparkles,
 } from "lucide-react";
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bg: string }> = {
@@ -34,7 +35,7 @@ const activityTypeColors: Record<ActivityLog["type"], string> = {
 };
 
 export default function DashboardView() {
-  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow } = useAppStore();
+  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow, generatedPosts, generatedMessages, executingAgent } = useAppStore();
 
   const newLeads = leads.filter((l) => l.statut === "new").length;
   const contactedLeads = leads.filter((l) => l.statut === "contacted").length;
@@ -269,6 +270,42 @@ export default function DashboardView() {
           </div>
         </div>
       </div>
+
+      {/* Latest AI Output */}
+      {(generatedPosts.length > 0 || generatedMessages.length > 0) && (
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#00D4FF]" />
+              <h3 className="text-sm font-semibold text-[#F0F4F8]">Dernières sorties IA</h3>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {generatedPosts.slice(0, 1).map((post) => (
+              <div key={post.id} className="bg-[#080C10] rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="w-3.5 h-3.5 text-[#00D4FF]" />
+                  <span className="text-[11px] font-medium text-[#00D4FF]">Post LinkedIn</span>
+                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                    post.model === "simulation" ? "text-[#F4A100] bg-[#F4A100]/10" : "text-[#00C48C] bg-[#00C48C]/10"
+                  }`}>{post.model === "simulation" ? "SIM" : "IA"}</span>
+                </div>
+                <p className="text-[12px] text-[#F0F4F8] line-clamp-3 leading-relaxed">{post.text}</p>
+              </div>
+            ))}
+            {generatedMessages.slice(0, 2).map((msg) => (
+              <div key={msg.id} className="bg-[#080C10] rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare className="w-3.5 h-3.5 text-[#00C48C]" />
+                  <span className="text-[11px] font-medium text-[#00C48C]">DM → {msg.leadName}</span>
+                  <span className="text-[9px] font-medium text-[#7B8A9A]">{msg.leadEntreprise}</span>
+                </div>
+                <p className="text-[12px] text-[#F0F4F8] line-clamp-2 leading-relaxed">{msg.content}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Live Activity Feed */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">

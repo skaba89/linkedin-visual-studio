@@ -73,3 +73,44 @@ Stage Summary:
 - Backend API routes for chat completion and key validation
 - Client-side AI helper for agent integration
 - Backward compatible with localStorage migration
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Connect agents to real LLM for actual AI-generated content
+
+Work Log:
+- Created `/src/lib/agent-runner.ts` — Real agent execution service
+  - `runContenuAgent()` → Generates real LinkedIn posts via LLM with 10 rotating topics
+  - `runQualificationAgent()` → Scores leads with real LLM ICP scoring + heuristic fallback
+  - `runProspectionAgent()` → Generates personalized DMs via LLM for qualified leads
+  - Graceful fallback: simulation mode when no API key is configured
+- Added new state to Zustand store:
+  - `generatedPosts: GeneratedPost[]` — AI-generated LinkedIn posts
+  - `generatedMessages: GeneratedMessage[]` — AI-generated DM messages
+  - `executingAgent: string | null` — Currently executing agent ID
+  - `addGeneratedPost()`, `addGeneratedMessage()`, `addGeneratedMessages()`, `setExecutingAgent()`
+- Rewrote `/src/hooks/useAgentSimulation.ts` — Async agent execution
+  - Each simulation cycle now calls the real agent-runner
+  - Agents make actual LLM calls when API key is configured
+  - Falls back to simulation data when no key is set
+  - Prevents overlapping executions with `executingRef`
+- Completely redesigned `/src/components/app/AgentDetailView.tsx`:
+  - New "Sorties IA" tab showing real AI-generated content
+  - Contenu agent: shows generated posts with copy button, model badge (IA vs SIM)
+  - Qualification agent: shows recently qualified leads with ICP scores
+  - Prospection agent: shows personalized DMs with lead info
+  - Real-time execution status with loader animation
+  - "Générer un post" / "Qualifier des leads" / "Générer des DM" buttons
+- Updated DashboardView with "Dernières sorties IA" section:
+  - Shows latest generated post and DMs on the dashboard
+  - Model badges indicating whether content is from IA or simulation
+- Build successful, all routes compiled
+
+Stage Summary:
+- Agents now produce real AI content when API key is configured
+- Without API key: agents run in simulation mode with pre-written content
+- 3 agent-specific execution flows: Contenu (posts), Qualification (leads + scoring), Prospection (DMs)
+- New "Sorties IA" tab in each agent detail view
+- Dashboard shows latest AI output in real-time
+- Full async execution with loading states and error handling

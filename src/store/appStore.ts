@@ -86,6 +86,26 @@ export interface LinkedInPost {
   visibility: string;
 }
 
+export interface GeneratedPost {
+  id: string;
+  text: string;
+  topic: string;
+  createdAt: string;
+  model: string;
+  agentRun: number;
+}
+
+export interface GeneratedMessage {
+  id: string;
+  leadId: string;
+  leadName: string;
+  leadEntreprise: string;
+  content: string;
+  timing: string;
+  createdAt: string;
+  model: string;
+}
+
 export interface ActivityLog {
   id: string;
   timestamp: string; // ISO string
@@ -152,6 +172,15 @@ interface AppState {
   updateLinkedInConfig: (updates: Partial<AppState["linkedInConfig"]>) => void;
   linkedInPosts: LinkedInPost[];
   addLinkedInPost: (post: LinkedInPost) => void;
+
+  // AI-generated content
+  generatedPosts: GeneratedPost[];
+  addGeneratedPost: (post: GeneratedPost) => void;
+  generatedMessages: GeneratedMessage[];
+  addGeneratedMessage: (msg: GeneratedMessage) => void;
+  addGeneratedMessages: (msgs: GeneratedMessage[]) => void;
+  executingAgent: string | null;
+  setExecutingAgent: (agentId: string | null) => void;
 }
 
 const defaultSkillContenu = `---
@@ -533,6 +562,24 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           linkedInPosts: [post, ...state.linkedInPosts],
         })),
+
+      // AI-generated content
+      generatedPosts: [],
+      addGeneratedPost: (post) =>
+        set((state) => ({
+          generatedPosts: [post, ...state.generatedPosts],
+        })),
+      generatedMessages: [],
+      addGeneratedMessage: (msg) =>
+        set((state) => ({
+          generatedMessages: [msg, ...state.generatedMessages],
+        })),
+      addGeneratedMessages: (msgs) =>
+        set((state) => ({
+          generatedMessages: [...msgs, ...state.generatedMessages],
+        })),
+      executingAgent: null,
+      setExecutingAgent: (agentId) => set({ executingAgent: agentId }),
 
       runAgentNow: (agentId) => {
         const state = get();
