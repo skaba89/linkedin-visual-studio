@@ -645,11 +645,23 @@ export default function SettingsView() {
               value={linkedInConfig.clientId}
               onChange={(e) => updateLinkedInConfig({ clientId: e.target.value })}
               placeholder="78abcdefghijk..."
-              className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
+              className={`w-full bg-[#18212F] border rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none ${
+                linkedInConfig.clientId && /^([^\s@]+@[^\s@]+\.[^\s@]+)$/.test(linkedInConfig.clientId)
+                  ? "border-[#E5263A]/40 focus:border-[#E5263A]/60"
+                  : "border-white/[0.06] focus:border-[#0A66C2]/30"
+              }`}
             />
-            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
-              Obtenu depuis le LinkedIn Developer Portal → My Apps → Auth
-            </p>
+            {linkedInConfig.clientId && /^([^\s@]+@[^\s@]+\.[^\s@]+)$/.test(linkedInConfig.clientId) && (
+              <p className="text-[11px] text-[#E5263A] mt-1 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Ce n'est pas un Client ID valide — une adresse email a \u00e9t\u00e9 entr\u00e9e. Le Client ID est un identifiant alphanum\u00e9rique.
+              </p>
+            )}
+            {!linkedInConfig.clientId && (
+              <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
+                Obtenu depuis le LinkedIn Developer Portal \u2192 My Apps \u2192 Auth
+              </p>
+            )}
           </div>
           <div>
             <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Client Secret</label>

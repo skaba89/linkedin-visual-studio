@@ -137,6 +137,18 @@ function ConnexionTab() {
       return;
     }
 
+    // Validate that Client ID is not an email address
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailPattern.test(linkedInConfig.clientId)) {
+      setError("Le Client ID LinkedIn n'est pas une adresse email. C'est un identifiant alphanumérique (ex: 78abcdefghijk) obtenu depuis le LinkedIn Developer Portal → My Apps → Auth.");
+      return;
+    }
+
+    if (linkedInConfig.clientId.length < 3) {
+      setError("Le Client ID LinkedIn semble trop court. Vérifiez la valeur copiée depuis le LinkedIn Developer Portal.");
+      return;
+    }
+
     setLoading(true);
     try {
       const origin = window.location.origin;
@@ -147,6 +159,16 @@ function ConnexionTab() {
       if (linkedInConfig.clientSecret) {
         params.set("client_secret", linkedInConfig.clientSecret);
       }
+
+      // First validate the client ID server-side before redirecting
+      const checkRes = await fetch(`/api/linkedin/auth?${params.toString()}`, { method: "HEAD" });
+      if (!checkRes.ok) {
+        const data = await checkRes.json().catch(() => ({ error: "Erreur de validation" }));
+        setError(data.error || "Client ID invalide. Vérifiez votre configuration LinkedIn.");
+        setLoading(false);
+        return;
+      }
+
       window.location.href = `/api/linkedin/auth?${params.toString()}`;
     } catch {
       setError("Erreur lors de la redirection vers LinkedIn.");
@@ -198,8 +220,23 @@ function ConnexionTab() {
                   value={linkedInConfig.clientId}
                   onChange={(e) => updateLinkedInConfig({ clientId: e.target.value })}
                   placeholder="78abcdefghijk..."
-                  className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
+                  className={`w-full bg-[#18212F] border rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none ${
+                    linkedInConfig.clientId && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(linkedInConfig.clientId)
+                      ? "border-[#E5263A]/40 focus:border-[#E5263A]/60"
+                      : "border-white/[0.06] focus:border-[#0A66C2]/30"
+                  }`}
                 />
+                {linkedInConfig.clientId && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(linkedInConfig.clientId) && (
+                  <p className="text-[11px] text-[#E5263A] mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Ce champ attend un Client ID (alphanum\u00e9rique), pas une adresse email. Obtenez-le sur LinkedIn Developer Portal.
+                  </p>
+                )}
+                {!linkedInConfig.clientId && (
+                  <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
+                    Identifiant alphanum\u00e9rique obtenu depuis LinkedIn Developer Portal \u2192 My Apps \u2192 Auth
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Client Secret LinkedIn</label>
