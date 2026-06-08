@@ -30,8 +30,8 @@ const steps = [
     title: "Configurer les clés API et le fichier de config",
     description:
       "Éditez le fichier de configuration principal ~/.hermes/hermes.json pour renseigner vos clés API, définir les modèles IA à utiliser et autoriser les canaux.",
-    tip: "Utilisez toujours des variables d'environnement ($ANTHROPIC_API_KEY) plutôt que des clés en dur.",
-    code: `// ~/.hermes/hermes.json\n{\n  "model": "claude-sonnet-4-6",\n  "api_keys": {\n    "anthropic": "$ANTHROPIC_API_KEY",\n    "openai":    "$OPENAI_API_KEY"\n  },\n  "channels": ["slack", "discord", "telegram"],\n  "security": {\n    "allow_shell": true,\n    "allow_browser": true,\n    "forbidden_commands": ["rm -rf", "drop table"]\n  }\n}`,
+    tip: "Utilisez toujours des variables d'environnement plutôt que des clés en dur. Les providers gratuits (Groq, Gemini, Cerebras, SambaNova) sont recommandés pour démarrer sans frais.",
+    code: `// ~/.hermes/hermes.json\n{\n  "provider": "groq",\n  "model": "llama-3.3-70b-versatile",\n  "provider_api_keys": {\n    "groq":       "$GROQ_API_KEY",\n    "google":     "$GOOGLE_API_KEY",\n    "openrouter": "$OPENROUTER_API_KEY",\n    "cerebras":   "$CEREBRAS_API_KEY",\n    "deepseek":   "$DEEPSEEK_API_KEY",\n    "anthropic":  "$ANTHROPIC_API_KEY",\n    "openai":     "$OPENAI_API_KEY"\n  },\n  "channels": ["slack", "discord", "telegram"],\n  "security": {\n    "allow_shell": true,\n    "allow_browser": true,\n    "forbidden_commands": ["rm -rf", "drop table"]\n  }\n}`,
     done: false,
   },
   {

@@ -50,11 +50,9 @@ export interface ICPConfig {
 }
 
 export interface HermesConfig {
-  model: string;
-  apiKeys: {
-    anthropic: string;
-    openai: string;
-  };
+  provider: string;       // e.g. "groq", "openrouter", "anthropic"
+  model: string;         // e.g. "llama-3.3-70b-versatile"
+  providerApiKeys: Record<string, string>;  // { groq: "gsk_...", openrouter: "sk-or-...", ... }
   channels: string[];
   security: {
     allowShell: boolean;
@@ -447,8 +445,17 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ icpConfig: { ...state.icpConfig, ...updates } })),
 
       hermesConfig: {
-        model: "claude-sonnet-4-6",
-        apiKeys: {
+        provider: "groq",
+        model: "llama-3.3-70b-versatile",
+        providerApiKeys: {
+          groq: "",
+          google: "",
+          cerebras: "",
+          sambanova: "",
+          openrouter: "",
+          together: "",
+          deepseek: "",
+          mistral: "",
           anthropic: "",
           openai: "",
         },
@@ -682,6 +689,53 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "hermes-app-store",
+      version: 2,
+      migrate: (persistedState: Record<string, unknown>, version: number) => {
+        // Migrate v1 → v2: apiKeys → providerApiKeys
+        if (version < 2) {
+          const old = persistedState as Record<string, unknown>;
+          const oldHermes = old.hermesConfig as Record<string, unknown> | undefined;
+          const oldApiKeys = oldHermes?.apiKeys as Record<string, string> | undefined;
+
+          const newApiKeys: Record<string, string> = {
+            groq: "",
+            google: "",
+            cerebras: "",
+            sambanova: "",
+            openrouter: "",
+            together: "",
+            deepseek: "",
+            mistral: "",
+            anthropic: oldApiKeys?.anthropic || "",
+            openai: oldApiKeys?.openai || "",
+          };
+
+          // Determine provider and model from old config
+          let provider = "groq";
+          let model = "llama-3.3-70b-versatile";
+          const oldModel = oldHermes?.model as string | undefined;
+          if (oldModel) {
+            if (oldModel.startsWith("claude")) {
+              provider = "anthropic";
+              model = oldModel;
+            } else if (oldModel.startsWith("gpt")) {
+              provider = "openai";
+              model = oldModel;
+            }
+          }
+
+          return {
+            ...persistedState,
+            hermesConfig: {
+              ...(oldHermes || {}),
+              provider,
+              model,
+              providerApiKeys: newApiKeys,
+            },
+          };
+        }
+        return persistedState;
+      },
     }
   )
 );
