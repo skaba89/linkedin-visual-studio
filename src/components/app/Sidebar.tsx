@@ -12,6 +12,7 @@ import {
   Settings,
   ChevronRight,
   Zap,
+  Linkedin,
 } from "lucide-react";
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType; section?: string }[] = [
@@ -23,12 +24,13 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "icp", label: "ICP & Scoring", icon: Target, section: "DATA" },
   { id: "leads", label: "Leads qualifiés", icon: Users },
   { id: "templates", label: "Templates messages", icon: MessageSquare },
+  { id: "linkedin", label: "LinkedIn", icon: Linkedin, section: "CANAUX" },
   { id: "monitoring", label: "Monitoring", icon: BarChart3, section: "SYSTÈME" },
   { id: "settings", label: "Paramètres", icon: Settings },
 ];
 
 export default function Sidebar() {
-  const { currentView, setCurrentView, agents } = useAppStore();
+  const { currentView, setCurrentView, agents, linkedInConnected } = useAppStore();
 
   const getStatusColor = (agentId: string) => {
     const agent = agents.find((a) => a.id === agentId);
@@ -91,6 +93,9 @@ export default function Sidebar() {
               <span className="truncate flex-1 text-left">{item.label}</span>
               {getAgentId(item.id) && (
                 <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(getAgentId(item.id)!)}`} />
+              )}
+              {item.id === "linkedin" && (
+                <div className={`w-1.5 h-1.5 rounded-full ${linkedInConnected ? "bg-[#00C48C]" : "bg-[#6B7280]"}`} />
               )}
               {currentView === item.id && (
                 <ChevronRight className="w-3.5 h-3.5 opacity-50" />

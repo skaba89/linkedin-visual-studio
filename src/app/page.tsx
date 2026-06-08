@@ -10,16 +10,34 @@ import LeadsView from "@/components/app/LeadsView";
 import TemplatesView from "@/components/app/TemplatesView";
 import MonitoringView from "@/components/app/MonitoringView";
 import SettingsView from "@/components/app/SettingsView";
+import LinkedInView from "@/components/app/LinkedInView";
 import { Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
 
 export default function Home() {
-  const { currentView } = useAppStore();
+  const { currentView, setCurrentView, setLinkedInConnected } = useAppStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Run agent simulation in the background
   useAgentSimulation();
+
+  // Handle LinkedIn OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkedInStatus = params.get("linkedin");
+
+    if (linkedInStatus === "connected") {
+      setLinkedInConnected(true);
+      setCurrentView("linkedin");
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (linkedInStatus === "error") {
+      setCurrentView("linkedin");
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [setLinkedInConnected, setCurrentView]);
 
   const renderView = () => {
     switch (currentView) {
@@ -43,6 +61,8 @@ export default function Home() {
         return <MonitoringView />;
       case "settings":
         return <SettingsView />;
+      case "linkedin":
+        return <LinkedInView />;
       default:
         return <DashboardView />;
     }

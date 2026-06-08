@@ -13,16 +13,21 @@ import {
   EyeOff,
   Plus,
   X,
+  Linkedin,
+  Loader2,
 } from "lucide-react";
 
 export default function SettingsView() {
-  const { hermesConfig, updateHermesConfig } = useAppStore();
+  const { hermesConfig, updateHermesConfig, linkedInConfig, updateLinkedInConfig } = useAppStore();
   const [config, setConfig] = useState(hermesConfig);
   const [saved, setSaved] = useState(false);
   const [showAnthropic, setShowAnthropic] = useState(false);
   const [showOpenai, setShowOpenai] = useState(false);
+  const [showLiSecret, setShowLiSecret] = useState(false);
   const [newChannel, setNewChannel] = useState("");
   const [newForbidden, setNewForbidden] = useState("");
+  const [testingLinkedIn, setTestingLinkedIn] = useState(false);
+  const [linkedInTestResult, setLinkedInTestResult] = useState<"success" | "error" | null>(null);
 
   const handleSave = () => {
     updateHermesConfig(config);
@@ -62,6 +67,24 @@ export default function SettingsView() {
         forbiddenCommands: config.security.forbiddenCommands.filter((c) => c !== cmd),
       },
     });
+  };
+
+  const handleTestLinkedIn = async () => {
+    setTestingLinkedIn(true);
+    setLinkedInTestResult(null);
+    try {
+      const res = await fetch("/api/linkedin/me");
+      if (res.ok) {
+        setLinkedInTestResult("success");
+      } else {
+        setLinkedInTestResult("error");
+      }
+    } catch {
+      setLinkedInTestResult("error");
+    } finally {
+      setTestingLinkedIn(false);
+      setTimeout(() => setLinkedInTestResult(null), 3000);
+    }
   };
 
   return (
@@ -285,6 +308,86 @@ export default function SettingsView() {
                 <Plus className="w-3.5 h-3.5" /> Ajouter
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* LinkedIn Configuration */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Linkedin className="w-4 h-4 text-[#0A66C2]" />
+          <h3 className="text-sm font-semibold text-[#F0F4F8]">LinkedIn OAuth 2.0</h3>
+        </div>
+        <div className="space-y-4">
+          {/* Client ID */}
+          <div>
+            <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Client ID</label>
+            <input
+              type="text"
+              value={linkedInConfig.clientId}
+              onChange={(e) => updateLinkedInConfig({ clientId: e.target.value })}
+              placeholder="78abcdefghijk..."
+              className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
+            />
+            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
+              Obtenu depuis le LinkedIn Developer Portal → My Apps → Auth
+            </p>
+          </div>
+          {/* Client Secret */}
+          <div>
+            <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Client Secret</label>
+            <div className="relative">
+              <input
+                type={showLiSecret ? "text" : "password"}
+                value={linkedInConfig.clientSecret}
+                onChange={(e) => updateLinkedInConfig({ clientSecret: e.target.value })}
+                placeholder="WPLxxxxxxxxxx"
+                className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg pr-10 pl-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
+              />
+              <button
+                onClick={() => setShowLiSecret(!showLiSecret)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"
+              >
+                {showLiSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
+              Stocké localement uniquement. Jamais envoyé à nos serveurs.
+            </p>
+          </div>
+          {/* Redirect URI */}
+          <div>
+            <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Redirect URI</label>
+            <input
+              type="text"
+              value={linkedInConfig.redirectUri || `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/linkedin/callback`}
+              onChange={(e) => updateLinkedInConfig({ redirectUri: e.target.value })}
+              className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
+            />
+            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
+              URL de callback à configurer dans votre app LinkedIn Developer
+            </p>
+          </div>
+          {/* Test Connection */}
+          <div className="pt-3 border-t border-white/[0.06]">
+            <button
+              onClick={handleTestLinkedIn}
+              disabled={testingLinkedIn}
+              className={`flex items-center gap-1.5 text-[13px] font-medium px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                linkedInTestResult === "success"
+                  ? "text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20"
+                  : linkedInTestResult === "error"
+                  ? "text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20"
+                  : "text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 hover:bg-[#0A66C2]/15"
+              }`}
+            >
+              {testingLinkedIn ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : linkedInTestResult === "success" ? (
+                <CheckCircle2 className="w-4 h-4" />
+              ) : null}
+              {testingLinkedIn ? "Test en cours..." : linkedInTestResult === "success" ? "Connecté !" : linkedInTestResult === "error" ? "Échec" : "Tester la connexion"}
+            </button>
           </div>
         </div>
       </div>

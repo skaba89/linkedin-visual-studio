@@ -13,7 +13,8 @@ export type ViewType =
   | "leads"
   | "templates"
   | "monitoring"
-  | "settings";
+  | "settings"
+  | "linkedin";
 
 export interface Agent {
   id: string;
@@ -70,6 +71,23 @@ export interface MessageTemplate {
   notes: string[];
 }
 
+export interface LinkedInProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  profilePictureUrl: string | null;
+  headline: string | null;
+}
+
+export interface LinkedInPost {
+  id: string;
+  text: string;
+  createdAt: string;
+  likes: number;
+  comments: number;
+  visibility: string;
+}
+
 export interface ActivityLog {
   id: string;
   timestamp: string; // ISO string
@@ -122,6 +140,20 @@ interface AppState {
   setSimulationSpeed: (s: number) => void;
   updateMetrics: (updates: Partial<AppState["metrics"]>) => void;
   runAgentNow: (agentId: string) => void;
+
+  // LinkedIn integration
+  linkedInConnected: boolean;
+  setLinkedInConnected: (v: boolean) => void;
+  linkedInProfile: LinkedInProfile | null;
+  setLinkedInProfile: (p: LinkedInProfile | null) => void;
+  linkedInConfig: {
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+  };
+  updateLinkedInConfig: (updates: Partial<AppState["linkedInConfig"]>) => void;
+  linkedInPosts: LinkedInPost[];
+  addLinkedInPost: (post: LinkedInPost) => void;
 }
 
 const defaultSkillContenu = `---
@@ -473,6 +505,26 @@ export const useAppStore = create<AppState>()(
       updateMetrics: (updates) =>
         set((state) => ({
           metrics: { ...state.metrics, ...updates },
+        })),
+
+      // LinkedIn integration
+      linkedInConnected: false,
+      setLinkedInConnected: (v) => set({ linkedInConnected: v }),
+      linkedInProfile: null,
+      setLinkedInProfile: (p) => set({ linkedInProfile: p }),
+      linkedInConfig: {
+        clientId: "",
+        clientSecret: "",
+        redirectUri: "",
+      },
+      updateLinkedInConfig: (updates) =>
+        set((state) => ({
+          linkedInConfig: { ...state.linkedInConfig, ...updates },
+        })),
+      linkedInPosts: [],
+      addLinkedInPost: (post) =>
+        set((state) => ({
+          linkedInPosts: [post, ...state.linkedInPosts],
         })),
 
       runAgentNow: (agentId) => {
