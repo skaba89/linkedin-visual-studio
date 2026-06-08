@@ -51,6 +51,16 @@ export default function Home() {
         return <AgentDetailView agentId="qualif" />;
       case "agent-prospection":
         return <AgentDetailView agentId="prospection" />;
+      case "agent-engagement":
+        return <AgentDetailView agentId="engagement" />;
+      case "agent-veille":
+        return <AgentDetailView agentId="veille" />;
+      case "agent-nurturing":
+        return <AgentDetailView agentId="nurturing" />;
+      case "agent-analyse":
+        return <AgentDetailView agentId="analyse" />;
+      case "agent-reseau":
+        return <AgentDetailView agentId="reseau" />;
       case "icp":
         return <ICPView />;
       case "leads":

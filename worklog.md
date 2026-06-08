@@ -114,3 +114,31 @@ Stage Summary:
 - New "Sorties IA" tab in each agent detail view
 - Dashboard shows latest AI output in real-time
 - Full async execution with loading states and error handling
+
+---
+Task ID: 4
+Agent: main
+Task: Add 5 new agents to HERMÈS platform (Engagement, Veille, Nurturing, Analyse, Réseau)
+
+Work Log:
+- Added 5 new ViewTypes to appStore.ts (agent-engagement, agent-veille, agent-nurturing, agent-analyse, agent-reseau)
+- Created 5 new data interfaces: GeneratedComment, MarketBriefing, NurturingAction, PerformanceInsight, ConnectionRequest
+- Added 5 new SKILL.md and HEARTBEAT.md defaults for each new agent
+- Added 5 new Agent objects to the store with proper num/role/schedules
+- Added new store actions: addGeneratedComments, addMarketBriefing, addNurturingActions, addPerformanceInsights, addConnectionRequests
+- Updated persist version from 2 to 3 with migration for existing users
+- Implemented 5 new agent runner functions in agent-runner.ts with real LLM calls + simulation fallback
+- Updated useAgentSimulation.ts to handle all 8 agents in the cycle
+- Updated Sidebar.tsx with 5 new nav items and dynamic agent count
+- Updated page.tsx with 5 new routes
+- Updated AgentDetailView.tsx with unique output tab content for each agent (comments, briefings, nurturing actions, performance insights, connection requests)
+- Updated DashboardView.tsx to show all 8 agents in 4-column grid with per-agent metrics
+- Build passes successfully
+
+Stage Summary:
+- HERMÈS now has 8 AI agents covering the full B2B acquisition pipeline
+- Each agent has real LLM integration via the universal AI chat proxy
+- Each agent has simulation fallback when no API key is configured
+- All agents have unique UI in the output tab with copy-to-clipboard
+- Dashboard shows all 8 agents with dedicated metrics
+- Zustand persist v3 migration ensures smooth upgrade from v2

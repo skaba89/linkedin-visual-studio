@@ -21,6 +21,11 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "agent-contenu", label: "Agent Contenu", icon: Bot, section: "AGENTS" },
   { id: "agent-qualif", label: "Agent Qualification", icon: Bot },
   { id: "agent-prospection", label: "Agent Prospection", icon: Bot },
+  { id: "agent-engagement", label: "Agent Engagement", icon: Bot },
+  { id: "agent-veille", label: "Agent Veille", icon: Bot },
+  { id: "agent-nurturing", label: "Agent Nurturing", icon: Bot },
+  { id: "agent-analyse", label: "Agent Analyse", icon: Bot },
+  { id: "agent-reseau", label: "Agent Réseau", icon: Bot },
   { id: "icp", label: "ICP & Scoring", icon: Target, section: "DATA" },
   { id: "leads", label: "Leads qualifiés", icon: Users },
   { id: "templates", label: "Templates messages", icon: MessageSquare },
@@ -48,9 +53,9 @@ export default function Sidebar() {
   };
 
   const getAgentId = (viewId: ViewType): string | null => {
-    if (viewId === "agent-contenu") return "contenu";
-    if (viewId === "agent-qualif") return "qualif";
-    if (viewId === "agent-prospection") return "prospection";
+    if (viewId.startsWith("agent-")) {
+      return viewId.replace("agent-", "").replace("qualif", "qualif");
+    }
     return null;
   };
 
@@ -109,7 +114,7 @@ export default function Sidebar() {
       <div className="px-4 py-3 border-t border-white/[0.06]">
         <div className="flex items-center gap-2 text-[11px] text-[#7B8A9A]">
           <Zap className="w-3 h-3 text-[#00D4FF]" />
-          <span>3 agents configurés</span>
+          <span>{agents.length} agents configurés</span>
         </div>
       </div>
     </aside>

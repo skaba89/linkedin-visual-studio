@@ -6,6 +6,11 @@ import {
   runContenuAgent,
   runQualificationAgent,
   runProspectionAgent,
+  runEngagementAgent,
+  runVeilleAgent,
+  runNurturingAgent,
+  runAnalyseAgent,
+  runReseauAgent,
 } from "@/lib/agent-runner";
 
 /**
@@ -108,6 +113,38 @@ export function useAgentSimulation() {
           messagesEnvoyes: store.metrics.messagesEnvoyes + result.messages.length,
           tauxReponse: Math.max(5, Math.min(60, store.metrics.tauxReponse + (Math.random() * 2 - 0.5))),
         });
+      } else if (agent.id === "engagement") {
+        const result = await runEngagementAgent();
+        for (const log of result.logs) {
+          store.addActivityLog(log);
+        }
+        store.addGeneratedComments(result.comments);
+      } else if (agent.id === "veille") {
+        const result = await runVeilleAgent();
+        for (const log of result.logs) {
+          store.addActivityLog(log);
+        }
+        if (result.briefing) {
+          store.addMarketBriefing(result.briefing);
+        }
+      } else if (agent.id === "nurturing") {
+        const result = await runNurturingAgent();
+        for (const log of result.logs) {
+          store.addActivityLog(log);
+        }
+        store.addNurturingActions(result.actions);
+      } else if (agent.id === "analyse") {
+        const result = await runAnalyseAgent();
+        for (const log of result.logs) {
+          store.addActivityLog(log);
+        }
+        store.addPerformanceInsights(result.insights);
+      } else if (agent.id === "reseau") {
+        const result = await runReseauAgent();
+        for (const log of result.logs) {
+          store.addActivityLog(log);
+        }
+        store.addConnectionRequests(result.requests);
       }
     } catch (error) {
       store.addActivityLog({

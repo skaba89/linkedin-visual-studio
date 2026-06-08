@@ -9,6 +9,11 @@ export type ViewType =
   | "agent-contenu"
   | "agent-qualif"
   | "agent-prospection"
+  | "agent-engagement"
+  | "agent-veille"
+  | "agent-nurturing"
+  | "agent-analyse"
+  | "agent-reseau"
   | "icp"
   | "leads"
   | "templates"
@@ -106,6 +111,60 @@ export interface GeneratedMessage {
   model: string;
 }
 
+export interface GeneratedComment {
+  id: string;
+  authorName: string;
+  authorPoste: string;
+  postExcerpt: string;
+  comment: string;
+  createdAt: string;
+  model: string;
+}
+
+export interface MarketBriefing {
+  id: string;
+  title: string;
+  summary: string;
+  trends: string[];
+  opportunities: string[];
+  competitors: string[];
+  createdAt: string;
+  model: string;
+}
+
+export interface NurturingAction {
+  id: string;
+  leadId: string;
+  leadName: string;
+  leadEntreprise: string;
+  type: "article" | "insight" | "ressource" | "check-in";
+  content: string;
+  createdAt: string;
+  model: string;
+}
+
+export interface PerformanceInsight {
+  id: string;
+  category: "contenu" | "qualif" | "prospection" | "engagement" | "reseau";
+  metric: string;
+  value: string;
+  recommendation: string;
+  priority: "high" | "medium" | "low";
+  createdAt: string;
+  model: string;
+}
+
+export interface ConnectionRequest {
+  id: string;
+  prospectName: string;
+  prospectPoste: string;
+  prospectEntreprise: string;
+  note: string;
+  status: "pending" | "sent" | "accepted" | "ignored";
+  createdAt: string;
+  model: string;
+}
+
 export interface ActivityLog {
   id: string;
   timestamp: string; // ISO string
@@ -179,6 +238,20 @@ interface AppState {
   generatedMessages: GeneratedMessage[];
   addGeneratedMessage: (msg: GeneratedMessage) => void;
   addGeneratedMessages: (msgs: GeneratedMessage[]) => void;
+  generatedComments: GeneratedComment[];
+  addGeneratedComment: (c: GeneratedComment) => void;
+  addGeneratedComments: (cs: GeneratedComment[]) => void;
+  marketBriefings: MarketBriefing[];
+  addMarketBriefing: (b: MarketBriefing) => void;
+  nurturingActions: NurturingAction[];
+  addNurturingAction: (a: NurturingAction) => void;
+  addNurturingActions: (as: NurturingAction[]) => void;
+  performanceInsights: PerformanceInsight[];
+  addPerformanceInsight: (i: PerformanceInsight) => void;
+  addPerformanceInsights: (is: PerformanceInsight[]) => void;
+  connectionRequests: ConnectionRequest[];
+  addConnectionRequest: (r: ConnectionRequest) => void;
+  addConnectionRequests: (rs: ConnectionRequest[]) => void;
   executingAgent: string | null;
   setExecutingAgent: (agentId: string | null) => void;
 }
@@ -313,6 +386,220 @@ followup_j3:
 followup_j7:
   trigger:   "on_no_reply:7d"
   task:      send_followup_j7`;
+
+const defaultSkillEngagement = `---
+name: engage_with_icp
+description: Commente et like les posts des profils ICP pour créer de la visibilité.
+version: 1.0
+tools:
+  - browser
+  - shell
+---
+
+# Contexte
+Tu es un expert en engagement LinkedIn. Ton objectif est de créer des interactions
+authentiques avec les profils correspondant à l'ICP pour augmenter ta visibilité
+et générer des opportunités de conversation.
+
+# Instructions
+1. Utilise l'outil \`browser\` pour scanner le feed LinkedIn.
+2. Filtre les posts publiés par des profils correspondant à l'ICP :
+   - Titres : {{ICP titles}}
+   - Secteurs : {{ICP sectors}}
+3. Pour chaque post pertinent :
+   a. Like le post si le contenu est aligné avec ta thématique.
+   b. Rédige un commentaire de 2-3 phrases :
+      - Apporte un point de vue ou un complément d'info
+      - Pas de flagrance promo, reste authentique
+      - Termine par une question pour ouvrir la discussion
+4. Limite à 8-12 commentaires par jour pour rester naturel.
+5. Enregistre les interactions dans data/engagement_log.json`;
+
+const defaultHeartbeatEngagement = `engage_daily:
+  schedule:  "0 9,14 * * 1-5"   # lundi–vendredi à 9h et 14h
+  task:      engage_with_icp
+  notify:    true
+
+scan_morning_feed:
+  schedule:  "0 8 * * 1-5"
+  task:      scan_feed_and_identify_targets`;
+
+const defaultSkillVeille = `---
+name: market_intelligence
+description: Surveille le marché, la concurrence et les tendances pour alimentation stratégique.
+version: 1.0
+tools:
+  - browser
+  - shell
+---
+
+# Contexte
+Tu es un analyste stratégique spécialisé dans l'IA et l'acquisition B2B.
+Tu produis des briefings quotidiens pour orienter la stratégie de contenu
+et de prospection.
+
+# Instructions
+1. Utilise l'outil \`browser\` pour scraper :
+   - Les posts viraux LinkedIn dans la niche IA/B2B
+   - Les actualités de la concurrence (nouvelles features, levées de fonds)
+   - Les sujets tendance sur Product Hunt et Hacker News
+   - Les discussions pertinentes dans les groupes LinkedIn
+
+2. Analyse les données :
+   - Quels sujets génèrent le plus d'engagement ?
+   - Quels angles ne sont pas encore exploités ?
+   - Quelles opportunités de différenciation ?
+
+3. Produis un briefing structuré :
+   - 3 tendances clés du jour
+   - 2-3 opportunités de contenu à saisir
+   - Mouvements concurrentiels à surveiller
+
+4. Sauvegarde dans data/briefing_YYYY-MM-DD.json`;
+
+const defaultHeartbeatVeille = `daily_briefing:
+  schedule:  "0 7 * * 1-5"   # lundi–vendredi à 7h00
+  task:      market_intelligence
+  notify:    true
+
+weekly_deep_dive:
+  schedule:  "0 9 * * 1"     # lundi à 9h00
+  task:      weekly_competitive_analysis`;
+
+const defaultSkillNurturing = `---
+name: lead_nurturing
+description: Maintient le contact avec les leads pas encore prêts via du contenu valeur.
+version: 1.0
+tools:
+  - browser
+  - shell
+---
+
+# Contexte
+Tu es un expert en nurturing B2B. 80% des leads qualifiés ne sont pas prêts
+à acheter immédiatement. Ton rôle est de maintenir la relation jusqu'à ce
+qu'ils le soient.
+
+# Instructions
+1. Charge data/qualified.json et filtre les leads avec statut "contacted"
+   mais sans réponse positive depuis 7+ jours.
+
+2. Pour chaque lead en nurturing :
+   a. Analyse son secteur, poste et interactions passées
+   b. Sélectionne le type de contenu le plus adapté :
+      - article : partage d'un article pertinent pour son secteur
+      - insight : observation ou data point lié à son métier
+      - ressource : guide, template ou outil gratuit
+      - check-in : message court de relance informelle
+   c. Rédige un message personnalisé (max 100 mots)
+   d. N'inclue jamais de lien Calendly ou proposition commerciale
+
+3. Planning de nurturing :
+   - J+7 après dernier contact : insight personnalisé
+   - J+14 : partage d'article avec commentaire
+   - J+21 : ressource gratuite
+   - J+30 : check-in informel
+   - J+60 : dernière tentative, puis archivage
+
+4. Écris les actions dans data/nurturing_log.json`;
+
+const defaultHeartbeatNurturing = `nurture_leads:
+  schedule:  "0 10 * * 1-5"   # lundi–vendredi à 10h00
+  task:      lead_nurturing
+  notify:    true
+
+review_nurturing_pipeline:
+  schedule:  "0 16 * * 5"     # vendredi à 16h00
+  task:      archive_cold_leads`;
+
+const defaultSkillAnalyse = `---
+name: performance_optimizer
+description: Analyse les métriques et propose des optimisations pour chaque agent.
+version: 1.0
+tools:
+  - browser
+  - shell
+---
+
+# Contexte
+Tu es un analyste de performance IA. Tu analyses les résultats de chaque
+agent HERMÈS et proposes des améliorations concrètes basées sur les données.
+
+# Instructions
+1. Collecte les métriques de la semaine :
+   - Posts publiés, impressions, taux d'engagement (Agent Contenu)
+   - Profils collectés, leads qualifiés, taux de qualification (Agent Qualification)
+   - Messages envoyés, taux de réponse, RDV générés (Agent Prospection)
+   - Commentaires postés, réponses reçues (Agent Engagement)
+   - Invitations envoyées, taux d'acceptation (Agent Réseau)
+
+2. Compare avec les benchmarks de la semaine précédente.
+
+3. Pour chaque agent, identifie :
+   - Le point fort à capitaliser
+   - Le point faible à améliorer
+   - Une recommandation prioritaire (max 1 par agent)
+
+4. Priorise les recommandations :
+   - HIGH : impact direct sur les RDV
+   - MEDIUM : amélioration progressive
+   - LOW : optimisation secondaire
+
+5. Produis un rapport dans data/performance_report.json`;
+
+const defaultHeartbeatAnalyse = `weekly_analysis:
+  schedule:  "0 17 * * 5"     # vendredi à 17h00
+  task:      performance_optimizer
+  notify:    true
+
+mid_week_check:
+  schedule:  "0 12 * * 3"     # mercredi à midi
+  task:      quick_performance_check`;
+
+const defaultSkillReseau = `---
+name: network_growth
+description: Envoie des invitations stratégiques pour développer le réseau ICP.
+version: 1.0
+tools:
+  - browser
+  - shell
+---
+
+# Contexte
+Tu es un expert en croissance de réseau LinkedIn. Ton objectif est d'augmenter
+stratégiquement le nombre de connexions de 1er degré avec des profils ICP.
+
+# Instructions
+1. Charge la liste des profils ICP depuis data/network.json
+   et data/qualified.json.
+
+2. Filtre les profils qui ne sont PAS encore connexions de 1er degré.
+
+3. Pour chaque candidat (max 15/jour) :
+   a. Vérifie le profil : photo, headline, activité récente
+   b. Rédige une note de connexion personnalisée (max 300 caractères) :
+      - Référence à un point commun (groupe, événement, contact)
+      - Ou référence à un de ses posts/commentaires
+      - Jamais de proposition commerciale dans la note
+   c. Envoie l'invitation
+
+4. Surveille les acceptations :
+   - Accepté → ajout au fichier qualified.json (connexion 1er degré)
+   - Ignoré après 30 jours → retirer de la liste d'attente
+
+5. Limite : 15 invitations/jour, 50/semaine pour rester naturel.
+
+6. Écris dans data/invitations_log.json`;
+
+const defaultHeartbeatReseau = `send_invitations:
+  schedule:  "0 9 * * 1-5"   # lundi–vendredi à 9h00
+  task:      network_growth
+  notify:    true
+
+check_acceptances:
+  schedule:  "0 11 * * 1-5"  # lundi–vendredi à 11h00
+  task:      check_invitation_status
+  notify:    true`;
 
 const defaultTemplates: MessageTemplate[] = [
   {
@@ -449,6 +736,66 @@ export const useAppStore = create<AppState>()(
           runsToday: 0,
           nextRun: "14:00",
         },
+        {
+          id: "engagement",
+          name: "Engagement",
+          num: "AGENT 04",
+          status: "setup",
+          role: "Commentaires & visibilité sur les posts ICP",
+          skillMd: defaultSkillEngagement,
+          heartbeatMd: defaultHeartbeatEngagement,
+          lastRun: null,
+          runsToday: 0,
+          nextRun: "09:00",
+        },
+        {
+          id: "veille",
+          name: "Veille",
+          num: "AGENT 05",
+          status: "setup",
+          role: "Intelligence marché & surveillance concurrentielle",
+          skillMd: defaultSkillVeille,
+          heartbeatMd: defaultHeartbeatVeille,
+          lastRun: null,
+          runsToday: 0,
+          nextRun: "07:00",
+        },
+        {
+          id: "nurturing",
+          name: "Nurturing",
+          num: "AGENT 06",
+          status: "setup",
+          role: "Suivi long terme des leads pas encore prêts",
+          skillMd: defaultSkillNurturing,
+          heartbeatMd: defaultHeartbeatNurturing,
+          lastRun: null,
+          runsToday: 0,
+          nextRun: "10:00",
+        },
+        {
+          id: "analyse",
+          name: "Analyse",
+          num: "AGENT 07",
+          status: "setup",
+          role: "Optimisation des performances & A/B testing",
+          skillMd: defaultSkillAnalyse,
+          heartbeatMd: defaultHeartbeatAnalyse,
+          lastRun: null,
+          runsToday: 0,
+          nextRun: "Ven 17:00",
+        },
+        {
+          id: "reseau",
+          name: "Réseau",
+          num: "AGENT 08",
+          status: "setup",
+          role: "Croissance stratégique du réseau LinkedIn",
+          skillMd: defaultSkillReseau,
+          heartbeatMd: defaultHeartbeatReseau,
+          lastRun: null,
+          runsToday: 0,
+          nextRun: "09:00",
+        },
       ],
       updateAgent: (id, updates) =>
         set((state) => ({
@@ -577,6 +924,47 @@ export const useAppStore = create<AppState>()(
       addGeneratedMessages: (msgs) =>
         set((state) => ({
           generatedMessages: [...msgs, ...state.generatedMessages],
+        })),
+      generatedComments: [],
+      addGeneratedComment: (c) =>
+        set((state) => ({
+          generatedComments: [c, ...state.generatedComments],
+        })),
+      addGeneratedComments: (cs) =>
+        set((state) => ({
+          generatedComments: [...cs, ...state.generatedComments],
+        })),
+      marketBriefings: [],
+      addMarketBriefing: (b) =>
+        set((state) => ({
+          marketBriefings: [b, ...state.marketBriefings],
+        })),
+      nurturingActions: [],
+      addNurturingAction: (a) =>
+        set((state) => ({
+          nurturingActions: [a, ...state.nurturingActions],
+        })),
+      addNurturingActions: (as) =>
+        set((state) => ({
+          nurturingActions: [...as, ...state.nurturingActions],
+        })),
+      performanceInsights: [],
+      addPerformanceInsight: (i) =>
+        set((state) => ({
+          performanceInsights: [i, ...state.performanceInsights],
+        })),
+      addPerformanceInsights: (is) =>
+        set((state) => ({
+          performanceInsights: [...is, ...state.performanceInsights],
+        })),
+      connectionRequests: [],
+      addConnectionRequest: (r) =>
+        set((state) => ({
+          connectionRequests: [r, ...state.connectionRequests],
+        })),
+      addConnectionRequests: (rs) =>
+        set((state) => ({
+          connectionRequests: [...rs, ...state.connectionRequests],
         })),
       executingAgent: null,
       setExecutingAgent: (agentId) => set({ executingAgent: agentId }),
@@ -736,7 +1124,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "hermes-app-store",
-      version: 2,
+      version: 3,
       migrate: (persistedState: Record<string, unknown>, version: number) => {
         // Migrate v1 → v2: apiKeys → providerApiKeys
         if (version < 2) {
@@ -757,7 +1145,6 @@ export const useAppStore = create<AppState>()(
             openai: oldApiKeys?.openai || "",
           };
 
-          // Determine provider and model from old config
           let provider = "groq";
           let model = "llama-3.3-70b-versatile";
           const oldModel = oldHermes?.model as string | undefined;
@@ -779,6 +1166,38 @@ export const useAppStore = create<AppState>()(
               model,
               providerApiKeys: newApiKeys,
             },
+          };
+        }
+        // Migrate v2 → v3: add 5 new agents + new data arrays
+        if (version < 3) {
+          const old = persistedState as Record<string, unknown>;
+          const oldAgents = (old.agents as Array<Record<string, unknown>>) || [];
+          // Only add new agents if they don't already exist
+          const existingIds = new Set(oldAgents.map((a) => a.id as string));
+          const newAgents = [...oldAgents];
+          if (!existingIds.has("engagement")) {
+            newAgents.push({ id: "engagement", name: "Engagement", num: "AGENT 04", status: "setup", role: "Commentaires & visibilité sur les posts ICP", lastRun: null, runsToday: 0, nextRun: "09:00" });
+          }
+          if (!existingIds.has("veille")) {
+            newAgents.push({ id: "veille", name: "Veille", num: "AGENT 05", status: "setup", role: "Intelligence marché & surveillance concurrentielle", lastRun: null, runsToday: 0, nextRun: "07:00" });
+          }
+          if (!existingIds.has("nurturing")) {
+            newAgents.push({ id: "nurturing", name: "Nurturing", num: "AGENT 06", status: "setup", role: "Suivi long terme des leads pas encore prêts", lastRun: null, runsToday: 0, nextRun: "10:00" });
+          }
+          if (!existingIds.has("analyse")) {
+            newAgents.push({ id: "analyse", name: "Analyse", num: "AGENT 07", status: "setup", role: "Optimisation des performances & A/B testing", lastRun: null, runsToday: 0, nextRun: "Ven 17:00" });
+          }
+          if (!existingIds.has("reseau")) {
+            newAgents.push({ id: "reseau", name: "Réseau", num: "AGENT 08", status: "setup", role: "Croissance stratégique du réseau LinkedIn", lastRun: null, runsToday: 0, nextRun: "09:00" });
+          }
+          return {
+            ...persistedState,
+            agents: newAgents,
+            generatedComments: [],
+            marketBriefings: [],
+            nurturingActions: [],
+            performanceInsights: [],
+            connectionRequests: [],
           };
         }
         return persistedState;

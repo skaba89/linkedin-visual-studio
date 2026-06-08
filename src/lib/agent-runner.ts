@@ -6,7 +6,7 @@
  * Falls back gracefully when no API key is configured.
  */
 
-import { useAppStore, type Lead, type ActivityLog } from "@/store/appStore";
+import { useAppStore, type Lead, type ActivityLog, type GeneratedComment, type MarketBriefing, type NurturingAction, type PerformanceInsight, type ConnectionRequest } from "@/store/appStore";
 import { chatCompletion, type ChatMessage } from "@/lib/ai-client";
 
 // ─── Helper ──────────────────────────────────────────────
@@ -461,6 +461,662 @@ Règles OBLIGATOIRES:
   return { messages, transitionedLeadIds, logs };
 }
 
+// ─── AGENT ENGAGEMENT ────────────────────────────────────
+// Generates comments on LinkedIn posts from ICP profiles
+
+const ICP_FEED_POSTS = [
+  { author: "Marie Dupont", authorPoste: "CMO @ DataPulse", excerpt: "L'IA va-t-elle remplacer les équipes marketing ? Mon retour d'expérience après 6 mois..." },
+  { author: "Thomas Leroy", authorPoste: "CEO @ ScaleForce", excerpt: "Nous avons doublé notre pipeline en 3 mois. Voici le framework exact que nous avons utilisé..." },
+  { author: "Sophie Martin", authorPoste: "Directrice Marketing @ Agence+", excerpt: "Pourquoi la plupart des stratégies de contenu B2B échouent (et comment corriger le tir)..." },
+  { author: "Lucas Bernard", authorPoste: "Fondateur @ GrowthLab", excerpt: "5 outils IA qui nous font gagner 20h par semaine en prospection. Thread complet ci-dessous..." },
+  { author: "Camille Petit", authorPoste: "VP Sales @ InnovateLab", excerpt: "Le secret des équipes commerciales qui dépassent leur quota de 150% ? Ce n'est pas ce que vous croyez..." },
+  { author: "Antoine Moreau", authorPoste: "Head of Growth @ CloudPeak", excerpt: "J'ai analysé 1000 DMs de prospection. Voici les 3 patterns qui génèrent le plus de réponses..." },
+];
+
+export async function runEngagementAgent(): Promise<{
+  comments: GeneratedComment[];
+  logs: Omit<ActivityLog, "id" | "timestamp">[];
+}> {
+  const state = useAppStore.getState();
+  const agent = state.agents.find((a) => a.id === "engagement")!;
+  const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+  const comments: GeneratedComment[] = [];
+
+  logs.push({
+    agentId: "engagement",
+    agentName: "Engagement",
+    type: "info",
+    message: "Agent Engagement lancé — Scan du feed ICP",
+    details: `Run #${agent.runsToday + 1}`,
+  });
+
+  // Pick 2-3 posts to engage with
+  const shuffled = [...ICP_FEED_POSTS].sort(() => Math.random() - 0.5);
+  const postsToEngage = shuffled.slice(0, Math.floor(Math.random() * 2) + 2);
+
+  if (!isApiKeyConfigured()) {
+    for (const post of postsToEngage) {
+      comments.push({
+        id: generateId(),
+        authorName: post.author,
+        authorPoste: post.authorPoste,
+        postExcerpt: post.excerpt,
+        comment: generateSimulatedComment(post.author.split(" ")[0], post.excerpt),
+        createdAt: new Date().toISOString(),
+        model: "simulation",
+      });
+    }
+    logs.push({
+      agentId: "engagement",
+      agentName: "Engagement",
+      type: "warning",
+      message: `${comments.length} commentaires simulés sur des posts ICP`,
+      details: "Mode simulation — configurez une clé API pour des commentaires IA",
+    });
+  } else {
+    for (const post of postsToEngage) {
+      try {
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `Tu es un expert en engagement LinkedIn. Tu rédiges des commentaires authentiques et apportant de la valeur.
+
+Règles OBLIGATOIRES:
+- 2-3 phrases maximum
+- Apporte un complément d'information ou un point de vue nuancé
+- Termine par une question pour ouvrir la discussion
+- Jamais de promotion ou de lien
+- Ton professionnel mais accessible
+- Pas de flatterie excessive
+- Pas d'émoji`,
+          },
+          {
+            role: "user",
+            content: `Rédige un commentaire LinkedIn pour ce post:
+Auteur: ${post.author} (${post.authorPoste})
+Extrait: "${post.excerpt}"`,
+          },
+        ];
+
+        const response = await chatCompletion(messages, {
+          temperature: 0.8,
+          maxTokens: 120,
+        });
+
+        comments.push({
+          id: generateId(),
+          authorName: post.author,
+          authorPoste: post.authorPoste,
+          postExcerpt: post.excerpt,
+          comment: response.content,
+          createdAt: new Date().toISOString(),
+          model: response.model,
+        });
+      } catch {
+        comments.push({
+          id: generateId(),
+          authorName: post.author,
+          authorPoste: post.authorPoste,
+          postExcerpt: post.excerpt,
+          comment: generateSimulatedComment(post.author.split(" ")[0], post.excerpt),
+          createdAt: new Date().toISOString(),
+          model: "simulation (fallback)",
+        });
+      }
+    }
+
+    logs.push({
+      agentId: "engagement",
+      agentName: "Engagement",
+      type: "success",
+      message: `${comments.length} commentaires IA publiés sur des posts ICP`,
+      details: comments.map((c) => `→ ${c.authorName}`).join(", "),
+    });
+  }
+
+  return { comments, logs };
+}
+
+// ─── AGENT VEILLE ──────────────────────────────────────────
+// Generates market intelligence briefings
+
+export async function runVeilleAgent(): Promise<{
+  briefing: MarketBriefing | null;
+  logs: Omit<ActivityLog, "id" | "timestamp">[];
+}> {
+  const state = useAppStore.getState();
+  const agent = state.agents.find((a) => a.id === "veille")!;
+  const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+
+  logs.push({
+    agentId: "veille",
+    agentName: "Veille",
+    type: "info",
+    message: "Agent Veille lancé — Analyse du marché",
+    details: `Run #${agent.runsToday + 1}`,
+  });
+
+  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+
+  if (!isApiKeyConfigured()) {
+    const simBriefing: MarketBriefing = {
+      id: generateId(),
+      title: `Briefing du ${today}`,
+      summary: "Le marché de l'IA B2B continue de croître avec une attention croissante sur l'automatisation de la prospection. Les outils d'agents IA gagnent en traction sur LinkedIn.",
+      trends: [
+        "Les posts sur les agents IA surpassent les posts SDR traditionnels en engagement",
+        "Le scoring ICP automatisé devient un standard dans les outils de sales intelligence",
+        "Les séquences DM multi-étapes génèrent 3x plus de RDV que les messages uniques",
+      ],
+      opportunities: [
+        "Créer un post sur le ROI concret des agents IA vs SDR junior",
+        "Publier un comparatif des outils de scoring ICP gratuits",
+        "Partager un cas client avec des métriques précises",
+      ],
+      competitors: [
+        "Salesflow a lancé une fonctionnalité d'agents IA cette semaine",
+        "Expandi met à jour son algorithme de personalisation",
+      ],
+      createdAt: new Date().toISOString(),
+      model: "simulation",
+    };
+    logs.push({
+      agentId: "veille",
+      agentName: "Veille",
+      type: "warning",
+      message: "Briefing marché simulé généré",
+      details: "Mode simulation — configurez une clé API pour des analyses IA",
+    });
+    return { briefing: simBriefing, logs };
+  }
+
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un analyste stratégique spécialisé dans l'IA et l'acquisition B2B. Tu produis un briefing marché quotidien.
+
+Réponds UNIQUEMENT en JSON valide avec cette structure:
+{
+  "title": "Briefing du [date]",
+  "summary": "résumé en 2-3 phrases",
+  "trends": ["tendance 1", "tendance 2", "tendance 3"],
+  "opportunities": ["opportunité 1", "opportunité 2", "opportunité 3"],
+  "competitors": ["mouvement concurrent 1", "mouvement concurrent 2"]
+}
+
+Thèmes à surveiller: IA B2B, automation LinkedIn, agents IA, scoring ICP, prospection automatisée, SaaS sales intelligence.`,
+      },
+      {
+        role: "user",
+        content: `Produis le briefing marché du ${today} pour le secteur IA/acquisition B2B. Identifie les tendances, opportunités de contenu et mouvements concurrentiels.`,
+      },
+    ];
+
+    const response = await chatCompletion(messages, {
+      temperature: 0.4,
+      maxTokens: 800,
+    });
+
+    let briefing: MarketBriefing;
+    try {
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        briefing = {
+          id: generateId(),
+          title: parsed.title || `Briefing du ${today}`,
+          summary: parsed.summary || "",
+          trends: parsed.trends || [],
+          opportunities: parsed.opportunities || [],
+          competitors: parsed.competitors || [],
+          createdAt: new Date().toISOString(),
+          model: response.model,
+        };
+      } else {
+        throw new Error("No JSON found");
+      }
+    } catch {
+      briefing = {
+        id: generateId(),
+        title: `Briefing du ${today}`,
+        summary: response.content.slice(0, 300),
+        trends: [],
+        opportunities: [],
+        competitors: [],
+        createdAt: new Date().toISOString(),
+        model: response.model,
+      };
+    }
+
+    logs.push({
+      agentId: "veille",
+      agentName: "Veille",
+      type: "success",
+      message: `Briefing marché IA généré — ${briefing.trends.length} tendances, ${briefing.opportunities.length} opportunités`,
+      details: `Modèle: ${response.model}`,
+    });
+
+    return { briefing, logs };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+    logs.push({
+      agentId: "veille",
+      agentName: "Veille",
+      type: "error",
+      message: `Erreur lors de l'analyse: ${errMsg.slice(0, 80)}`,
+    });
+    return { briefing: null, logs };
+  }
+}
+
+// ─── AGENT NURTURING ───────────────────────────────────────
+// Generates value-driven follow-ups for leads not yet ready
+
+const NURTURE_TYPES: Array<NurturingAction["type"]> = ["article", "insight", "ressource", "check-in"];
+
+export async function runNurturingAgent(): Promise<{
+  actions: NurturingAction[];
+  logs: Omit<ActivityLog, "id" | "timestamp">[];
+}> {
+  const state = useAppStore.getState();
+  const agent = state.agents.find((a) => a.id === "nurturing")!;
+  const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+  const actions: NurturingAction[] = [];
+
+  logs.push({
+    agentId: "nurturing",
+    agentName: "Nurturing",
+    type: "info",
+    message: "Agent Nurturing lancé — Suivi des leads en attente",
+    details: `Run #${agent.runsToday + 1}`,
+  });
+
+  // Find leads that are contacted but haven't replied positively
+  const nurturableLeads = state.leads.filter(
+    (l) => l.statut === "contacted" && l.score >= 50
+  ).slice(0, 3);
+
+  if (nurturableLeads.length === 0) {
+    logs.push({
+      agentId: "nurturing",
+      agentName: "Nurturing",
+      type: "info",
+      message: "Aucun lead en attente de nurturing",
+    });
+    return { actions, logs };
+  }
+
+  if (!isApiKeyConfigured()) {
+    for (const lead of nurturableLeads) {
+      const type = NURTURE_TYPES[Math.floor(Math.random() * NURTURE_TYPES.length)];
+      actions.push({
+        id: generateId(),
+        leadId: lead.id,
+        leadName: lead.prenom,
+        leadEntreprise: lead.entreprise,
+        type,
+        content: generateSimulatedNurture(lead, type),
+        createdAt: new Date().toISOString(),
+        model: "simulation",
+      });
+    }
+    logs.push({
+      agentId: "nurturing",
+      agentName: "Nurturing",
+      type: "warning",
+      message: `${actions.length} actions de nurturing simulées`,
+      details: "Mode simulation — configurez une clé API pour du contenu IA",
+    });
+  } else {
+    for (const lead of nurturableLeads) {
+      try {
+        const type = NURTURE_TYPES[Math.floor(Math.random() * NURTURE_TYPES.length)];
+        const typeLabel = { article: "un article pertinent", insight: "un insight personnalisé", ressource: "une ressource gratuite", "check-in": "un check-in informel" }[type];
+
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `Tu es un expert en nurturing B2B. Tu rédiges des messages de suivi valeur pour des leads pas encore prêts à acheter.
+
+Règles OBLIGATOIRES:
+- Maximum 100 mots
+- Apporte de la valeur sans rien demander en retour
+- Pas de lien Calendly ni de proposition commerciale
+- Ton amical mais professionnel
+- Commence par "Bonjour [prénom],"
+- Type de contenu: ${typeLabel}`,
+          },
+          {
+            role: "user",
+            content: `Rédige un message de nurturing (${type}) pour:
+- Prénom: ${lead.prenom}
+- Poste: ${lead.poste}
+- Entreprise: ${lead.entreprise}
+- Secteur: ${lead.secteur}
+- Dernier contact: a ${lead.action === "commented" ? "commenté" : "aimé"} mon post sur "${lead.postSujet}"`,
+          },
+        ];
+
+        const response = await chatCompletion(messages, {
+          temperature: 0.7,
+          maxTokens: 200,
+        });
+
+        actions.push({
+          id: generateId(),
+          leadId: lead.id,
+          leadName: lead.prenom,
+          leadEntreprise: lead.entreprise,
+          type,
+          content: response.content,
+          createdAt: new Date().toISOString(),
+          model: response.model,
+        });
+      } catch {
+        actions.push({
+          id: generateId(),
+          leadId: lead.id,
+          leadName: lead.prenom,
+          leadEntreprise: lead.entreprise,
+          type: "check-in",
+          content: generateSimulatedNurture(lead, "check-in"),
+          createdAt: new Date().toISOString(),
+          model: "simulation (fallback)",
+        });
+      }
+    }
+    logs.push({
+      agentId: "nurturing",
+      agentName: "Nurturing",
+      type: "success",
+      message: `${actions.length} actions de nurturing générées`,
+      details: actions.map((a) => `${a.type} → ${a.leadName}`).join(", "),
+    });
+  }
+
+  return { actions, logs };
+}
+
+// ─── AGENT ANALYSE ─────────────────────────────────────────
+// Analyzes performance and generates optimization recommendations
+
+export async function runAnalyseAgent(): Promise<{
+  insights: PerformanceInsight[];
+  logs: Omit<ActivityLog, "id" | "timestamp">[];
+}> {
+  const state = useAppStore.getState();
+  const agent = state.agents.find((a) => a.id === "analyse")!;
+  const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+  const insights: PerformanceInsight[] = [];
+
+  logs.push({
+    agentId: "analyse",
+    agentName: "Analyse",
+    type: "info",
+    message: "Agent Analyse lancé — Audit des performances",
+    details: `Run #${agent.runsToday + 1}`,
+  });
+
+  const m = state.metrics;
+
+  if (!isApiKeyConfigured()) {
+    // Generate heuristic insights
+    insights.push({
+      id: generateId(),
+      category: "contenu",
+      metric: "Taux d'engagement",
+      value: `${m.tauxEngagement}%`,
+      recommendation: m.tauxEngagement < 3 ? "Les posts sous-performent. Tester des hooks plus surprenants et des chiffres concrets en ligne 1." : "Bon taux d'engagement. Continuer à tester différents formats (listes, histoires, contre-intuition).",
+      priority: m.tauxEngagement < 3 ? "high" : "low",
+      createdAt: new Date().toISOString(),
+      model: "simulation",
+    });
+    insights.push({
+      id: generateId(),
+      category: "prospection",
+      metric: "Taux de réponse",
+      value: `${m.tauxReponse}%`,
+      recommendation: m.tauxReponse < 20 ? "Le taux de réponse est faible. Raccourcir les messages à 60 mots max et personnaliser davantage la référence au post." : "Bon taux de réponse. Tester l'ajout d'une question plus spécifique au secteur du prospect.",
+      priority: m.tauxReponse < 20 ? "high" : "medium",
+      createdAt: new Date().toISOString(),
+      model: "simulation",
+    });
+    insights.push({
+      id: generateId(),
+      category: "qualif",
+      metric: "Taux de qualification",
+      value: `${m.profilsCollectes > 0 ? Math.round((m.leadsQualifies / m.profilsCollectes) * 100) : 0}%`,
+      recommendation: "Affiner les critères ICP pour améliorer la qualité des profils collectés. Se concentrer sur les secteurs avec le meilleur taux de conversion.",
+      priority: "medium",
+      createdAt: new Date().toISOString(),
+      model: "simulation",
+    });
+    insights.push({
+      id: generateId(),
+      category: "reseau",
+      metric: "Croissance réseau",
+      value: `${state.connectionRequests.length} invitations`,
+      recommendation: "Cibler les groupes LinkedIn actifs dans la niche pour trouver des prospects plus qualifiés. Personnaliser chaque note de connexion.",
+      priority: "low",
+      createdAt: new Date().toISOString(),
+      model: "simulation",
+    });
+
+    logs.push({
+      agentId: "analyse",
+      agentName: "Analyse",
+      type: "warning",
+      message: `${insights.length} recommandations simulées générées`,
+      details: "Mode simulation — configurez une clé API pour des analyses IA approfondies",
+    });
+  } else {
+    try {
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un analyste de performance IA pour HERMÈS, un système d'agents IA d'acquisition B2B.
+Analyse les métriques suivantes et produis des recommandations concrètes.
+
+Réponds UNIQUEMENT en JSON valide: { "insights": [{ "category": "contenu|qualif|prospection|engagement|reseau", "metric": "nom de la métrique", "value": "valeur actuelle", "recommendation": "recommandation actionnable en français", "priority": "high|medium|low" }] }
+
+Produis 3 à 5 recommandations maximum, classées par priorité.`,
+        },
+        {
+          role: "user",
+          content: `Analyse ces métriques HERMÈS:
+- Posts publiés: ${m.postsPublished}
+- Impressions moy.: ${m.impressionsMoy}
+- Taux engagement: ${m.tauxEngagement}%
+- Profils collectés: ${m.profilsCollectes}
+- Leads qualifiés: ${m.leadsQualifies}
+- Messages envoyés: ${m.messagesEnvoyes}
+- Taux réponse: ${m.tauxReponse}%
+- RDV générés: ${m.rdvsGeneres}
+- Commentaires postés: ${state.generatedComments.length}
+- Invitations envoyées: ${state.connectionRequests.length}`,
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.3,
+        maxTokens: 1000,
+      });
+
+      try {
+        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const rawInsights = parsed.insights || [];
+          for (const ri of rawInsights.slice(0, 5)) {
+            insights.push({
+              id: generateId(),
+              category: ri.category || "contenu",
+              metric: ri.metric || "",
+              value: ri.value || "",
+              recommendation: ri.recommendation || "",
+              priority: ri.priority || "medium",
+              createdAt: new Date().toISOString(),
+              model: response.model,
+            });
+          }
+        }
+      } catch {
+        // Fallback: create a single insight from the raw text
+        insights.push({
+          id: generateId(),
+          category: "contenu",
+          metric: "Analyse globale",
+          value: "Voir détails",
+          recommendation: response.content.slice(0, 300),
+          priority: "medium",
+          createdAt: new Date().toISOString(),
+          model: response.model,
+        });
+      }
+
+      logs.push({
+        agentId: "analyse",
+        agentName: "Analyse",
+        type: "success",
+        message: `${insights.length} recommandations IA générées`,
+        details: insights.filter((i) => i.priority === "high").length > 0 ? `${insights.filter((i) => i.priority === "high").length} priorité haute` : undefined,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+      logs.push({
+        agentId: "analyse",
+        agentName: "Analyse",
+        type: "error",
+        message: `Erreur lors de l'analyse: ${errMsg.slice(0, 80)}`,
+      });
+    }
+  }
+
+  return { insights, logs };
+}
+
+// ─── AGENT RÉSEAU ──────────────────────────────────────────
+// Generates personalized connection requests for ICP profiles
+
+const NETWORK_PROSPECTS = [
+  { prenom: "Isabelle", poste: "CEO", entreprise: "InnovateSaaS", secteur: "SaaS B2B" },
+  { prenom: "Maxime", poste: "Head of Growth", entreprise: "DataDriven", secteur: "SaaS B2B" },
+  { prenom: "Clara", poste: "Directrice Marketing", entreprise: "GrowthPartner", secteur: "Conseil" },
+  { prenom: "Baptiste", poste: "Co-fondateur", entreprise: "AutoScale", secteur: "SaaS B2B" },
+  { prenom: "Amandine", poste: "VP Sales", entreprise: "SalesTech", secteur: "MarTech" },
+  { prenom: "Florent", poste: "CMO", entreprise: "LeadFactory", secteur: "Agences digitales" },
+];
+
+export async function runReseauAgent(): Promise<{
+  requests: ConnectionRequest[];
+  logs: Omit<ActivityLog, "id" | "timestamp">[];
+}> {
+  const state = useAppStore.getState();
+  const agent = state.agents.find((a) => a.id === "reseau")!;
+  const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+  const requests: ConnectionRequest[] = [];
+
+  logs.push({
+    agentId: "reseau",
+    agentName: "Réseau",
+    type: "info",
+    message: "Agent Réseau lancé — Recherche de profils ICP",
+    details: `Run #${agent.runsToday + 1}`,
+  });
+
+  // Pick 3-5 prospects
+  const shuffled = [...NETWORK_PROSPECTS].sort(() => Math.random() - 0.5);
+  const prospectsToContact = shuffled.slice(0, Math.floor(Math.random() * 3) + 3);
+
+  if (!isApiKeyConfigured()) {
+    for (const prospect of prospectsToContact) {
+      requests.push({
+        id: generateId(),
+        prospectName: prospect.prenom,
+        prospectPoste: prospect.poste,
+        prospectEntreprise: prospect.entreprise,
+        note: generateSimulatedConnectionNote(prospect.prenom, prospect.entreprise),
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        model: "simulation",
+      });
+    }
+    logs.push({
+      agentId: "reseau",
+      agentName: "Réseau",
+      type: "warning",
+      message: `${requests.length} invitations simulées préparées`,
+      details: "Mode simulation — configurez une clé API pour des notes personnalisées IA",
+    });
+  } else {
+    for (const prospect of prospectsToContact) {
+      try {
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `Tu es un expert en réseau LinkedIn. Tu rédiges des notes de connexion ultra-personnalisées.
+
+Règles OBLIGATOIRES:
+- Maximum 300 caractères
+- Référence un point commun ou le secteur/poste du prospect
+- Ton chaleureux mais professionnel
+- Jamais de proposition commerciale
+- Pas de lien
+- Pas d'émoji
+- La note doit donner envie d'accepter`,
+          },
+          {
+            role: "user",
+            content: `Rédige une note de connexion LinkedIn pour:
+- Prénom: ${prospect.prenom}
+- Poste: ${prospect.poste}
+- Entreprise: ${prospect.entreprise}
+- Secteur: ${prospect.secteur}`,
+          },
+        ];
+
+        const response = await chatCompletion(messages, {
+          temperature: 0.7,
+          maxTokens: 100,
+        });
+
+        requests.push({
+          id: generateId(),
+          prospectName: prospect.prenom,
+          prospectPoste: prospect.poste,
+          prospectEntreprise: prospect.entreprise,
+          note: response.content.slice(0, 300),
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          model: response.model,
+        });
+      } catch {
+        requests.push({
+          id: generateId(),
+          prospectName: prospect.prenom,
+          prospectPoste: prospect.poste,
+          prospectEntreprise: prospect.entreprise,
+          note: generateSimulatedConnectionNote(prospect.prenom, prospect.entreprise),
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          model: "simulation (fallback)",
+        });
+      }
+    }
+
+    logs.push({
+      agentId: "reseau",
+      agentName: "Réseau",
+      type: "success",
+      message: `${requests.length} invitations personnalisées préparées`,
+      details: requests.map((r) => `→ ${r.prospectName} (${r.prospectEntreprise})`).join(", "),
+    });
+  }
+
+  return { requests, logs };
+}
+
 // ─── Helpers ──────────────────────────────────────────────
 
 function computeSimpleScore(
@@ -507,4 +1163,22 @@ function generateSimulatedDM(lead: Lead): string {
 J'ai vu que vous aviez ${actionVerb} mon post sur ${lead.postSujet}. Votre poste de ${lead.poste} chez ${lead.entreprise} m'intéresse beaucoup — les enjeux ${lead.secteur.includes("SaaS") ? "SaaS" : lead.secteur.includes("Conseil") ? "du conseil" : "de votre secteur"} en matière d'acquisition sont souvent sous-estimés.
 
 Quel est votre principal défi en prospection en ce moment ?`;
+}
+
+function generateSimulatedComment(firstName: string, excerpt: string): string {
+  return `Merci pour ce partage ${firstName}. Un point souvent négligé : la personnalisation ne se limite pas au prénom. C'est la référence au contexte métier qui fait la différence. Quel est le canal qui vous apporte le mieux aujourd'hui ?`;
+}
+
+function generateSimulatedNurture(lead: Lead, type: NurturingAction["type"]): string {
+  const templates: Record<NurturingAction["type"], string> = {
+    article: `Bonjour ${lead.prenom},\n\nJe suis tombé sur un article très éclairant sur les tendances d'acquisition dans le secteur ${lead.secteur}. Ça m'a fait penser à votre contexte chez ${lead.entreprise}.\n\nPas de suivi commercial de ma part — juste un partage qui pourrait vous être utile.`,
+    insight: `Bonjour ${lead.prenom},\n\nLes équipes ${lead.poste.includes("Sales") ? "commerciales" : "marketing"} qui automatisent leur premier contact voient leur taux de réponse augmenter de 40% en moyenne. Je pensais à votre situation chez ${lead.entreprise} en lisant cette donnée.`,
+    ressource: `Bonjour ${lead.prenom},\n\nJ'ai mis en ligne un template de séquence de prospection personnalisée. Si ça peut être utile pour ${lead.entreprise}, n'hésitez pas — c'est gratuit.`,
+    "check-in": `Bonjour ${lead.prenom},\n\nUn petit message pour prendre des nouvelles. Toujours dans la ${lead.secteur.includes("SaaS") ? "tech" : "consulting"} chez ${lead.entreprise} ?\n\nSi jamais vous explorez des solutions d'automatisation, je serais ravi d'échanger.`,
+  };
+  return templates[type];
+}
+
+function generateSimulatedConnectionNote(prenom: string, entreprise: string): string {
+  return `Bonjour ${prenom}, je suis les contenus de ${entreprise} avec intérêt. Serait pertinent d'échanger sur nos approches respectives en acquisition B2B.`;
 }

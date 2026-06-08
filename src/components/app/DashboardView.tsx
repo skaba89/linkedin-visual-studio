@@ -35,7 +35,7 @@ const activityTypeColors: Record<ActivityLog["type"], string> = {
 };
 
 export default function DashboardView() {
-  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow, generatedPosts, generatedMessages, executingAgent } = useAppStore();
+  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow, generatedPosts, generatedMessages, executingAgent, generatedComments, marketBriefings, nurturingActions, performanceInsights, connectionRequests } = useAppStore();
 
   const newLeads = leads.filter((l) => l.statut === "new").length;
   const contactedLeads = leads.filter((l) => l.statut === "contacted").length;
@@ -125,7 +125,7 @@ export default function DashboardView() {
       </div>
 
       {/* Agent Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {agents.map((agent) => {
           const status = statusConfig[agent.status];
           return (
@@ -231,7 +231,7 @@ export default function DashboardView() {
       {/* Detailed Metrics */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4">Métriques détaillées</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Agent Contenu */}
           <div>
             <div className="flex items-center gap-2 mb-3">
@@ -266,6 +266,66 @@ export default function DashboardView() {
               <MetricRow label="Messages envoyés" value={metrics.messagesEnvoyes.toString()} target="—" />
               <MetricRow label="Taux réponse" value={`${metrics.tauxReponse}%`} target="20-35%" />
               <MetricRow label="RDVs générés" value={metrics.rdvsGeneres.toString()} target="8-12/sem" />
+            </div>
+          </div>
+          {/* Agent Engagement */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-[#F472B6]" />
+              <span className="text-xs font-semibold text-[#F472B6] uppercase tracking-wide">Agent Engagement</span>
+            </div>
+            <div className="space-y-2">
+              <MetricRow label="Commentaires" value={generatedComments.length.toString()} target="8-12/jour" />
+              <MetricRow label="Réponses reçues" value="—" target="30%+" />
+              <MetricRow label="Conversations ouvertes" value="—" target="3-5/jour" />
+            </div>
+          </div>
+          {/* Agent Veille */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-[#60A5FA]" />
+              <span className="text-xs font-semibold text-[#60A5FA] uppercase tracking-wide">Agent Veille</span>
+            </div>
+            <div className="space-y-2">
+              <MetricRow label="Briefings générés" value={marketBriefings.length.toString()} target="1/jour" />
+              <MetricRow label="Tendances identifiées" value="—" target="3+" />
+              <MetricRow label="Opportunités contenu" value="—" target="2-3" />
+            </div>
+          </div>
+          {/* Agent Nurturing */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-[#34D399]" />
+              <span className="text-xs font-semibold text-[#34D399] uppercase tracking-wide">Agent Nurturing</span>
+            </div>
+            <div className="space-y-2">
+              <MetricRow label="Actions nurturing" value={nurturingActions.length.toString()} target="—" />
+              <MetricRow label="Leads en nurturing" value="—" target="20+" />
+              <MetricRow label="Réactivation" value="—" target="10%" />
+            </div>
+          </div>
+          {/* Agent Analyse */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-[#FBBF24]" />
+              <span className="text-xs font-semibold text-[#FBBF24] uppercase tracking-wide">Agent Analyse</span>
+            </div>
+            <div className="space-y-2">
+              <MetricRow label="Recommandations" value={performanceInsights.length.toString()} target="—" />
+              <MetricRow label="Priorité haute" value={performanceInsights.filter((i) => i.priority === "high").length.toString()} target="0" />
+              <MetricRow label="Dernier audit" value="—" target="hebdo" />
+            </div>
+          </div>
+          {/* Agent Réseau */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-[#818CF8]" />
+              <span className="text-xs font-semibold text-[#818CF8] uppercase tracking-wide">Agent Réseau</span>
+            </div>
+            <div className="space-y-2">
+              <MetricRow label="Invitations" value={connectionRequests.length.toString()} target="15/jour" />
+              <MetricRow label="Taux acceptation" value="—" target="30%+" />
+              <MetricRow label="Nouvelles connexions" value="—" target="10/sem" />
             </div>
           </div>
         </div>
