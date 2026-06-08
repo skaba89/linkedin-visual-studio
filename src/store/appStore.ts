@@ -70,6 +70,16 @@ export interface MessageTemplate {
   notes: string[];
 }
 
+export interface ActivityLog {
+  id: string;
+  timestamp: string; // ISO string
+  agentId: string;
+  agentName: string;
+  type: "info" | "success" | "warning" | "error";
+  message: string;
+  details?: string;
+}
+
 interface AppState {
   currentView: ViewType;
   setCurrentView: (view: ViewType) => void;
@@ -101,6 +111,17 @@ interface AppState {
     tauxReponse: number;
     rdvsGeneres: number;
   };
+
+  activityLogs: ActivityLog[];
+  addActivityLog: (log: Omit<ActivityLog, "id" | "timestamp">) => void;
+  clearActivityLogs: () => void;
+
+  isSimulating: boolean;
+  setIsSimulating: (v: boolean) => void;
+  simulationSpeed: number; // 1 = normal, 2 = fast, 4 = ultra
+  setSimulationSpeed: (s: number) => void;
+  updateMetrics: (updates: Partial<AppState["metrics"]>) => void;
+  runAgentNow: (agentId: string) => void;
 }
 
 const defaultSkillContenu = `---
@@ -301,9 +322,34 @@ const defaultLeads: Lead[] = [
   { id: "8", prenom: "Pierre", poste: "Co-fondateur", entreprise: "Automate.io", secteur: "SaaS B2B", score: 88, action: "commented", postSujet: "agents IA", statut: "replied", dateCollected: "2026-06-04" },
 ];
 
+// Helper for simulation
+const sampleNames = ["Léa", "Hugo", "Chloé", "Maxime", "Emma", "Alexandre", "Sarah", "Romain", "Camille", "Nicolas"];
+const sampleCompanies = ["TechFlow", "DataPulse", "ScaleForce", "InnovateLab", "CloudPeak", "GrowthStudio", "NexaConsulting", "SmartBiz", "AgileCRM", "Vertuo"];
+const samplePostes = ["CEO", "CMO", "Head of Growth", "Directrice Marketing", "VP Sales", "Co-fondateur", "Directeur Commercial", "Fondateur", "CTO", "Business Developer"];
+const sampleSecteurs = ["SaaS B2B", "Conseil", "Agences digitales", "Formation professionnelle", "MarTech"];
+const sampleActions: ("liked" | "commented" | "viewed")[] = ["liked", "commented", "viewed"];
+const sampleSujets = ["automation LinkedIn", "IA pour PME", "prospection automatisée", "scoring ICP", "agents IA", "séquences prospection"];
+
+function randInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
+function getCurrentTimeHHMM(): string {
+  const now = new Date();
+  return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+}
+
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       currentView: "dashboard",
       setCurrentView: (view) => set({ currentView: view }),
 
@@ -403,6 +449,183 @@ export const useAppStore = create<AppState>()(
         messagesEnvoyes: 28,
         tauxReponse: 28.5,
         rdvsGeneres: 8,
+      },
+
+      activityLogs: [],
+      addActivityLog: (log) =>
+        set((state) => ({
+          activityLogs: [
+            {
+              ...log,
+              id: generateId(),
+              timestamp: new Date().toISOString(),
+            },
+            ...state.activityLogs,
+          ],
+        })),
+      clearActivityLogs: () => set({ activityLogs: [] }),
+
+      isSimulating: false,
+      setIsSimulating: (v) => set({ isSimulating: v }),
+      simulationSpeed: 1,
+      setSimulationSpeed: (s) => set({ simulationSpeed: s }),
+
+      updateMetrics: (updates) =>
+        set((state) => ({
+          metrics: { ...state.metrics, ...updates },
+        })),
+
+      runAgentNow: (agentId) => {
+        const state = get();
+        const agent = state.agents.find((a) => a.id === agentId);
+        if (!agent) return;
+
+        const now = getCurrentTimeHHMM();
+
+        // Update agent: lastRun, runsToday, set to active temporarily
+        set((s) => ({
+          agents: s.agents.map((a) =>
+            a.id === agentId
+              ? { ...a, lastRun: now, runsToday: a.runsToday + 1, status: "active" as AgentStatus }
+              : a
+          ),
+        }));
+
+        // Add activity log for the run start
+        const newLog: Omit<ActivityLog, "id" | "timestamp"> = {
+          agentId: agent.id,
+          agentName: agent.name,
+          type: "info",
+          message: `Agent ${agent.name} exécuté`,
+          details: `Run #${(agent.runsToday + 1)} aujourd'hui`,
+        };
+
+        set((s) => ({
+          activityLogs: [
+            { ...newLog, id: generateId(), timestamp: new Date().toISOString() },
+            ...s.activityLogs,
+          ],
+        }));
+
+        // Agent-specific logic
+        if (agentId === "contenu") {
+          const bumpImpressions = randInt(100, 400);
+          const engagementDelta = (Math.random() * 0.6 - 0.2);
+          const newImpressions = state.metrics.impressionsMoy + bumpImpressions;
+          const newEngagement = Math.round((state.metrics.tauxEngagement + engagementDelta) * 10) / 10;
+
+          set((s) => ({
+            metrics: {
+              ...s.metrics,
+              postsPublished: s.metrics.postsPublished + 1,
+              impressionsMoy: newImpressions,
+              tauxEngagement: Math.max(0.5, newEngagement),
+            },
+            activityLogs: [
+              {
+                id: generateId(),
+                timestamp: new Date().toISOString(),
+                agentId: "contenu",
+                agentName: "Contenu",
+                type: "success",
+                message: `Post publié — +${bumpImpressions} impressions`,
+                details: `Taux engagement: ${Math.max(0.5, newEngagement).toFixed(1)}%`,
+              },
+              ...s.activityLogs,
+            ],
+          }));
+        } else if (agentId === "qualif") {
+          const profilsBump = randInt(5, 15);
+          const leadsBump = randInt(2, 5);
+          const newLead: Lead = {
+            id: generateId(),
+            prenom: pickRandom(sampleNames),
+            poste: pickRandom(samplePostes),
+            entreprise: pickRandom(sampleCompanies),
+            secteur: pickRandom(sampleSecteurs),
+            score: randInt(55, 95),
+            action: pickRandom(sampleActions),
+            postSujet: pickRandom(sampleSujets),
+            statut: "new",
+            dateCollected: new Date().toISOString().split("T")[0],
+          };
+
+          set((s) => ({
+            metrics: {
+              ...s.metrics,
+              profilsCollectes: s.metrics.profilsCollectes + profilsBump,
+              leadsQualifies: s.metrics.leadsQualifies + leadsBump,
+            },
+            leads: [...s.leads, newLead],
+            activityLogs: [
+              {
+                id: generateId(),
+                timestamp: new Date().toISOString(),
+                agentId: "qualif",
+                agentName: "Qualification",
+                type: "success",
+                message: `${profilsBump} profils collectés, ${leadsBump} leads qualifiés`,
+                details: `Nouveau lead: ${newLead.prenom} (${newLead.entreprise}, score ${newLead.score})`,
+              },
+              ...s.activityLogs,
+            ],
+          }));
+        } else if (agentId === "prospection") {
+          const messagesBump = randInt(3, 8);
+          const rdvsBump = randInt(0, 2);
+          const reponseDelta = Math.random() * 2 - 0.5;
+          const newTauxReponse = Math.round((state.metrics.tauxReponse + reponseDelta) * 10) / 10;
+
+          // Update lead statuses
+          const statusTransitions: Array<{ from: Lead["statut"]; to: Lead["statut"] }> = [
+            { from: "new", to: "contacted" },
+            { from: "contacted", to: "replied" },
+            { from: "replied", to: "booked" },
+          ];
+
+          const transitionedLeads: string[] = [];
+
+          set((s) => {
+            const updatedLeads = [...s.leads];
+            // Try to transition up to 2 leads
+            for (const transition of statusTransitions) {
+              const idx = updatedLeads.findIndex(
+                (l) => l.statut === transition.from && !transitionedLeads.includes(l.id)
+              );
+              if (idx !== -1) {
+                updatedLeads[idx] = { ...updatedLeads[idx], statut: transition.to };
+                transitionedLeads.push(updatedLeads[idx].id);
+                if (transitionedLeads.length >= 2) break;
+              }
+            }
+
+            const transitionDetails = transitionedLeads.length > 0
+              ? `${transitionedLeads.length} lead(s) mis à jour`
+              : undefined;
+
+            return {
+              leads: updatedLeads,
+              metrics: {
+                ...s.metrics,
+                messagesEnvoyes: s.metrics.messagesEnvoyes + messagesBump,
+                tauxReponse: Math.max(5, Math.min(60, newTauxReponse)),
+                rdvsGeneres: s.metrics.rdvsGeneres + rdvsBump,
+              },
+              activityLogs: [
+                {
+                  id: generateId(),
+                  timestamp: new Date().toISOString(),
+                  agentId: "prospection",
+                  agentName: "Prospection",
+                  type: rdvsBump > 0 ? "success" : "info",
+                  message: `${messagesBump} messages envoyés, ${rdvsBump} RDV générés`,
+                  details: transitionDetails,
+                },
+                ...s.activityLogs,
+              ],
+            };
+          });
+        }
       },
     }),
     {

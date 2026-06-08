@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useAppStore, type AgentStatus } from "@/store/appStore";
+import { useState, useEffect } from "react";
+import { useAppStore, type AgentStatus, type ActivityLog } from "@/store/appStore";
 import {
   Play,
   Pause,
@@ -10,6 +10,8 @@ import {
   Clock,
   FileCode,
   Activity,
+  Zap,
+  Circle,
 } from "lucide-react";
 
 const statusOptions: { value: AgentStatus; label: string; color: string }[] = [
@@ -19,13 +21,32 @@ const statusOptions: { value: AgentStatus; label: string; color: string }[] = [
   { value: "error", label: "Erreur", color: "#E5263A" },
 ];
 
+const activityTypeColors: Record<ActivityLog["type"], string> = {
+  info: "#00D4FF",
+  success: "#00C48C",
+  warning: "#F4A100",
+  error: "#E5263A",
+};
+
 export default function AgentDetailView({ agentId }: { agentId: string }) {
-  const { agents, updateAgent } = useAppStore();
+  const { agents, updateAgent, runAgentNow, activityLogs } = useAppStore();
   const agent = agents.find((a) => a.id === agentId)!;
   const [activeTab, setActiveTab] = useState<"skill" | "heartbeat" | "info">("skill");
   const [skillText, setSkillText] = useState(agent.skillMd);
   const [heartbeatText, setHeartbeatText] = useState(agent.heartbeatMd);
   const [saved, setSaved] = useState(false);
+  const [justRan, setJustRan] = useState(false);
+
+  // Activity logs for this specific agent
+  const agentLogs = activityLogs.filter((l) => l.agentId === agentId).slice(0, 3);
+
+  // Reset justRan after animation
+  useEffect(() => {
+    if (justRan) {
+      const timer = setTimeout(() => setJustRan(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [justRan]);
 
   const handleSave = () => {
     updateAgent(agentId, {
@@ -38,6 +59,15 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
 
   const handleStatusChange = (status: AgentStatus) => {
     updateAgent(agentId, { status });
+  };
+
+  const handleRunNow = () => {
+    // Temporarily set agent to active so runAgentNow can process it
+    if (agent.status !== "active") {
+      updateAgent(agentId, { status: "active" });
+    }
+    runAgentNow(agentId);
+    setJustRan(true);
   };
 
   const currentStatus = statusOptions.find((s) => s.value === agent.status)!;
@@ -68,6 +98,19 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Run Now Button */}
+          <button
+            onClick={handleRunNow}
+            className={`flex items-center gap-1.5 text-[13px] font-medium px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              justRan
+                ? "text-[#00D4FF] bg-[#00D4FF]/15 border-2 border-[#00D4FF]/40 animate-pulse"
+                : "text-[#F0F4F8] bg-[#00D4FF] hover:bg-[#00AACF] border-2 border-transparent"
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            {justRan ? "En cours..." : "Lancer maintenant"}
+          </button>
+
           {agent.status === "active" ? (
             <button
               onClick={() => handleStatusChange("paused")}
@@ -191,6 +234,30 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
 
       {activeTab === "info" && (
         <div className="space-y-4">
+          {/* Run Now Card */}
+          <div className={`bg-[#0F1520] border rounded-xl p-5 transition-all ${justRan ? "border-[#00D4FF]/40 ring-2 ring-[#00D4FF]/20" : "border-white/[0.06]"}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-[#F0F4F8] mb-1">Exécution manuelle</h3>
+                <p className="text-[12px] text-[#7B8A9A]">
+                  Lancez une exécution immédiate de cet agent
+                </p>
+              </div>
+              <button
+                onClick={handleRunNow}
+                className={`flex items-center gap-1.5 text-[13px] font-medium px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                  justRan
+                    ? "text-[#00D4FF] bg-[#00D4FF]/15 border-2 border-[#00D4FF]/40 animate-pulse"
+                    : "text-[#F0F4F8] bg-[#00D4FF] hover:bg-[#00AACF] border-2 border-transparent"
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                {justRan ? "En cours..." : "▶ Lancer maintenant"}
+              </button>
+            </div>
+          </div>
+
+          {/* Agent Status */}
           <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-[#F0F4F8]">Statut de l&apos;agent</h3>
             <div className="grid grid-cols-2 gap-4 text-[13px]">
@@ -241,6 +308,37 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
               ))}
             </div>
           </div>
+
+          {/* Recent Activity for this agent */}
+          {agentLogs.length > 0 && (
+            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-[#F0F4F8] mb-3">Activité récente</h3>
+              <div className="space-y-2">
+                {agentLogs.map((log) => {
+                  const time = new Date(log.timestamp);
+                  const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}:${time.getSeconds().toString().padStart(2, "0")}`;
+                  const typeColor = activityTypeColors[log.type];
+
+                  return (
+                    <div
+                      key={log.id}
+                      className="flex items-start gap-3 px-3 py-2 rounded-lg bg-[#080C10]/50"
+                    >
+                      <div
+                        className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ backgroundColor: typeColor }}
+                      />
+                      <span className="font-mono text-[11px] text-[#7B8A9A] flex-shrink-0 mt-0.5">{timeStr}</span>
+                      <span className="text-[13px] text-[#F0F4F8] flex-1">{log.message}</span>
+                      {log.details && (
+                        <span className="text-[11px] text-[#7B8A9A] flex-shrink-0">{log.details}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

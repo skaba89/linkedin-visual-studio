@@ -12,10 +12,14 @@ import MonitoringView from "@/components/app/MonitoringView";
 import SettingsView from "@/components/app/SettingsView";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
+import { useAgentSimulation } from "@/hooks/useAgentSimulation";
 
 export default function Home() {
   const { currentView } = useAppStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Run agent simulation in the background
+  useAgentSimulation();
 
   const renderView = () => {
     switch (currentView) {

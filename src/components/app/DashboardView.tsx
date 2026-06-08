@@ -1,6 +1,7 @@
 "use client";
 
-import { useAppStore, type AgentStatus } from "@/store/appStore";
+import { useAppStore, type AgentStatus, type ActivityLog } from "@/store/appStore";
+import { formatNumber } from "@/lib/format";
 import {
   Play,
   Pause,
@@ -12,6 +13,10 @@ import {
   Users,
   MessageSquare,
   CalendarCheck,
+  Zap,
+  FastForward,
+  ChevronRight,
+  Circle,
 } from "lucide-react";
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bg: string }> = {
@@ -21,13 +26,31 @@ const statusConfig: Record<AgentStatus, { label: string; color: string; bg: stri
   setup: { label: "À configurer", color: "text-[#7B8A9A]", bg: "bg-[#7B8A9A]/10 border-[#7B8A9A]/20" },
 };
 
+const activityTypeColors: Record<ActivityLog["type"], string> = {
+  info: "#00D4FF",
+  success: "#00C48C",
+  warning: "#F4A100",
+  error: "#E5263A",
+};
+
 export default function DashboardView() {
-  const { agents, metrics, leads, setCurrentView } = useAppStore();
+  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow } = useAppStore();
 
   const newLeads = leads.filter((l) => l.statut === "new").length;
   const contactedLeads = leads.filter((l) => l.statut === "contacted").length;
   const repliedLeads = leads.filter((l) => l.statut === "replied").length;
   const bookedLeads = leads.filter((l) => l.statut === "booked").length;
+
+  const activeAgentCount = agents.filter((a) => a.status === "active").length;
+  const recentLogs = activityLogs.slice(0, 8);
+
+  const handleRunAll = () => {
+    agents.forEach((agent) => {
+      if (agent.status === "active") {
+        runAgentNow(agent.id);
+      }
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -37,6 +60,69 @@ export default function DashboardView() {
         <p className="text-sm text-[#7B8A9A] mt-1">Vue d&apos;ensemble de votre système HERMÈS</p>
       </div>
 
+      {/* Simulation Control Bar */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Play/Pause button */}
+          {isSimulating ? (
+            <button
+              onClick={() => setIsSimulating(false)}
+              className="flex items-center gap-1.5 text-[13px] font-medium text-[#F4A100] bg-[#F4A100]/10 border border-[#F4A100]/20 px-3 py-1.5 rounded-lg hover:bg-[#F4A100]/15 transition-colors cursor-pointer"
+            >
+              <Pause className="w-3.5 h-3.5" /> Pause simulation
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsSimulating(true)}
+              className="flex items-center gap-1.5 text-[13px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-3 py-1.5 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5" /> Lancer la simulation
+            </button>
+          )}
+
+          {/* Speed selector */}
+          <div className="flex items-center gap-1 bg-[#18212F] border border-white/[0.04] rounded-lg p-0.5">
+            {[1, 2, 4].map((speed) => (
+              <button
+                key={speed}
+                onClick={() => setSimulationSpeed(speed)}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                  simulationSpeed === speed
+                    ? "bg-[#00D4FF]/15 text-[#00D4FF]"
+                    : "text-[#7B8A9A] hover:text-[#F0F4F8]"
+                }`}
+              >
+                x{speed}
+              </button>
+            ))}
+          </div>
+
+          {/* Run all agents */}
+          <button
+            onClick={handleRunAll}
+            className="flex items-center gap-1.5 text-[13px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5" /> Run all agents
+          </button>
+
+          {/* Status indicator */}
+          <div className="flex items-center gap-2 ml-auto text-[12px]">
+            {isSimulating ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-[#00C48C] animate-pulse" />
+                <span className="text-[#00C48C] font-medium">Simulation en cours</span>
+                <span className="text-[#7B8A9A]">— {activeAgentCount} agent{activeAgentCount !== 1 ? "s" : ""} actif{activeAgentCount !== 1 ? "s" : ""}</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 rounded-full bg-[#7B8A9A]" />
+                <span className="text-[#7B8A9A] font-medium">Simulation arrêtée</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Agent Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {agents.map((agent) => {
@@ -44,7 +130,9 @@ export default function DashboardView() {
           return (
             <div
               key={agent.id}
-              className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5 hover:border-[#00D4FF]/15 transition-colors"
+              className={`bg-[#0F1520] border border-white/[0.06] rounded-xl p-5 hover:border-[#00D4FF]/15 transition-colors ${
+                agent.status === "active" ? "ring-1 ring-[#00C48C]/20" : ""
+              }`}
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="font-mono text-[11px] text-[#00D4FF] tracking-[1px]">{agent.num}</span>
@@ -151,7 +239,7 @@ export default function DashboardView() {
             </div>
             <div className="space-y-2">
               <MetricRow label="Posts publiés" value={`${metrics.postsPublished}/semaine`} target="5" />
-              <MetricRow label="Impressions moy." value={metrics.impressionsMoy.toLocaleString()} target="2 000+" />
+              <MetricRow label="Impressions moy." value={formatNumber(metrics.impressionsMoy)} target="2 000+" />
               <MetricRow label="Taux engagement" value={`${metrics.tauxEngagement}%`} target="3%+" />
             </div>
           </div>
@@ -180,6 +268,77 @@ export default function DashboardView() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Live Activity Feed */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isSimulating ? "bg-[#00C48C] animate-pulse" : "bg-[#7B8A9A]"}`} />
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Activité en direct</h3>
+            {activityLogs.length > 0 && (
+              <span className="text-[11px] text-[#7B8A9A]">{activityLogs.length} entrée{activityLogs.length !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+          <button
+            onClick={() => setCurrentView("monitoring")}
+            className="flex items-center gap-1 text-[12px] text-[#00D4FF] hover:text-[#00D4FF]/80 transition-colors cursor-pointer"
+          >
+            Voir tout <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+
+        {recentLogs.length === 0 ? (
+          <div className="text-center py-8">
+            <Circle className="w-8 h-8 text-[#7B8A9A]/30 mx-auto mb-2" />
+            <p className="text-[13px] text-[#7B8A9A]">Aucune activité pour le moment</p>
+            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Lancez la simulation ou activez un agent pour commencer</p>
+          </div>
+        ) : (
+          <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar">
+            {recentLogs.map((log) => {
+              const time = new Date(log.timestamp);
+              const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}:${time.getSeconds().toString().padStart(2, "0")}`;
+              const typeColor = activityTypeColors[log.type];
+
+              return (
+                <div
+                  key={log.id}
+                  className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02] transition-colors"
+                >
+                  {/* Color indicator */}
+                  <div
+                    className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                    style={{ backgroundColor: typeColor }}
+                  />
+
+                  {/* Time */}
+                  <span className="font-mono text-[11px] text-[#7B8A9A] flex-shrink-0 mt-0.5">{timeStr}</span>
+
+                  {/* Agent badge */}
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
+                    style={{
+                      color: typeColor,
+                      backgroundColor: `${typeColor}11`,
+                      border: `1px solid ${typeColor}22`,
+                    }}
+                  >
+                    {log.agentName}
+                  </span>
+
+                  {/* Message */}
+                  <span className="text-[13px] text-[#F0F4F8] flex-1 min-w-0">{log.message}</span>
+
+                  {/* Details */}
+                  {log.details && (
+                    <span className="text-[11px] text-[#7B8A9A] flex-shrink-0">{log.details}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
