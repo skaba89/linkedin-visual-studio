@@ -91,6 +91,17 @@ export interface LinkedInPost {
   visibility: string;
 }
 
+export interface ScheduledPost {
+  id: string;
+  text: string;
+  visibility: "PUBLIC" | "CONNECTIONS";
+  scheduledAt: string;
+  status: "scheduled" | "publishing" | "published" | "failed";
+  createdAt: string;
+  publishedAt?: string;
+  error?: string;
+}
+
 export interface GeneratedPost {
   id: string;
   text: string;
@@ -231,6 +242,11 @@ interface AppState {
   updateLinkedInConfig: (updates: Partial<AppState["linkedInConfig"]>) => void;
   linkedInPosts: LinkedInPost[];
   addLinkedInPost: (post: LinkedInPost) => void;
+  scheduledPosts: ScheduledPost[];
+  addScheduledPost: (post: ScheduledPost) => void;
+  updateScheduledPost: (id: string, updates: Partial<ScheduledPost>) => void;
+  removeScheduledPost: (id: string) => void;
+  setScheduledPosts: (posts: ScheduledPost[]) => void;
 
   // AI-generated content
   generatedPosts: GeneratedPost[];
@@ -909,6 +925,27 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           linkedInPosts: [post, ...state.linkedInPosts],
         })),
+      scheduledPosts: [],
+      addScheduledPost: (post) =>
+        set((state) => ({
+          scheduledPosts: [...state.scheduledPosts, post].sort(
+            (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+          ),
+        })),
+      updateScheduledPost: (id, updates) =>
+        set((state) => ({
+          scheduledPosts: state.scheduledPosts.map((p) =>
+            p.id === id ? { ...p, ...updates } : p
+          ),
+        })),
+      removeScheduledPost: (id) =>
+        set((state) => ({
+          scheduledPosts: state.scheduledPosts.filter((p) => p.id !== id),
+        })),
+      setScheduledPosts: (posts) =>
+        set({ scheduledPosts: posts.sort(
+          (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+        ) }),
 
       // AI-generated content
       generatedPosts: [],
@@ -1124,7 +1161,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "hermes-app-store",
-      version: 3,
+      version: 4,
       migrate: (persistedState: Record<string, unknown>, version: number) => {
         // Migrate v1 → v2: apiKeys → providerApiKeys
         if (version < 2) {

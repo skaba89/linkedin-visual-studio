@@ -179,3 +179,43 @@ Stage Summary:
 - Fixed critical JS bug in profile picture parsing
 - Better error handling and auto-disconnect on expired tokens
 - Prominent UI warnings about registering the redirect URI in LinkedIn Developer Portal
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Add AI-powered LinkedIn features: smart posts, comments, scheduling, trending topics
+
+Work Log:
+- Created `/src/lib/linkedin-ai.ts` — AI content generation service with:
+  - `generatePostSuggestions()` — Generates 3 AI post suggestions with hook/topic/engagement/format
+  - `generateCommentSuggestions()` — Generates 3 contextual comments for a LinkedIn post
+  - `generateTrendingTopics()` — Identifies 5 trending topics with angles and hooks
+  - `improvePost()` — Analyzes and improves an existing post draft
+  - `getBestPostingTimes()` — Returns 7 optimal B2B posting time slots with scores
+  - `getNextBestTime()` — Returns the single best next posting time from now
+  - All functions have LLM path + French fallback templates
+  - Context builder uses ICP config + recent generated posts from Zustand store
+- Created `/src/app/api/linkedin/schedule/route.ts` — Post scheduling API:
+  - GET: List all scheduled posts (with auto-publish check every 30s)
+  - POST: Schedule a new post with date validation
+  - DELETE: Cancel a scheduled post
+  - Auto-publishing: Checks for due posts and publishes via LinkedIn API automatically
+- Updated `/src/store/appStore.ts`:
+  - Added `ScheduledPost` interface
+  - Added `scheduledPosts` state + CRUD actions (add/update/remove/set)
+  - Bumped persist version from 3 to 4 with migration
+- Rewrote `/src/components/app/LinkedInView.tsx` — Major upgrade from 4 to 6 tabs:
+  - **Connexion** — OAuth flow (kept as-is)
+  - **Publier** — AI post generation + scheduling toggle + "Meilleur moment" suggestion
+  - **Planifier** — Best time slots visualization + scheduled posts queue + auto-refresh
+  - **Feed** — AI comment suggestions on each post
+  - **Engager** — Keyword engagement (kept as-is)
+  - **Tendances** — Trending topics grid + content calendar for the week
+- Build verified successful with new `/api/linkedin/schedule` route
+
+Stage Summary:
+- LinkedIn module now has AI-powered content generation (posts, comments, trending topics)
+- Post scheduling with auto-publishing at optimal times
+- Best posting time analysis based on B2B engagement research
+- 6 tabs instead of 4 in the LinkedIn section
+- All features work with or without API key (fallback templates)
