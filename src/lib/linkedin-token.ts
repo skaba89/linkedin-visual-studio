@@ -39,7 +39,7 @@ export function setTokenCookie(response: Response, token: string): void {
   const encoded = encode(token);
   response.headers.append(
     "Set-Cookie",
-    `${TOKEN_COOKIE_NAME}=${encoded}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 60}` // 60 days
+    `${TOKEN_COOKIE_NAME}=${encoded}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 60}` // 60 days
   );
 }
 
@@ -49,7 +49,7 @@ export function setTokenCookie(response: Response, token: string): void {
 export function clearTokenCookie(response: Response): void {
   response.headers.append(
     "Set-Cookie",
-    `${TOKEN_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
+    `${TOKEN_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`
   );
 }
 
@@ -59,7 +59,7 @@ export function clearTokenCookie(response: Response): void {
 export function setStateCookie(response: Response, state: string): void {
   response.headers.append(
     "Set-Cookie",
-    `${STATE_COOKIE_NAME}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600` // 10 minutes
+    `${STATE_COOKIE_NAME}=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600` // 10 minutes
   );
 }
 
@@ -78,7 +78,7 @@ export async function getStateFromCookies(): Promise<string | null> {
 export function clearStateCookie(response: Response): void {
   response.headers.append(
     "Set-Cookie",
-    `${STATE_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
+    `${STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`
   );
 }
 

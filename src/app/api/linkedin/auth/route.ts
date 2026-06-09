@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   generateState,
   setStateCookie,
@@ -8,65 +9,104 @@ const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 
 const SCOPES = ["r_liteprofile", "r_emailaddress", "w_member_social", "r_member_social"];
 
-// HEAD request for client-side validation (doesn't redirect to LinkedIn)
-export async function HEAD(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const clientId = searchParams.get("client_id");
-
+/**
+ * Validates a LinkedIn Client ID.
+ * Returns an error message if invalid, null if valid.
+ */
+function validateClientId(clientId: string): string | null {
   if (!clientId) {
-    return NextResponse.json(
-      { error: "Client ID manquant. Configurez-le dans les Paramètres." },
-      { status: 400 }
-    );
+    return "Client ID manquant. Configurez-le dans les Paramètres.";
   }
-
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (emailPattern.test(clientId)) {
-    return NextResponse.json(
-      { error: "Le Client ID LinkedIn n'est pas une adresse email. C'est un identifiant alphanumérique (ex: 78abcdefghijk) obtenu depuis le LinkedIn Developer Portal." },
-      { status: 400 }
-    );
+    return "Le Client ID LinkedIn n'est pas une adresse email. C'est un identifiant alphanumérique (ex: 78abcdefghijk) obtenu depuis le LinkedIn Developer Portal.";
   }
-
   if (clientId.length < 3) {
-    return NextResponse.json(
-      { error: "Le Client ID LinkedIn semble trop court. Vérifiez la valeur dans les Paramètres." },
-      { status: 400 }
-    );
+    return "Le Client ID LinkedIn semble trop court. Vérifiez la valeur dans les Paramètres.";
   }
-
-  return NextResponse.json({ valid: true }, { status: 200 });
+  return null;
 }
 
+/**
+ * POST /api/linkedin/auth
+ * Step 1: Securely stores LinkedIn credentials in httpOnly cookies via POST body.
+ * The client_secret is NEVER exposed in the URL — it's sent in the request body
+ * and stored in a short-lived httpOnly cookie for the callback.
+ *
+ * The client_id can be passed in the URL since it's a public identifier,
+ * but we store it in a cookie too for consistency.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { clientId, clientSecret } = body;
+
+    const validationError = validateClientId(clientId);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
+    // Store credentials in short-lived httpOnly cookies
+    const response = NextResponse.json({ success: true }, { status: 200 });
+
+    response.headers.append(
+      "Set-Cookie",
+      `li_client_id=${clientId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`
+    );
+
+    if (clientSecret) {
+      response.headers.append(
+        "Set-Cookie",
+        `li_client_secret=${clientSecret}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`
+      );
+    }
+
+    return response;
+  } catch (error) {
+    console.error("LinkedIn prepare-auth error:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de la préparation de l'authentification LinkedIn" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * GET /api/linkedin/auth?origin=...&client_id=...
+ * Step 2: Redirects to LinkedIn OAuth authorization page.
+ *
+ * The client_id is a PUBLIC identifier and can safely be in the URL.
+ * The client_secret is read from the httpOnly cookie (set by POST step) —
+ * it is NEVER exposed in the URL.
+ *
+ * Flow:
+ * 1. Frontend POSTs credentials to this endpoint (body, not URL)
+ * 2. Frontend redirects browser to this endpoint with only origin + client_id in URL
+ * 3. Server reads client_secret from cookie, redirects to LinkedIn
+ */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const origin = searchParams.get("origin") || request.headers.get("origin") || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
-    // Read client ID from query params (sent from the frontend store)
-    const clientId = searchParams.get("client_id");
+    // client_id can come from URL (it's public) or from cookie (set by POST)
+    const clientIdFromUrl = searchParams.get("client_id");
+    const cookieStore = await cookies();
+    const clientIdFromCookie = cookieStore.get("li_client_id")?.value;
+
+    const clientId = clientIdFromUrl || clientIdFromCookie;
 
     if (!clientId) {
-      return NextResponse.json(
-        { error: "Client ID manquant. Configurez-le dans les Paramètres." },
-        { status: 400 }
+      return NextResponse.redirect(
+        new URL("/?linkedin=error&message=Client+ID+introuvable.+R%C3%A9essayez+la+connexion.", request.url)
       );
     }
 
-    // Validate that Client ID is not an email address
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (emailPattern.test(clientId)) {
-      return NextResponse.json(
-        { error: "Le Client ID LinkedIn n'est pas une adresse email. C'est un identifiant alphanumérique (ex: 78abcdefghijk) obtenu depuis le LinkedIn Developer Portal." },
-        { status: 400 }
-      );
-    }
-
-    // Validate that Client ID looks like a LinkedIn Client ID (alphanumeric, typically 7-14 chars or longer)
-    if (clientId.length < 3) {
-      return NextResponse.json(
-        { error: "Le Client ID LinkedIn semble trop court. Vérifiez la valeur dans les Paramètres." },
-        { status: 400 }
+    // Validate Client ID
+    const validationError = validateClientId(clientId);
+    if (validationError) {
+      return NextResponse.redirect(
+        new URL(`/?linkedin=error&message=${encodeURIComponent(validationError)}`, request.url)
       );
     }
 
@@ -86,26 +126,19 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(authUrl);
     setStateCookie(response, state);
 
-    // Store client_id and client_secret in short-lived cookies for the callback
-    response.headers.append(
-      "Set-Cookie",
-      `li_client_id=${clientId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`
-    );
-
-    const clientSecret = searchParams.get("client_secret");
-    if (clientSecret) {
+    // Ensure client_id cookie is set for the callback (in case it came from URL)
+    if (!clientIdFromCookie) {
       response.headers.append(
         "Set-Cookie",
-        `li_client_secret=${clientSecret}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`
+        `li_client_id=${clientId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`
       );
     }
 
     return response;
   } catch (error) {
     console.error("LinkedIn auth error:", error);
-    return NextResponse.json(
-      { error: "Erreur lors de l'initialisation de l'authentification LinkedIn" },
-      { status: 500 }
+    return NextResponse.redirect(
+      new URL("/?linkedin=error&message=Erreur+interne+lors+de+l'authentification.", request.url)
     );
   }
 }

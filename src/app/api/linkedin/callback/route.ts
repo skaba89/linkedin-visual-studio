@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const origin = request.headers.get("origin") || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+    const origin = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
     const redirectUri = `${origin}/api/linkedin/callback`;
 
     // Exchange authorization code for access token
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       const errorData = await tokenResponse.text();
       console.error("LinkedIn token exchange failed:", errorData);
       return NextResponse.redirect(
-        new URL(`/=?linkedin=error&message=${encodeURIComponent("Échec de l'échange de token")}`, request.url)
+        new URL(`/?linkedin=error&message=${encodeURIComponent("Échec de l'échange de token")}`, request.url)
       );
     }
 
@@ -95,8 +95,8 @@ export async function GET(request: NextRequest) {
 
     // Clean up OAuth state and client credential cookies
     clearStateCookie(response);
-    response.headers.append("Set-Cookie", "li_client_id=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
-    response.headers.append("Set-Cookie", "li_client_secret=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "li_client_id=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "li_client_secret=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 
     return response;
   } catch (error) {

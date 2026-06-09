@@ -151,25 +151,26 @@ function ConnexionTab() {
 
     setLoading(true);
     try {
-      const origin = window.location.origin;
-      const params = new URLSearchParams({
-        origin,
-        client_id: linkedInConfig.clientId,
+      // Step 1: POST credentials securely (stored in httpOnly cookies, NOT in URL)
+      const prepareRes = await fetch("/api/linkedin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: linkedInConfig.clientId,
+          clientSecret: linkedInConfig.clientSecret || undefined,
+        }),
       });
-      if (linkedInConfig.clientSecret) {
-        params.set("client_secret", linkedInConfig.clientSecret);
-      }
 
-      // First validate the client ID server-side before redirecting
-      const checkRes = await fetch(`/api/linkedin/auth?${params.toString()}`, { method: "HEAD" });
-      if (!checkRes.ok) {
-        const data = await checkRes.json().catch(() => ({ error: "Erreur de validation" }));
+      if (!prepareRes.ok) {
+        const data = await prepareRes.json().catch(() => ({ error: "Erreur de validation" }));
         setError(data.error || "Client ID invalide. Vérifiez votre configuration LinkedIn.");
         setLoading(false);
         return;
       }
 
-      window.location.href = `/api/linkedin/auth?${params.toString()}`;
+      // Step 2: Redirect to LinkedIn OAuth (client_id is public, client_secret is in cookie)
+      const origin = window.location.origin;
+      window.location.href = `/api/linkedin/auth?origin=${encodeURIComponent(origin)}&client_id=${encodeURIComponent(linkedInConfig.clientId)}`;
     } catch {
       setError("Erreur lors de la redirection vers LinkedIn.");
       setLoading(false);
@@ -247,6 +248,29 @@ function ConnexionTab() {
                   placeholder="WPLxxxxxxxxxx"
                   className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
                 />
+              </div>
+              <div>
+                <label className="text-[12px] font-medium text-[#7B8A9A] mb-1.5 block">Redirect URI (à configurer dans LinkedIn)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${typeof window !== "undefined" ? window.location.origin : ""}/api/linkedin/callback`}
+                    className="flex-1 bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#7B8A9A] font-mono focus:outline-none cursor-text"
+                  />
+                  <button
+                    onClick={() => {
+                      const uri = `${window.location.origin}/api/linkedin/callback`;
+                      navigator.clipboard.writeText(uri);
+                    }}
+                    className="flex items-center gap-1 text-[12px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-3 py-2 rounded-lg hover:bg-[#0A66C2]/15 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Copier
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#F4A100] mt-1">
+                  Ajoutez cette URL dans LinkedIn Developer Portal → Auth → Authorized redirect URLs
+                </p>
               </div>
             </div>
 
