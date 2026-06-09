@@ -692,9 +692,12 @@ export default function SettingsView() {
               onChange={(e) => updateLinkedInConfig({ redirectUri: e.target.value })}
               className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] font-mono placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#0A66C2]/30"
             />
-            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">
-              URL de callback à configurer dans votre app LinkedIn Developer
-            </p>
+            <div className="mt-1.5 flex items-start gap-1.5 text-[10px] text-[#F4A100]">
+              <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+              <span>
+                URL de callback à enregistrer dans LinkedIn Developer Portal → Auth → Authorized redirect URLs. Si vide, l'URL courante sera utilisée.
+              </span>
+            </div>
           </div>
           <div className="pt-3 border-t border-white/[0.06]">
             <button

@@ -48,8 +48,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const origin = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-    const redirectUri = `${origin}/api/linkedin/callback`;
+    // Use the exact same redirect_uri that was used in the auth request (stored in cookie)
+    const storedRedirectUri = cookieStore.get("li_redirect_uri_used")?.value;
+    const defaultRedirectUri = `${request.nextUrl.protocol}//${request.nextUrl.host}/api/linkedin/callback`;
+    const redirectUri = storedRedirectUri ? decodeURIComponent(storedRedirectUri) : defaultRedirectUri;
 
     // Exchange authorization code for access token
     const tokenParams = new URLSearchParams({
@@ -97,6 +99,8 @@ export async function GET(request: NextRequest) {
     clearStateCookie(response);
     response.headers.append("Set-Cookie", "li_client_id=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
     response.headers.append("Set-Cookie", "li_client_secret=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "li_redirect_uri=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "li_redirect_uri_used=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 
     return response;
   } catch (error) {

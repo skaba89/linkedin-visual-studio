@@ -7,7 +7,9 @@ import {
 
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 
-const SCOPES = ["r_liteprofile", "r_emailaddress", "w_member_social", "r_member_social"];
+// Use OpenID Connect scopes (LinkedIn's current standard)
+// Old scopes (r_liteprofile, r_emailaddress) are deprecated
+const SCOPES = ["openid", "profile", "email", "w_member_social"];
 
 /**
  * Validates a LinkedIn Client ID.
@@ -61,6 +63,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Store redirect_uri from frontend if provided
+    const { redirectUri } = body;
+    if (redirectUri) {
+      response.headers.append(
+        "Set-Cookie",
+        `li_redirect_uri=${encodeURIComponent(redirectUri)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`
+      );
+    }
+
     return response;
   } catch (error) {
     console.error("LinkedIn prepare-auth error:", error);
@@ -110,7 +121,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const redirectUri = `${origin}/api/linkedin/callback`;
+    // Compute the redirect URI — prefer the user-configured one from cookie
+    const configuredRedirectUri = cookieStore.get("li_redirect_uri")?.value;
+    const defaultRedirectUri = `${origin}/api/linkedin/callback`;
+    const redirectUri = configuredRedirectUri || defaultRedirectUri;
+
     const state = generateState();
 
     const params = new URLSearchParams({
@@ -125,6 +140,12 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(authUrl);
     setStateCookie(response, state);
+
+    // Store the redirect_uri used so callback can use the exact same one
+    response.headers.append(
+      "Set-Cookie",
+      `li_redirect_uri_used=${encodeURIComponent(redirectUri)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`
+    );
 
     // Ensure client_id cookie is set for the callback (in case it came from URL)
     if (!clientIdFromCookie) {

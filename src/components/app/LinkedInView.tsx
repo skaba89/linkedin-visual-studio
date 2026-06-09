@@ -118,6 +118,7 @@ function ConnexionTab() {
           headline: data.headline || null,
         });
       } else {
+        // Not connected — this is expected, not an error to show
         setLinkedInConnected(false);
         setLinkedInProfile(null);
       }
@@ -152,12 +153,14 @@ function ConnexionTab() {
     setLoading(true);
     try {
       // Step 1: POST credentials securely (stored in httpOnly cookies, NOT in URL)
+      const redirectUri = linkedInConfig.redirectUri || `${window.location.origin}/api/linkedin/callback`;
       const prepareRes = await fetch("/api/linkedin/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: linkedInConfig.clientId,
           clientSecret: linkedInConfig.clientSecret || undefined,
+          redirectUri: redirectUri,
         }),
       });
 
@@ -255,12 +258,12 @@ function ConnexionTab() {
                   <input
                     type="text"
                     readOnly
-                    value={`${typeof window !== "undefined" ? window.location.origin : ""}/api/linkedin/callback`}
+                    value={linkedInConfig.redirectUri || `${typeof window !== "undefined" ? window.location.origin : ""}/api/linkedin/callback`}
                     className="flex-1 bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#7B8A9A] font-mono focus:outline-none cursor-text"
                   />
                   <button
                     onClick={() => {
-                      const uri = `${window.location.origin}/api/linkedin/callback`;
+                      const uri = linkedInConfig.redirectUri || `${window.location.origin}/api/linkedin/callback`;
                       navigator.clipboard.writeText(uri);
                     }}
                     className="flex items-center gap-1 text-[12px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-3 py-2 rounded-lg hover:bg-[#0A66C2]/15 transition-colors cursor-pointer whitespace-nowrap"
@@ -268,9 +271,13 @@ function ConnexionTab() {
                     Copier
                   </button>
                 </div>
-                <p className="text-[11px] text-[#F4A100] mt-1">
-                  Ajoutez cette URL dans LinkedIn Developer Portal → Auth → Authorized redirect URLs
-                </p>
+                <div className="mt-2 flex items-start gap-1.5 text-[11px] text-[#F4A100] bg-[#F4A100]/5 border border-[#F4A100]/10 rounded-lg px-2.5 py-2">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Étape obligatoire :</strong> Ajoutez cette URL exacte dans LinkedIn Developer Portal → My Apps → Auth → Authorized redirect URLs.
+                    Si l'URL ne correspond pas, LinkedIn bloquera la connexion (erreur 403).
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -319,13 +326,13 @@ function ConnexionTab() {
 
         {/* Required Permissions */}
         <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
-          <h4 className="text-sm font-semibold text-[#F0F4F8] mb-3">Permissions requises</h4>
+          <h4 className="text-sm font-semibold text-[#F0F4F8] mb-3">Permissions requises (OpenID Connect)</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[
-              { scope: "r_liteprofile", desc: "Lire votre profil basique" },
-              { scope: "r_emailaddress", desc: "Lire votre adresse email" },
+              { scope: "openid", desc: "Authentification OpenID Connect" },
+              { scope: "profile", desc: "Lire votre profil (nom, photo)" },
+              { scope: "email", desc: "Lire votre adresse email" },
               { scope: "w_member_social", desc: "Publier en votre nom" },
-              { scope: "r_member_social", desc: "Lire vos interactions sociales" },
             ].map((perm) => (
               <div key={perm.scope} className="flex items-center gap-2 bg-[#18212F] rounded-lg px-3 py-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-[#00C48C] flex-shrink-0" />
@@ -399,7 +406,7 @@ function ConnexionTab() {
         <h4 className="text-sm font-semibold text-[#F0F4F8] mb-3">Détails de la connexion</h4>
         <div className="space-y-2">
           <InfoRow label="Token" value="••••••••••••••••" />
-          <InfoRow label="Portée" value="r_liteprofile, r_emailaddress, w_member_social, r_member_social" />
+          <InfoRow label="Portée" value="openid, profile, email, w_member_social" />
           <InfoRow label="Méthode" value="OAuth 2.0 Authorization Code" />
           <InfoRow label="Stockage" value="Cookie httpOnly sécurisé" />
           <InfoRow label="Statut" value="Valide" valueColor="text-[#00C48C]" />

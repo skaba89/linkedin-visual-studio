@@ -142,3 +142,40 @@ Stage Summary:
 - All agents have unique UI in the output tab with copy-to-clipboard
 - Dashboard shows all 8 agents with dedicated metrics
 - Zustand persist v3 migration ensures smooth upgrade from v2
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix LinkedIn OAuth 403 error, redirect_uri mismatch, and /me 401 error
+
+Work Log:
+- Diagnosed 401 on /api/linkedin/me: No valid token exists because OAuth flow never completed (403 from LinkedIn)
+- Root cause: redirect_uri uses dynamic preview URL not registered in LinkedIn Developer Portal
+- Callback route was computing redirect_uri differently from auth route (mismatch)
+- Profile picture parsing bug in /me route (invalid JS: `elements[element => element]?.[0]`)
+- LinkedIn API v2 scopes deprecated (r_liteprofile, r_emailaddress) in favor of OpenID Connect
+
+Fixes applied:
+1. Updated OAuth scopes from legacy (r_liteprofile, r_emailaddress) to OpenID Connect (openid, profile, email, w_member_social)
+2. Auth route GET: Now reads redirect_uri from cookie (user-configured) before falling back to computed origin
+3. Auth route GET: Stores the exact redirect_uri used in `li_redirect_uri_used` cookie (10 min TTL)
+4. Auth route POST: Now accepts and stores `redirectUri` from request body in `li_redirect_uri` cookie
+5. Callback route: Now reads `li_redirect_uri_used` cookie instead of computing from request origin (ensures exact match)
+6. Callback route: Cleans up redirect_uri cookies after token exchange
+7. /me route: Rewrote to support both OpenID Connect (v2/userinfo) and legacy (v2/me) APIs
+8. /me route: Fixed profile picture parsing bug (was `elements[element => element]?.[0]`, now `elements[elements.length - 1]`)
+9. /me route: Clears expired/invalid token on 401 response (auto-disconnect)
+10. /me route: Added email fetch support
+11. LinkedInView: Passes redirect_uri in POST body during auth preparation
+12. LinkedInView: Shows redirect_uri from config (user-editable) with prominent warning about LinkedIn Developer Portal setup
+13. LinkedInView: Updated permissions section to show new OpenID Connect scopes
+14. SettingsView: Better redirect_uri help text with warning about LinkedIn Developer Portal registration
+15. Build verified successful
+
+Stage Summary:
+- LinkedIn OAuth flow now properly handles redirect_uri across auth → callback (stored in cookies for consistency)
+- Users can configure a custom redirect_uri in Settings that matches their LinkedIn app registration
+- Updated to OpenID Connect scopes (LinkedIn's current standard)
+- Fixed critical JS bug in profile picture parsing
+- Better error handling and auto-disconnect on expired tokens
+- Prominent UI warnings about registering the redirect URI in LinkedIn Developer Portal
