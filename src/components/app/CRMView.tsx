@@ -4,234 +4,416 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Building2,
   Users,
-  Mail,
+  Kanban,
   Plus,
   Search,
-  X,
-  ChevronDown,
-  Trash2,
-  UserPlus,
-  DollarSign,
-  ArrowRight,
-  Eye,
-  MousePointer,
-  Reply,
-  Send,
+  Mail,
+  Phone,
   ExternalLink,
+  ChevronRight,
+  X,
+  GripVertical,
+  TrendingUp,
+  DollarSign,
+  Target,
+  Calendar,
+  Tag,
   RefreshCw,
+  Edit3,
+  Trash2,
+  ArrowRight,
 } from "lucide-react";
+import {
+  type ContactData,
+  type DealData,
+  type DealStage,
+  type PipelineSummary,
+  DEAL_STAGES,
+  getDealStageLabel,
+  getDealStageColor,
+  isDealActive,
+} from "@/lib/crm/types";
+import {
+  formatCurrency,
+  formatPipelineValue,
+  computePipelineSummary,
+} from "@/lib/crm/crm-engine";
 
-type Tab = "contacts" | "pipeline" | "emails";
+type CRMTab = "pipeline" | "contacts" | "deals";
 
-interface Contact {
-  id: string;
-  prenom: string;
-  nom: string;
-  email: string;
-  telephone?: string;
-  entreprise: string;
-  poste: string;
-  secteur: string;
-  siteWeb?: string;
-  linkedinUrl?: string;
-  source: string;
-  notes?: string;
-  tags: string[];
-  score: number;
-  createdAt: string;
-  updatedAt: string;
+// ---- Sub-components ----
+
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 80 ? "#00C48C" : score >= 60 ? "#00D4FF" : score >= 40 ? "#F4A100" : "#7B8A9A";
+  return (
+    <div className="flex items-center gap-1">
+      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: color + "20", color }}>
+        {score}
+      </div>
+    </div>
+  );
 }
 
-interface Deal {
-  id: string;
-  contactId: string;
-  titre: string;
-  valeur: number;
-  devise: string;
-  stage: string;
-  probabilite: number;
-  dateCloturePrevue?: string;
-  sourceCanal?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-  contact?: Contact | null;
+function StatusBadge({ status, color }: { status: string; color: string }) {
+  return (
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ backgroundColor: color + "10", color, borderColor: color + "30" }}>
+      {status}
+    </span>
+  );
 }
 
-interface PipelineStage {
-  id: string;
-  label: string;
-  color: string;
-  order: number;
-  deals: Deal[];
-  totalValue: number;
-  count: number;
+// ---- Contact Form Dialog ----
+
+function ContactFormDialog({
+  open,
+  onClose,
+  onSave,
+  contact,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (data: Partial<ContactData>) => void;
+  contact?: ContactData | null;
+}) {
+  const [form, setForm] = useState({
+    prenom: "",
+    nom: "",
+    email: "",
+    telephone: "",
+    entreprise: "",
+    poste: "",
+    secteur: "",
+    siteWeb: "",
+    linkedinUrl: "",
+    source: "manual",
+    notes: "",
+    tags: "",
+  });
+
+  useEffect(() => {
+    if (contact) {
+      setForm({
+        prenom: contact.prenom,
+        nom: contact.nom,
+        email: contact.email,
+        telephone: contact.telephone ?? "",
+        entreprise: contact.entreprise,
+        poste: contact.poste,
+        secteur: contact.secteur,
+        siteWeb: contact.siteWeb ?? "",
+        linkedinUrl: contact.linkedinUrl ?? "",
+        source: contact.source,
+        notes: contact.notes ?? "",
+        tags: contact.tags.join(", "),
+      });
+    } else {
+      setForm({ prenom: "", nom: "", email: "", telephone: "", entreprise: "", poste: "", secteur: "", siteWeb: "", linkedinUrl: "", source: "manual", notes: "", tags: "" });
+    }
+  }, [contact, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0F1520] border border-white/[0.08] rounded-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-[#F0F4F8]">{contact ? "Modifier le contact" : "Nouveau contact"}</h3>
+          <button onClick={onClose} className="text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <input value={form.prenom} onChange={(e) => setForm({ ...form, prenom: e.target.value })} placeholder="Prenom *" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} placeholder="Nom" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <input value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} placeholder="Telephone" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input value={form.entreprise} onChange={(e) => setForm({ ...form, entreprise: e.target.value })} placeholder="Entreprise" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <input value={form.poste} onChange={(e) => setForm({ ...form, poste: e.target.value })} placeholder="Poste" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input value={form.secteur} onChange={(e) => setForm({ ...form, secteur: e.target.value })} placeholder="Secteur" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
+              <option value="manual">Manuel</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="email">Email</option>
+              <option value="import">Import</option>
+              <option value="agent-qualif">Agent Qualification</option>
+              <option value="website">Site web</option>
+            </select>
+          </div>
+          <input value={form.siteWeb} onChange={(e) => setForm({ ...form, siteWeb: e.target.value })} placeholder="Site web" className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <input value={form.linkedinUrl} onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })} placeholder="URL LinkedIn" className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (separes par virgules)" className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={2} className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => { onSave({ ...form, tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) }); onClose(); }} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
+              {contact ? "Enregistrer" : "Creer"}
+            </button>
+            <button onClick={onClose} className="text-[13px] font-medium text-[#7B8A9A] bg-[#18212F] px-4 py-2 rounded-lg hover:text-[#F0F4F8] transition-colors cursor-pointer">
+              Annuler
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-interface EmailSequence {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  steps: Array<{
-    order: number;
-    subject: string;
-    body: string;
-    delayDays: number;
-  }>;
+// ---- Deal Form Dialog ----
+
+function DealFormDialog({
+  open,
+  onClose,
+  onSave,
+  contacts,
+  deal,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (data: Partial<DealData>) => void;
+  contacts: ContactData[];
+  deal?: DealData | null;
+}) {
+  const [form, setForm] = useState({
+    contactId: "",
+    titre: "",
+    valeur: 0,
+    devise: "EUR",
+    stage: "prospect" as DealStage,
+    probabilite: 20,
+    dateCloturePrevue: "",
+    sourceCanal: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (deal) {
+      setForm({
+        contactId: deal.contactId,
+        titre: deal.titre,
+        valeur: deal.valeur,
+        devise: deal.devise,
+        stage: deal.stage,
+        probabilite: deal.probabilite,
+        dateCloturePrevue: deal.dateCloturePrevue ?? "",
+        sourceCanal: deal.sourceCanal ?? "",
+        notes: deal.notes ?? "",
+      });
+    } else {
+      setForm({ contactId: "", titre: "", valeur: 0, devise: "EUR", stage: "prospect", probabilite: 20, dateCloturePrevue: "", sourceCanal: "", notes: "" });
+    }
+  }, [deal, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0F1520] border border-white/[0.08] rounded-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-[#F0F4F8]">{deal ? "Modifier le deal" : "Nouveau deal"}</h3>
+          <button onClick={onClose} className="text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <select value={form.contactId} onChange={(e) => setForm({ ...form, contactId: e.target.value })} className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
+            <option value="">Selectionner un contact *</option>
+            {contacts.map((c) => (
+              <option key={c.id} value={c.id}>{c.prenom} {c.nom} - {c.entreprise}</option>
+            ))}
+          </select>
+          <input value={form.titre} onChange={(e) => setForm({ ...form, titre: e.target.value })} placeholder="Titre du deal *" className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <div className="grid grid-cols-2 gap-3">
+            <input type="number" value={form.valeur} onChange={(e) => setForm({ ...form, valeur: parseFloat(e.target.value) || 0 })} placeholder="Valeur (EUR)" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <select value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value as DealStage })} className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
+              {DEAL_STAGES.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input type="number" min={0} max={100} value={form.probabilite} onChange={(e) => setForm({ ...form, probabilite: parseInt(e.target.value) || 0 })} placeholder="Probabilite %" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+            <input type="date" value={form.dateCloturePrevue} onChange={(e) => setForm({ ...form, dateCloturePrevue: e.target.value })} className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30" />
+          </div>
+          <select value={form.sourceCanal} onChange={(e) => setForm({ ...form, sourceCanal: e.target.value })} className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
+            <option value="">Canal source</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="email">Email</option>
+            <option value="website">Site web</option>
+            <option value="referral">Referral</option>
+            <option value="manual">Manuel</option>
+          </select>
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={2} className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => { onSave(form); onClose(); }} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
+              {deal ? "Enregistrer" : "Creer"}
+            </button>
+            <button onClick={onClose} className="text-[13px] font-medium text-[#7B8A9A] bg-[#18212F] px-4 py-2 rounded-lg hover:text-[#F0F4F8] transition-colors cursor-pointer">
+              Annuler
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-interface EmailMessage {
-  id: string;
-  contactId: string;
-  sequenceId?: string;
-  subject: string;
-  body: string;
-  status: string;
-  sentAt?: string;
-  openedAt?: string;
-  clickedAt?: string;
-  repliedAt?: string;
-  createdAt: string;
+// ---- Deal Card for Kanban ----
+
+function DealCard({ deal, contacts, onAdvance, onEdit }: { deal: DealData; contacts: ContactData[]; onAdvance: (id: string) => void; onEdit: (deal: DealData) => void }) {
+  const contact = contacts.find((c) => c.id === deal.contactId);
+  return (
+    <div className="bg-[#18212F] border border-white/[0.06] rounded-lg p-3 hover:border-[#00D4FF]/20 transition-colors group">
+      <div className="flex items-start justify-between mb-2">
+        <div className="text-[13px] font-medium text-[#F0F4F8] leading-tight">{deal.titre}</div>
+        <button onClick={() => onEdit(deal)} className="opacity-0 group-hover:opacity-100 text-[#7B8A9A] hover:text-[#00D4FF] transition-all cursor-pointer">
+          <Edit3 className="w-3 h-3" />
+        </button>
+      </div>
+      {contact && (
+        <div className="text-[11px] text-[#7B8A9A] mb-2">
+          {contact.prenom} {contact.nom} - {contact.entreprise}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-semibold text-[#00D4FF]">{formatCurrency(deal.valeur, deal.devise)}</span>
+        <span className="text-[10px] text-[#7B8A9A]">{deal.probabilite}%</span>
+      </div>
+      {isDealActive(deal.stage) && (
+        <button
+          onClick={() => onAdvance(deal.id)}
+          className="mt-2 w-full flex items-center justify-center gap-1 text-[11px] text-[#00C48C] bg-[#00C48C]/5 border border-[#00C48C]/10 rounded-md py-1 hover:bg-[#00C48C]/10 transition-colors cursor-pointer"
+        >
+          Avancer <ArrowRight className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
 }
 
-const STAGES = [
-  { id: "prospect", label: "Prospect", color: "#7B8A9A" },
-  { id: "qualification", label: "Qualification", color: "#00D4FF" },
-  { id: "proposition", label: "Proposition", color: "#A78BFA" },
-  { id: "negociation", label: "Négociation", color: "#F4A100" },
-  { id: "closed_won", label: "Closed Won", color: "#00C48C" },
-  { id: "closed_lost", label: "Closed Lost", color: "#E5263A" },
-];
+// ---- Main CRMView ----
 
 export default function CRMView() {
-  const [tab, setTab] = useState<Tab>("contacts");
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
-  const [emailSequences, setEmailSequences] = useState<EmailSequence[]>([]);
-  const [emailMessages, setEmailMessages] = useState<EmailMessage[]>([]);
+  const [tab, setTab] = useState<CRMTab>("pipeline");
+  const [contacts, setContacts] = useState<ContactData[]>([]);
+  const [deals, setDeals] = useState<DealData[]>([]);
+  const [pipelineData, setPipelineData] = useState<PipelineSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [showAddContact, setShowAddContact] = useState(false);
-  const [showAddDeal, setShowAddDeal] = useState(false);
-  const [newContact, setNewContact] = useState({ prenom: "", nom: "", email: "", entreprise: "", poste: "", secteur: "", source: "manual" });
-  const [newDeal, setNewDeal] = useState({ titre: "", contactId: "", valeur: 0, stage: "prospect" });
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [showDealForm, setShowDealForm] = useState(false);
+  const [editingContact, setEditingContact] = useState<ContactData | null>(null);
+  const [editingDeal, setEditingDeal] = useState<DealData | null>(null);
 
-  const fetchContacts = useCallback(async () => {
-    const res = await fetch("/api/data/contacts");
-    if (res.ok) setContacts(await res.json());
-  }, []);
-
-  const fetchPipeline = useCallback(async () => {
-    const res = await fetch("/api/data/pipeline");
-    if (res.ok) {
-      const data = await res.json();
-      setPipelineStages(data.stages || []);
+  const fetchData = useCallback(async () => {
+    try {
+      const [contactsRes, dealsRes, pipelineRes] = await Promise.all([
+        fetch("/api/data/contacts"),
+        fetch("/api/data/deals"),
+        fetch("/api/data/pipeline"),
+      ]);
+      if (contactsRes.ok) setContacts(await contactsRes.json());
+      if (dealsRes.ok) setDeals(await dealsRes.json());
+      if (pipelineRes.ok) {
+        const pData = await pipelineRes.json();
+        // Compute full summary from pipeline data
+        const summary = computePipelineSummary(dealsRes.ok ? await dealsRes.clone().json() : []);
+        // Override with pipeline API data for stages
+        setPipelineData({ ...summary, stages: pData.stages });
+      }
+    } catch (e) {
+      console.error("Failed to fetch CRM data:", e);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const fetchEmails = useCallback(async () => {
-    const [seqRes, msgRes] = await Promise.all([
-      fetch("/api/data/email-sequences"),
-      fetch("/api/data/email-messages"),
-    ]);
-    if (seqRes.ok) setEmailSequences(await seqRes.json());
-    if (msgRes.ok) setEmailMessages(await msgRes.json());
-  }, []);
-
-  const fetchAll = useCallback(async () => {
-    await Promise.all([fetchContacts(), fetchPipeline(), fetchEmails()]);
-    setLoading(false);
-  }, [fetchContacts, fetchPipeline, fetchEmails]);
-
   useEffect(() => {
-    queueMicrotask(() => { fetchAll(); });
-  }, [fetchAll]);
+    fetchData();
+  }, [fetchData]);
 
-  const addContact = async () => {
-    if (!newContact.prenom) return;
-    await fetch("/api/data/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newContact),
-    });
-    setNewContact({ prenom: "", nom: "", email: "", entreprise: "", poste: "", secteur: "", source: "manual" });
-    setShowAddContact(false);
-    fetchContacts();
-    fetchPipeline();
+  // Contact CRUD
+  const saveContact = async (data: Partial<ContactData>) => {
+    if (editingContact) {
+      await fetch("/api/data/contacts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingContact.id, ...data }),
+      });
+    } else {
+      await fetch("/api/data/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    }
+    setEditingContact(null);
+    fetchData();
   };
 
   const deleteContact = async (id: string) => {
     await fetch(`/api/data/contacts?id=${id}`, { method: "DELETE" });
-    fetchContacts();
+    fetchData();
   };
 
-  const addDeal = async () => {
-    if (!newDeal.titre || !newDeal.contactId) return;
-    await fetch("/api/data/deals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newDeal),
-    });
-    setNewDeal({ titre: "", contactId: "", valeur: 0, stage: "prospect" });
-    setShowAddDeal(false);
-    fetchPipeline();
+  // Deal CRUD
+  const saveDeal = async (data: Partial<DealData>) => {
+    if (editingDeal) {
+      await fetch("/api/data/deals", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingDeal.id, ...data }),
+      });
+    } else {
+      await fetch("/api/data/deals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    }
+    setEditingDeal(null);
+    fetchData();
   };
 
-  const moveDeal = async (dealId: string, newStage: string) => {
+  const advanceDeal = async (dealId: string) => {
+    const deal = deals.find((d) => d.id === dealId);
+    if (!deal) return;
+    const stageOrder: DealStage[] = ["prospect", "qualification", "proposition", "negociation", "closed_won"];
+    const idx = stageOrder.indexOf(deal.stage);
+    if (idx === -1 || idx >= stageOrder.length - 1) return;
+    const nextStage = stageOrder[idx + 1];
+    const probMap: Record<DealStage, number> = { prospect: 10, qualification: 25, proposition: 50, negociation: 75, closed_won: 100, closed_lost: 0 };
     await fetch("/api/data/deals", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: dealId, stage: newStage }),
+      body: JSON.stringify({ id: dealId, stage: nextStage, probabilite: probMap[nextStage] }),
     });
-    fetchPipeline();
+    fetchData();
   };
 
   const deleteDeal = async (id: string) => {
     await fetch(`/api/data/deals?id=${id}`, { method: "DELETE" });
-    fetchPipeline();
+    fetchData();
   };
 
+  // Filtered contacts
   const filteredContacts = contacts.filter((c) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
     return (
-      c.prenom.toLowerCase().includes(s) ||
-      c.nom.toLowerCase().includes(s) ||
-      c.email.toLowerCase().includes(s) ||
-      c.entreprise.toLowerCase().includes(s)
+      c.prenom.toLowerCase().includes(q) ||
+      c.nom.toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q) ||
+      c.entreprise.toLowerCase().includes(q) ||
+      c.poste.toLowerCase().includes(q)
     );
   });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "sent": return <Send className="w-3 h-3 text-[#7B8A9A]" />;
-      case "opened": return <Eye className="w-3 h-3 text-[#00D4FF]" />;
-      case "clicked": return <MousePointer className="w-3 h-3 text-[#A78BFA]" />;
-      case "replied": return <Reply className="w-3 h-3 text-[#00C48C]" />;
-      default: return <Mail className="w-3 h-3 text-[#7B8A9A]" />;
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      draft: "Brouillon",
-      queued: "En attente",
-      sent: "Envoyé",
-      opened: "Ouvert",
-      clicked: "Cliqué",
-      replied: "Répondu",
-      bounced: "Rebondi",
-      failed: "Échoué",
-    };
-    return labels[status] || status;
-  };
-
-  const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+  const tabs: { id: CRMTab; label: string; icon: React.ElementType }[] = [
+    { id: "pipeline", label: "Pipeline", icon: Kanban },
     { id: "contacts", label: "Contacts", icon: Users },
-    { id: "pipeline", label: "Pipeline", icon: Building2 },
-    { id: "emails", label: "Emails", icon: Mail },
+    { id: "deals", label: "Deals", icon: DollarSign },
   ];
 
   if (loading) {
@@ -245,12 +427,54 @@ export default function CRMView() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-[#F0F4F8] tracking-[-0.5px]">CRM & Pipeline</h1>
-          <p className="text-sm text-[#7B8A9A] mt-1">{contacts.length} contacts · {pipelineStages.reduce((sum, s) => sum + s.count, 0)} deals</p>
+          <p className="text-sm text-[#7B8A9A] mt-1">Gestion des contacts, pipeline commercial et deals</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setEditingContact(null); setShowContactForm(true); }}
+            className="flex items-center gap-1.5 text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-3 py-1.5 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Contact
+          </button>
+          <button
+            onClick={() => { setEditingDeal(null); setShowDealForm(true); }}
+            className="flex items-center gap-1.5 text-[13px] font-medium text-[#080C10] bg-[#A78BFA] px-3 py-1.5 rounded-lg hover:bg-[#8B5CF6] transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Deal
+          </button>
         </div>
       </div>
+
+      {/* Pipeline Summary Cards */}
+      {pipelineData && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-3">
+            <div className="text-[10px] text-[#7B8A9A] uppercase tracking-wide">Pipeline total</div>
+            <div className="text-lg font-semibold text-[#00D4FF] mt-1">{formatPipelineValue(pipelineData.totalPipelineValue)}</div>
+          </div>
+          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-3">
+            <div className="text-[10px] text-[#7B8A9A] uppercase tracking-wide">Pipeline pondere</div>
+            <div className="text-lg font-semibold text-[#A78BFA] mt-1">{formatPipelineValue(pipelineData.weightedPipeline)}</div>
+          </div>
+          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-3">
+            <div className="text-[10px] text-[#7B8A9A] uppercase tracking-wide">Deals actifs</div>
+            <div className="text-lg font-semibold text-[#F0F4F8] mt-1">{pipelineData.activeDeals}</div>
+          </div>
+          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-3">
+            <div className="text-[10px] text-[#7B8A9A] uppercase tracking-wide">Taux de gain</div>
+            <div className="text-lg font-semibold text-[#00C48C] mt-1">{pipelineData.winRate.toFixed(0)}%</div>
+          </div>
+          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-3">
+            <div className="text-[10px] text-[#7B8A9A] uppercase tracking-wide">Taille moyenne</div>
+            <div className="text-lg font-semibold text-[#F4A100] mt-1">{formatCurrency(pipelineData.avgDealSize)}</div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-[#0F1520] p-1 rounded-lg border border-white/[0.06]">
@@ -268,259 +492,200 @@ export default function CRMView() {
         ))}
       </div>
 
+      {/* Search bar for contacts/deals */}
+      {tab !== "pipeline" && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7B8A9A]" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Rechercher..."
+            className="w-full bg-[#0F1520] border border-white/[0.06] rounded-lg pl-10 pr-4 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30"
+          />
+        </div>
+      )}
+
+      {/* Pipeline Tab — Kanban */}
+      {tab === "pipeline" && (
+        <div className="overflow-x-auto">
+          <div className="flex gap-3 min-w-[900px] pb-4">
+            {DEAL_STAGES.filter((s) => s.id !== "closed_lost").map((stageConfig) => {
+              const stageDeals = deals.filter((d) => d.stage === stageConfig.id);
+              const stageTotal = stageDeals.reduce((sum, d) => sum + d.valeur, 0);
+              return (
+                <div key={stageConfig.id} className="flex-1 min-w-[200px]">
+                  {/* Stage Header */}
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stageConfig.color }} />
+                      <span className="text-[12px] font-semibold text-[#F0F4F8]">{stageConfig.label}</span>
+                    </div>
+                    <span className="text-[10px] text-[#7B8A9A]">{stageDeals.length}</span>
+                  </div>
+                  <div className="text-[10px] text-[#7B8A9A] mb-2 px-1">{formatCurrency(stageTotal)}</div>
+
+                  {/* Deal Cards */}
+                  <div className="space-y-2">
+                    {stageDeals.map((deal) => (
+                      <DealCard
+                        key={deal.id}
+                        deal={deal}
+                        contacts={contacts}
+                        onAdvance={advanceDeal}
+                        onEdit={(d) => { setEditingDeal(d); setShowDealForm(true); }}
+                      />
+                    ))}
+                    {stageDeals.length === 0 && (
+                      <div className="bg-[#0F1520] border border-white/[0.04] border-dashed rounded-lg p-4 text-center">
+                        <p className="text-[11px] text-[#7B8A9A]/50">Aucun deal</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Contacts Tab */}
       {tab === "contacts" && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="flex-1 relative">
-              <Search className="w-4 h-4 text-[#7B8A9A] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher un contact…"
-                className="w-full bg-[#0F1520] border border-white/[0.06] rounded-lg pl-10 pr-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30"
-              />
+        <div className="space-y-2">
+          {filteredContacts.length === 0 ? (
+            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-8 text-center">
+              <Users className="w-8 h-8 text-[#7B8A9A] mx-auto mb-2" />
+              <p className="text-[13px] text-[#7B8A9A]">Aucun contact trouve</p>
+              <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Ajoutez votre premier contact ou importez depuis LinkedIn</p>
             </div>
-            <button
-              onClick={() => setShowAddContact(!showAddContact)}
-              className="flex items-center gap-1.5 text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-3 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer"
-            >
-              {showAddContact ? <X className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
-              {showAddContact ? "Annuler" : "Ajouter"}
-            </button>
-          </div>
-
-          {showAddContact && (
-            <div className="bg-[#0F1520] border border-[#00D4FF]/20 rounded-xl p-5 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <input value={newContact.prenom} onChange={(e) => setNewContact({ ...newContact, prenom: e.target.value })} placeholder="Prénom *" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <input value={newContact.nom} onChange={(e) => setNewContact({ ...newContact, nom: e.target.value })} placeholder="Nom" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <input value={newContact.email} onChange={(e) => setNewContact({ ...newContact, email: e.target.value })} placeholder="Email" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <input value={newContact.entreprise} onChange={(e) => setNewContact({ ...newContact, entreprise: e.target.value })} placeholder="Entreprise" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <input value={newContact.poste} onChange={(e) => setNewContact({ ...newContact, poste: e.target.value })} placeholder="Poste" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <input value={newContact.secteur} onChange={(e) => setNewContact({ ...newContact, secteur: e.target.value })} placeholder="Secteur" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-              </div>
-              <button onClick={addContact} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
-                Ajouter le contact
-              </button>
-            </div>
-          )}
-
-          {/* Contact Table */}
-          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
+          ) : (
+            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/[0.06]">
-                    <th className="text-left text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-3">Contact</th>
-                    <th className="text-left text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-3">Entreprise</th>
-                    <th className="text-left text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-3">Email</th>
-                    <th className="text-left text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-3">Source</th>
-                    <th className="text-right text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-3">Actions</th>
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Contact</th>
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Entreprise</th>
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Source</th>
+                    <th className="text-center text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Score</th>
+                    <th className="text-right text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredContacts.map((contact) => (
-                    <tr key={contact.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                      <td className="px-4 py-3">
-                        <div className="text-[13px] font-medium text-[#F0F4F8]">{contact.prenom} {contact.nom}</div>
-                        <div className="text-[11px] text-[#7B8A9A]">{contact.poste}</div>
+                  {filteredContacts.map((c) => (
+                    <tr key={c.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="px-4 py-2.5">
+                        <div className="text-[13px] font-medium text-[#F0F4F8]">{c.prenom} {c.nom}</div>
+                        <div className="text-[11px] text-[#7B8A9A]">{c.email}</div>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="text-[13px] text-[#F0F4F8]">{contact.entreprise}</div>
-                        <div className="text-[11px] text-[#7B8A9A]">{contact.secteur}</div>
+                      <td className="px-4 py-2.5">
+                        <div className="text-[12px] text-[#F0F4F8]">{c.entreprise}</div>
+                        <div className="text-[11px] text-[#7B8A9A]">{c.poste}</div>
                       </td>
-                      <td className="px-4 py-3 text-[12px] text-[#7B8A9A]">{contact.email}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#18212F] text-[#7B8A9A]">{contact.source}</span>
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={c.source} color={c.source === "linkedin" ? "#0A66C2" : c.source === "email" ? "#00D4FF" : "#7B8A9A"} />
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => deleteContact(contact.id)} className="text-[#7B8A9A] hover:text-[#E5263A] transition-colors cursor-pointer">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <td className="px-4 py-2.5 text-center">
+                        <ScoreBadge score={c.score} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center justify-end gap-1">
+                          {c.email && (
+                            <a href={`mailto:${c.email}`} className="text-[#7B8A9A] hover:text-[#00D4FF] transition-colors"><Mail className="w-3.5 h-3.5" /></a>
+                          )}
+                          {c.linkedinUrl && (
+                            <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-[#7B8A9A] hover:text-[#0A66C2] transition-colors"><ExternalLink className="w-3.5 h-3.5" /></a>
+                          )}
+                          <button onClick={() => { setEditingContact(c); setShowContactForm(true); }} className="text-[#7B8A9A] hover:text-[#00D4FF] transition-colors cursor-pointer"><Edit3 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => deleteContact(c.id)} className="text-[#7B8A9A] hover:text-[#E5263A] transition-colors cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {filteredContacts.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-[#7B8A9A]">Aucun contact</td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Pipeline Tab */}
-      {tab === "pipeline" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Pipeline Kanban</h3>
-            <button
-              onClick={() => setShowAddDeal(!showAddDeal)}
-              className="flex items-center gap-1.5 text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-3 py-1.5 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Deal
-            </button>
-          </div>
-
-          {showAddDeal && (
-            <div className="bg-[#0F1520] border border-[#00D4FF]/20 rounded-xl p-5 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input value={newDeal.titre} onChange={(e) => setNewDeal({ ...newDeal, titre: e.target.value })} placeholder="Titre du deal *" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <select value={newDeal.contactId} onChange={(e) => setNewDeal({ ...newDeal, contactId: e.target.value })} className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
-                  <option value="">Contact *</option>
-                  {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>{c.prenom} {c.nom} ({c.entreprise})</option>
-                  ))}
-                </select>
-                <input type="number" value={newDeal.valeur || ""} onChange={(e) => setNewDeal({ ...newDeal, valeur: Number(e.target.value) })} placeholder="Valeur (€)" className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
-                <select value={newDeal.stage} onChange={(e) => setNewDeal({ ...newDeal, stage: e.target.value })} className="bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] focus:outline-none focus:border-[#00D4FF]/30">
-                  {STAGES.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-              <button onClick={addDeal} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
-                Créer le deal
-              </button>
+      {/* Deals Tab — Table View */}
+      {tab === "deals" && (
+        <div className="space-y-2">
+          {deals.length === 0 ? (
+            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-8 text-center">
+              <DollarSign className="w-8 h-8 text-[#7B8A9A] mx-auto mb-2" />
+              <p className="text-[13px] text-[#7B8A9A]">Aucun deal</p>
+              <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Creez votre premier deal pour commencer a suivre votre pipeline</p>
+            </div>
+          ) : (
+            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Deal</th>
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Contact</th>
+                    <th className="text-left text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Stage</th>
+                    <th className="text-right text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Valeur</th>
+                    <th className="text-center text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Prob.</th>
+                    <th className="text-right text-[10px] font-semibold text-[#7B8A9A] uppercase tracking-wide px-4 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deals.map((d) => {
+                    const contact = contacts.find((c) => c.id === d.contactId);
+                    return (
+                      <tr key={d.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-2.5">
+                          <div className="text-[13px] font-medium text-[#F0F4F8]">{d.titre}</div>
+                          {d.sourceCanal && <div className="text-[10px] text-[#7B8A9A]">via {d.sourceCanal}</div>}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="text-[12px] text-[#F0F4F8]">{contact ? `${contact.prenom} ${contact.nom}` : "-"}</div>
+                          <div className="text-[11px] text-[#7B8A9A]">{contact?.entreprise}</div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <StatusBadge status={getDealStageLabel(d.stage)} color={getDealStageColor(d.stage)} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <span className="text-[13px] font-semibold text-[#00D4FF]">{formatCurrency(d.valeur, d.devise)}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="text-[12px] text-[#7B8A9A]">{d.probabilite}%</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center justify-end gap-1">
+                            {isDealActive(d.stage) && (
+                              <button onClick={() => advanceDeal(d.id)} className="text-[#00C48C] hover:text-[#00E5A0] transition-colors cursor-pointer" title="Avancer">
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button onClick={() => { setEditingDeal(d); setShowDealForm(true); }} className="text-[#7B8A9A] hover:text-[#00D4FF] transition-colors cursor-pointer"><Edit3 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => deleteDeal(d.id)} className="text-[#7B8A9A] hover:text-[#E5263A] transition-colors cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-
-          {/* Kanban Board */}
-          <div className="flex gap-3 overflow-x-auto pb-4">
-            {pipelineStages.map((stage) => (
-              <div key={stage.id} className="flex-shrink-0 w-[220px]">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
-                    <span className="text-[12px] font-semibold text-[#F0F4F8]">{stage.label}</span>
-                  </div>
-                  <span className="text-[11px] text-[#7B8A9A]">{stage.count}</span>
-                </div>
-                <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-2 min-h-[200px] space-y-2">
-                  {stage.totalValue > 0 && (
-                    <div className="text-[10px] text-[#7B8A9A] px-1 mb-1">{stage.totalValue.toFixed(0)}€</div>
-                  )}
-                  {stage.deals.map((deal) => (
-                    <div key={deal.id} className="bg-[#18212F] border border-white/[0.06] rounded-lg p-3 group">
-                      <div className="text-[12px] font-medium text-[#F0F4F8] truncate">{deal.titre}</div>
-                      <div className="text-[11px] text-[#7B8A9A] mt-0.5">{deal.valeur.toFixed(0)}€</div>
-                      {deal.contact && (
-                        <div className="text-[10px] text-[#7B8A9A]/60 mt-1">{deal.contact.prenom} {deal.contact.nom}</div>
-                      )}
-                      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {STAGES.filter((s) => s.id !== stage.id).slice(0, 3).map((s) => (
-                          <button
-                            key={s.id}
-                            onClick={() => moveDeal(deal.id, s.id)}
-                            className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"
-                            style={{ borderColor: s.color + "40" }}
-                          >
-                            → {s.label}
-                          </button>
-                        ))}
-                        <button onClick={() => deleteDeal(deal.id)} className="text-[#7B8A9A] hover:text-[#E5263A] cursor-pointer ml-auto">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {stage.deals.length === 0 && (
-                    <div className="text-center py-4 text-[11px] text-[#7B8A9A]/40">Vide</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
-      {/* Emails Tab */}
-      {tab === "emails" && (
-        <div className="space-y-4">
-          {/* Sequences */}
-          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-[#F0F4F8] mb-3">Séquences email</h3>
-            {emailSequences.length === 0 ? (
-              <div className="text-center py-4 text-[13px] text-[#7B8A9A]">Aucune séquence configurée</div>
-            ) : (
-              <div className="space-y-2">
-                {emailSequences.map((seq) => (
-                  <div key={seq.id} className="flex items-center justify-between p-3 bg-[#18212F] rounded-lg">
-                    <div>
-                      <div className="text-[13px] font-medium text-[#F0F4F8]">{seq.name}</div>
-                      <div className="text-[11px] text-[#7B8A9A]">{seq.steps.length} étapes · {seq.status}</div>
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                      seq.status === "active" ? "bg-[#00C48C]/10 text-[#00C48C] border-[#00C48C]/20" :
-                      seq.status === "draft" ? "bg-[#7B8A9A]/10 text-[#7B8A9A] border-[#7B8A9A]/20" :
-                      "bg-[#F4A100]/10 text-[#F4A100] border-[#F4A100]/20"
-                    }`}>
-                      {seq.status === "active" ? "Active" : seq.status === "draft" ? "Brouillon" : "En pause"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Message History */}
-          <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-[#F0F4F8] mb-3">Historique des messages</h3>
-            {emailMessages.length === 0 ? (
-              <div className="text-center py-4 text-[13px] text-[#7B8A9A]">Aucun message envoyé</div>
-            ) : (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {emailMessages.map((msg) => (
-                  <div key={msg.id} className="flex items-start gap-3 p-3 bg-[#18212F] rounded-lg">
-                    {getStatusIcon(msg.status)}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-medium text-[#F0F4F8] truncate">{msg.subject}</div>
-                      <div className="text-[11px] text-[#7B8A9A] mt-0.5 flex items-center gap-2">
-                        <span>{getStatusLabel(msg.status)}</span>
-                        {msg.openedAt && <span className="text-[#00D4FF]">· Ouvert</span>}
-                        {msg.clickedAt && <span className="text-[#A78BFA]">· Cliqué</span>}
-                        {msg.repliedAt && <span className="text-[#00C48C]">· Répondu</span>}
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-[#7B8A9A]">
-                      {new Date(msg.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Stats Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4 text-center">
-              <Send className="w-4 h-4 text-[#7B8A9A] mx-auto mb-1" />
-              <div className="text-lg font-semibold text-[#F0F4F8]">{emailMessages.filter((m) => m.status === "sent" || m.status === "opened" || m.status === "clicked" || m.status === "replied").length}</div>
-              <div className="text-[10px] text-[#7B8A9A]">Envoyés</div>
-            </div>
-            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4 text-center">
-              <Eye className="w-4 h-4 text-[#00D4FF] mx-auto mb-1" />
-              <div className="text-lg font-semibold text-[#F0F4F8]">{emailMessages.filter((m) => m.openedAt).length}</div>
-              <div className="text-[10px] text-[#7B8A9A]">Ouverts</div>
-            </div>
-            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4 text-center">
-              <MousePointer className="w-4 h-4 text-[#A78BFA] mx-auto mb-1" />
-              <div className="text-lg font-semibold text-[#F0F4F8]">{emailMessages.filter((m) => m.clickedAt).length}</div>
-              <div className="text-[10px] text-[#7B8A9A]">Cliqués</div>
-            </div>
-            <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4 text-center">
-              <Reply className="w-4 h-4 text-[#00C48C] mx-auto mb-1" />
-              <div className="text-lg font-semibold text-[#F0F4F8]">{emailMessages.filter((m) => m.repliedAt).length}</div>
-              <div className="text-[10px] text-[#7B8A9A]">Réponses</div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Dialogs */}
+      <ContactFormDialog
+        open={showContactForm}
+        onClose={() => { setShowContactForm(false); setEditingContact(null); }}
+        onSave={saveContact}
+        contact={editingContact}
+      />
+      <DealFormDialog
+        open={showDealForm}
+        onClose={() => { setShowDealForm(false); setEditingDeal(null); }}
+        onSave={saveDeal}
+        contacts={contacts}
+        deal={editingDeal}
+      />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import LinkedInView from "@/components/app/LinkedInView";
 import OrchestratorView from "@/components/app/OrchestratorView";
 import AnalyticsView from "@/components/app/AnalyticsView";
 import CRMView from "@/components/app/CRMView";
+import EmailView from "@/components/app/EmailView";
 import { Menu, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
@@ -91,8 +92,9 @@ export default function Home() {
       case "analytics":
         return <AnalyticsView />;
       case "crm":
-      case "email":
         return <CRMView />;
+      case "email":
+        return <EmailView />;
       default:
         return <DashboardView />;
     }

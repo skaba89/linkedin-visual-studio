@@ -1,331 +1,312 @@
-// HERMÈS CRM Engine — Contact, Deal, and Pipeline management
+// ============================================================
+// CRM Engine — Phase 3: Multi-canal
+// Scoring, Pipeline Management, Contact Intelligence
+// ============================================================
 
-import { CRMContact, CRMDeal, DealStage, DEAL_STAGES, PipelineStats, ContactTimelineEntry } from "./types";
-import { db, ensureDefaultUser } from "@/lib/db";
+import {
+  type ContactData,
+  type ContactScoreInput,
+  type DealData,
+  type DealStage,
+  type DealStageConfig,
+  type PipelineStageView,
+  type PipelineSummary,
+  type CRMFilter,
+  type DealFilter,
+  type ContactActivity,
+  DEAL_STAGES,
+  DEAL_STAGE_MAP,
+  isDealActive,
+} from "./types";
 
-export class CRMEngine {
-  async createContact(data: Omit<CRMContact, "id" | "createdAt" | "updatedAt">): Promise<CRMContact> {
-    await ensureDefaultUser();
+// ---- Contact Scoring ----
 
-    const contact = await db.contact.create({
-      data: {
-        userId: "default",
-        prenom: data.prenom,
-        nom: data.nom,
-        email: data.email,
-        telephone: data.telephone,
-        entreprise: data.entreprise,
-        poste: data.poste,
-        secteur: data.secteur,
-        siteWeb: data.siteWeb,
-        linkedinUrl: data.linkedinUrl,
-        source: data.source || "manual",
-        notes: data.notes,
-        tags: JSON.stringify(data.tags || []),
-        score: data.score || 0,
-      },
-    });
+const ICP_TITLES = ["ceo", "co-fondateur", "fondateur", "cmo", "directeur marketing", "head of growth", "vp sales", "directeur commercial", "directrice commerciale"];
+const ICP_SECTORS = ["saas", "b2b", "conseil", "agence", "formation", "marTech", "logiciel"];
+const ICP_COMPANY_SIZE_KEYWORDS = ["startup", "scale-up", "pme", "sme"];
 
-    return this.mapContact(contact);
-  }
+export function calculateContactScore(input: ContactScoreInput): number {
+  let score = 0;
 
-  async updateContact(id: string, data: Partial<CRMContact>): Promise<CRMContact | null> {
-    const updateData: Record<string, unknown> = {};
-    if (data.prenom !== undefined) updateData.prenom = data.prenom;
-    if (data.nom !== undefined) updateData.nom = data.nom;
-    if (data.email !== undefined) updateData.email = data.email;
-    if (data.telephone !== undefined) updateData.telephone = data.telephone;
-    if (data.entreprise !== undefined) updateData.entreprise = data.entreprise;
-    if (data.poste !== undefined) updateData.poste = data.poste;
-    if (data.secteur !== undefined) updateData.secteur = data.secteur;
-    if (data.siteWeb !== undefined) updateData.siteWeb = data.siteWeb;
-    if (data.linkedinUrl !== undefined) updateData.linkedinUrl = data.linkedinUrl;
-    if (data.source !== undefined) updateData.source = data.source;
-    if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.tags !== undefined) updateData.tags = JSON.stringify(data.tags);
-    if (data.score !== undefined) updateData.score = data.score;
+  // Title match (0-35 pts)
+  const titleLower = input.poste.toLowerCase();
+  const titleMatch = ICP_TITLES.some((t) => titleLower.includes(t));
+  if (titleMatch) score += 35;
+  else if (ICP_TITLES.some((t) => titleLower.split(" ").some((w) => t.includes(w)))) score += 15;
 
-    try {
-      const contact = await db.contact.update({
-        where: { id },
-        data: updateData,
-      });
-      return this.mapContact(contact);
-    } catch {
-      return null;
-    }
-  }
+  // Sector match (0-25 pts)
+  const sectorLower = input.secteur.toLowerCase();
+  const sectorMatch = ICP_SECTORS.some((s) => sectorLower.includes(s));
+  if (sectorMatch) score += 25;
+  else score += 5;
 
-  async getContacts(filters?: {
-    search?: string;
-    entreprise?: string;
-    secteur?: string;
-    source?: string;
-    minScore?: number;
-    tags?: string[];
-  }): Promise<CRMContact[]> {
-    const where: Record<string, unknown> = { userId: "default" };
+  // Company keywords (0-15 pts)
+  const companyLower = input.entreprise.toLowerCase();
+  const companyMatch = ICP_COMPANY_SIZE_KEYWORDS.some((k) => companyLower.includes(k));
+  if (companyMatch) score += 15;
 
-    if (filters?.entreprise) where.entreprise = { contains: filters.entreprise };
-    if (filters?.secteur) where.secteur = { contains: filters.secteur };
-    if (filters?.source) where.source = filters.source;
-    if (filters?.minScore) where.score = { gte: filters.minScore };
+  // Contact completeness (0-15 pts)
+  if (input.hasEmail) score += 5;
+  if (input.hasLinkedin) score += 5;
+  if (input.hasPhone) score += 5;
 
-    if (filters?.search) {
-      where.OR = [
-        { prenom: { contains: filters.search } },
-        { nom: { contains: filters.search } },
-        { email: { contains: filters.search } },
-        { entreprise: { contains: filters.search } },
-      ];
-    }
+  // Source quality (0-10 pts)
+  const sourceScores: Record<string, number> = {
+    "agent-qualif": 10,
+    "agent-prospection": 8,
+    linkedin: 7,
+    email: 6,
+    "agent-engagement": 5,
+    website: 4,
+    import: 3,
+    manual: 2,
+  };
+  score += sourceScores[input.source] ?? 2;
 
-    const contacts = await db.contact.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
-
-    return contacts.map(this.mapContact);
-  }
-
-  async deleteContact(id: string): Promise<boolean> {
-    try {
-      await db.contact.delete({ where: { id } });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async createDeal(data: Omit<CRMDeal, "id" | "createdAt" | "updatedAt">): Promise<CRMDeal> {
-    await ensureDefaultUser();
-
-    const deal = await db.deal.create({
-      data: {
-        userId: "default",
-        contactId: data.contactId,
-        titre: data.titre,
-        valeur: data.valeur,
-        devise: data.devise || "EUR",
-        stage: data.stage || "prospect",
-        probabilite: data.probabilite || 20,
-        dateCloturePrevue: data.dateCloturePrevue,
-        sourceCanal: data.sourceCanal,
-        notes: data.notes,
-      },
-    });
-
-    return this.mapDeal(deal);
-  }
-
-  async updateDeal(id: string, data: Partial<CRMDeal>): Promise<CRMDeal | null> {
-    const updateData: Record<string, unknown> = {};
-    if (data.titre !== undefined) updateData.titre = data.titre;
-    if (data.valeur !== undefined) updateData.valeur = data.valeur;
-    if (data.devise !== undefined) updateData.devise = data.devise;
-    if (data.stage !== undefined) updateData.stage = data.stage;
-    if (data.probabilite !== undefined) updateData.probabilite = data.probabilite;
-    if (data.dateCloturePrevue !== undefined) updateData.dateCloturePrevue = data.dateCloturePrevue;
-    if (data.sourceCanal !== undefined) updateData.sourceCanal = data.sourceCanal;
-    if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.contactId !== undefined) updateData.contactId = data.contactId;
-
-    try {
-      const deal = await db.deal.update({
-        where: { id },
-        data: updateData,
-      });
-      return this.mapDeal(deal);
-    } catch {
-      return null;
-    }
-  }
-
-  async getDeals(filters?: { stage?: DealStage; contactId?: string; minValeur?: number }): Promise<CRMDeal[]> {
-    const where: Record<string, unknown> = { userId: "default" };
-
-    if (filters?.stage) where.stage = filters.stage;
-    if (filters?.contactId) where.contactId = filters.contactId;
-    if (filters?.minValeur) where.valeur = { gte: filters.minValeur };
-
-    const deals = await db.deal.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
-
-    return deals.map(this.mapDeal);
-  }
-
-  async deleteDeal(id: string): Promise<boolean> {
-    try {
-      await db.deal.delete({ where: { id } });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async moveDealStage(dealId: string, newStage: DealStage): Promise<CRMDeal | null> {
-    // Auto-adjust probability based on stage
-    const stageProbability: Record<DealStage, number> = {
-      prospect: 10,
-      qualification: 25,
-      proposition: 50,
-      negociation: 75,
-      closed_won: 100,
-      closed_lost: 0,
-    };
-
-    return this.updateDeal(dealId, {
-      stage: newStage,
-      probabilite: stageProbability[newStage],
-    } as Partial<CRMDeal>);
-  }
-
-  async getPipelineStats(): Promise<PipelineStats> {
-    const deals = await db.deal.findMany({ where: { userId: "default" } });
-
-    const dealsByStage = {} as Record<DealStage, { count: number; totalValue: number }>;
-
-    for (const stage of DEAL_STAGES) {
-      const stageDeals = deals.filter((d) => d.stage === stage.id);
-      dealsByStage[stage.id] = {
-        count: stageDeals.length,
-        totalValue: stageDeals.reduce((sum, d) => sum + d.valeur, 0),
-      };
-    }
-
-    const totalPipelineValue = deals
-      .filter((d) => d.stage !== "closed_won" && d.stage !== "closed_lost")
-      .reduce((sum, d) => sum + d.valeur, 0);
-
-    const weightedPipelineValue = deals
-      .filter((d) => d.stage !== "closed_won" && d.stage !== "closed_lost")
-      .reduce((sum, d) => sum + d.valeur * (d.probabilite / 100), 0);
-
-    const activeDeals = deals.filter((d) => d.stage !== "closed_won" && d.stage !== "closed_lost");
-    const averageDealSize = activeDeals.length > 0 ? totalPipelineValue / activeDeals.length : 0;
-
-    const wonDeals = deals.filter((d) => d.stage === "closed_won");
-    const lostDeals = deals.filter((d) => d.stage === "closed_lost");
-    const totalClosed = wonDeals.length + lostDeals.length;
-    const winRate = totalClosed > 0 ? wonDeals.length / totalClosed : 0;
-
-    return {
-      dealsByStage,
-      totalPipelineValue,
-      weightedPipelineValue,
-      averageDealSize,
-      winRate,
-    };
-  }
-
-  async getContactTimeline(contactId: string): Promise<ContactTimelineEntry[]> {
-    const timeline: ContactTimelineEntry[] = [];
-
-    // Get emails
-    const emails = await db.emailMessage.findMany({
-      where: { contactId, userId: "default" },
-      orderBy: { createdAt: "desc" },
-    });
-
-    for (const email of emails) {
-      timeline.push({
-        type: "email",
-        date: email.createdAt,
-        content: `${email.subject} — ${email.status}`,
-        metadata: { status: email.status, openedAt: email.openedAt, clickedAt: email.clickedAt, repliedAt: email.repliedAt },
-      });
-    }
-
-    // Get activity logs related to this contact
-    const activities = await db.activityLog.findMany({
-      where: { userId: "default" },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
-
-    for (const activity of activities) {
-      if (activity.details?.includes(contactId)) {
-        timeline.push({
-          type: "activity",
-          date: activity.createdAt,
-          content: activity.message,
-          metadata: { agentId: activity.agentId, type: activity.type },
-        });
-      }
-    }
-
-    // Sort by date descending
-    timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    return timeline;
-  }
-
-  async linkLeadToContact(leadId: string, contactId?: string): Promise<CRMContact | null> {
-    const lead = await db.lead.findUnique({ where: { id: leadId } });
-    if (!lead) return null;
-
-    if (contactId) {
-      // Update existing contact
-      return this.updateContact(contactId, {
-        score: lead.score,
-        notes: `Lead LinkedIn: ${lead.postSujet}`,
-      } as Partial<CRMContact>);
-    }
-
-    // Create new contact from lead
-    return this.createContact({
-      prenom: lead.prenom,
-      nom: "",
-      email: "",
-      entreprise: lead.entreprise,
-      poste: lead.poste,
-      secteur: lead.secteur,
-      source: "linkedin",
-      tags: [lead.action, `score:${lead.score}`],
-      score: lead.score,
-    });
-  }
-
-  private mapContact(c: any): CRMContact {
-    return {
-      id: c.id,
-      prenom: c.prenom,
-      nom: c.nom || "",
-      email: c.email || "",
-      telephone: c.telephone || undefined,
-      entreprise: c.entreprise || "",
-      poste: c.poste || "",
-      secteur: c.secteur || "",
-      siteWeb: c.siteWeb || undefined,
-      linkedinUrl: c.linkedinUrl || undefined,
-      source: c.source || "manual",
-      notes: c.notes || undefined,
-      tags: typeof c.tags === "string" ? JSON.parse(c.tags) : (c.tags || []),
-      score: c.score || 0,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-    };
-  }
-
-  private mapDeal(d: any): CRMDeal {
-    return {
-      id: d.id,
-      contactId: d.contactId,
-      titre: d.titre,
-      valeur: d.valeur || 0,
-      devise: d.devise || "EUR",
-      stage: (d.stage || "prospect") as DealStage,
-      probabilite: d.probabilite || 0,
-      dateCloturePrevue: d.dateCloturePrevue || undefined,
-      sourceCanal: d.sourceCanal || undefined,
-      notes: d.notes || undefined,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    };
-  }
+  return Math.min(100, Math.max(0, score));
 }
 
-// Singleton
-export const crmEngine = new CRMEngine();
+// ---- Pipeline Computation ----
+
+export function computePipelineSummary(
+  deals: DealData[],
+  stages?: DealStageConfig[]
+): PipelineSummary {
+  const stageConfigs = stages ?? DEAL_STAGES;
+
+  const stageViews: PipelineStageView[] = stageConfigs.map((stageConfig) => {
+    const stageDeals = deals.filter((d) => d.stage === stageConfig.id);
+    const totalValue = stageDeals.reduce((sum, d) => sum + d.valeur, 0);
+    const weightedValue = stageDeals.reduce(
+      (sum, d) => sum + d.valeur * (d.probabilite / 100),
+      0
+    );
+
+    return {
+      stage: stageConfig,
+      deals: stageDeals,
+      totalValue,
+      weightedValue,
+      count: stageDeals.length,
+    };
+  });
+
+  const activeDeals = deals.filter((d) => isDealActive(d.stage));
+  const wonDeals = deals.filter((d) => d.stage === "closed_won");
+  const lostDeals = deals.filter((d) => d.stage === "closed_lost");
+
+  const totalPipelineValue = activeDeals.reduce((sum, d) => sum + d.valeur, 0);
+  const weightedPipeline = activeDeals.reduce(
+    (sum, d) => sum + d.valeur * (d.probabilite / 100),
+    0
+  );
+
+  const closedDeals = wonDeals.length + lostDeals.length;
+  const winRate = closedDeals > 0 ? (wonDeals.length / closedDeals) * 100 : 0;
+  const avgDealSize = deals.length > 0
+    ? deals.reduce((sum, d) => sum + d.valeur, 0) / deals.length
+    : 0;
+
+  return {
+    stages: stageViews,
+    totalPipelineValue,
+    weightedPipeline,
+    totalDeals: deals.length,
+    activeDeals: activeDeals.length,
+    wonDeals: wonDeals.length,
+    lostDeals: lostDeals.length,
+    winRate,
+    avgDealSize,
+  };
+}
+
+// ---- Deal Stage Probabilities ----
+
+const DEFAULT_PROBABILITIES: Record<DealStage, number> = {
+  prospect: 10,
+  qualification: 25,
+  proposition: 50,
+  negociation: 75,
+  closed_won: 100,
+  closed_lost: 0,
+};
+
+export function getDefaultProbability(stage: DealStage): number {
+  return DEFAULT_PROBABILITIES[stage] ?? 20;
+}
+
+export function advanceDealStage(currentStage: DealStage): DealStage | null {
+  const stageOrder: DealStage[] = [
+    "prospect",
+    "qualification",
+    "proposition",
+    "negociation",
+    "closed_won",
+  ];
+  const idx = stageOrder.indexOf(currentStage);
+  if (idx === -1 || idx >= stageOrder.length - 1) return null;
+  return stageOrder[idx + 1];
+}
+
+// ---- Filtering ----
+
+export function filterContacts(contacts: ContactData[], filter: CRMFilter): ContactData[] {
+  let result = [...contacts];
+
+  if (filter.search) {
+    const s = filter.search.toLowerCase();
+    result = result.filter(
+      (c) =>
+        c.prenom.toLowerCase().includes(s) ||
+        c.nom.toLowerCase().includes(s) ||
+        c.email.toLowerCase().includes(s) ||
+        c.entreprise.toLowerCase().includes(s) ||
+        c.poste.toLowerCase().includes(s)
+    );
+  }
+
+  if (filter.entreprise) {
+    const e = filter.entreprise.toLowerCase();
+    result = result.filter((c) => c.entreprise.toLowerCase().includes(e));
+  }
+
+  if (filter.secteur) {
+    const s = filter.secteur.toLowerCase();
+    result = result.filter((c) => c.secteur.toLowerCase().includes(s));
+  }
+
+  if (filter.source) {
+    result = result.filter((c) => c.source === filter.source);
+  }
+
+  if (filter.minScore !== undefined) {
+    result = result.filter((c) => c.score >= (filter.minScore ?? 0));
+  }
+
+  if (filter.tags && filter.tags.length > 0) {
+    result = result.filter((c) =>
+      filter.tags!.some((tag) => c.tags.includes(tag))
+    );
+  }
+
+  return result;
+}
+
+export function filterDeals(deals: DealData[], filter: DealFilter): DealData[] {
+  let result = [...deals];
+
+  if (filter.stage) {
+    result = result.filter((d) => d.stage === filter.stage);
+  }
+
+  if (filter.contactId) {
+    result = result.filter((d) => d.contactId === filter.contactId);
+  }
+
+  if (filter.sourceCanal) {
+    result = result.filter((d) => d.sourceCanal === filter.sourceCanal);
+  }
+
+  if (filter.minValue !== undefined) {
+    result = result.filter((d) => d.valeur >= (filter.minValue ?? 0));
+  }
+
+  return result;
+}
+
+// ---- Activity Timeline ----
+
+export function buildContactTimeline(
+  contactId: string,
+  emailMessages: Array<{
+    id: string;
+    subject: string;
+    status: string;
+    sentAt: string | null;
+    openedAt: string | null;
+    repliedAt: string | null;
+    createdAt: string;
+  }>,
+  deals: Array<{
+    id: string;
+    titre: string;
+    stage: string;
+    createdAt: string;
+    updatedAt: string;
+  }>
+): ContactActivity[] {
+  const activities: ContactActivity[] = [];
+
+  // Email activities
+  for (const msg of emailMessages) {
+    if (msg.sentAt) {
+      activities.push({
+        id: `email-sent-${msg.id}`,
+        type: "email_sent",
+        description: `Email envoye: ${msg.subject}`,
+        timestamp: msg.sentAt,
+        metadata: { subject: msg.subject },
+      });
+    }
+    if (msg.openedAt) {
+      activities.push({
+        id: `email-opened-${msg.id}`,
+        type: "email_opened",
+        description: `Email ouvert: ${msg.subject}`,
+        timestamp: msg.openedAt,
+        metadata: { subject: msg.subject },
+      });
+    }
+    if (msg.repliedAt) {
+      activities.push({
+        id: `email-replied-${msg.id}`,
+        type: "email_replied",
+        description: `Reponse recue: ${msg.subject}`,
+        timestamp: msg.repliedAt,
+        metadata: { subject: msg.subject },
+      });
+    }
+  }
+
+  // Deal activities
+  for (const deal of deals) {
+    activities.push({
+      id: `deal-created-${deal.id}`,
+      type: "deal_created",
+      description: `Deal cree: ${deal.titre}`,
+      timestamp: deal.createdAt,
+      metadata: { titre: deal.titre, stage: deal.stage },
+    });
+    if (deal.updatedAt !== deal.createdAt) {
+      activities.push({
+        id: `deal-updated-${deal.id}`,
+        type: "deal_stage_changed",
+        description: `Deal mis a jour: ${deal.titre} -> ${DEAL_STAGE_MAP.get(deal.stage as DealStage)?.label ?? deal.stage}`,
+        timestamp: deal.updatedAt,
+        metadata: { titre: deal.titre, stage: deal.stage },
+      });
+    }
+  }
+
+  // Sort by timestamp descending
+  activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return activities;
+}
+
+// ---- Format Helpers ----
+
+export function formatCurrency(value: number, devise: string = "EUR"): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: devise,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export function formatPipelineValue(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M EUR`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K EUR`;
+  return `${value.toFixed(0)} EUR`;
+}

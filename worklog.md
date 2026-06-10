@@ -342,3 +342,51 @@ Stage Summary:
 - Multi-canal: Email agent with 5 templates + CRM engine with pipeline stats + Kanban board
 - Enhanced Leads view with Kanban, bulk actions, advanced filters, CSV export, CRM linking
 - All API routes functional with proper error handling and default user creation
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Phase 3 Multi-canal — Implement full CRM, Email Agent, and Pipeline UI
+
+Work Log:
+- Reviewed existing codebase: Prisma models (Contact, Deal, EmailSequence, EmailMessage, PipelineStage) already exist
+- Found existing API routes: contacts, deals, email-sequences, email-messages, email-send, pipeline
+- Found missing: lib modules (crm, email), UI components (CRMView, EmailView), proper routing
+
+3A. CRM Module — Created /src/lib/crm/:
+- types.ts: ContactData, DealData, DealStage, DEAL_STAGES (6 stages with colors/labels), PipelineStageView, PipelineSummary, ContactScoreInput, CRMFilter, DealFilter, ContactActivity, format helpers
+- crm-engine.ts: calculateContactScore (ICP scoring 0-100), computePipelineSummary, getDefaultProbability, advanceDealStage, filterContacts, filterDeals, buildContactTimeline, formatCurrency, formatPipelineValue
+- index.ts: Re-exports
+
+3B. Email Module — Created /src/lib/email/:
+- types.ts: EmailSequenceData, EmailSequenceStep, EmailMessageData, EmailStats, SequenceEnrollment, EmailTemplate, 6 DEFAULT_EMAIL_TEMPLATES with French content, renderEmailTemplate (variable substitution), status color/label maps, trigger event labels
+- email-engine.ts: computeEmailStats, getNextStep, computeNextStepDate (skip weekends), createEnrollment, getDefaultTemplates, getTemplateByCategory, renderAndPrepareEmail, validateSequenceSteps, groupMessagesByContact, buildSequenceFromTemplate, getDefaultSequences (3 predefined sequences)
+- index.ts: Re-exports
+
+3C. CRMView.tsx — Full CRM view with 3 tabs:
+- Pipeline: Kanban board with 5 active columns (prospect→closed_won), deal cards with contact info, advance deal button, pipeline summary cards (total, weighted, active, win rate, avg size)
+- Contacts: Searchable table with score badges, source badges, email/linkedin links, edit/delete actions, contact form dialog with all fields
+- Deals: Table view with stage badges, value formatting, advance/edit/delete actions, deal form dialog with contact selector
+
+3D. EmailView.tsx — Full Email Agent view with 3 tabs:
+- Sequences: Sequence cards with step flow visualization, status toggle (active/paused), sequence stats, create/edit dialog with step builder, template application per step
+- Messages: Filterable inbox (all/sent/opened/replied/bounced), message cards with status badges and timeline, sequence association
+- Composer: Full email composer with recipient selector, template shortcuts, send/draft buttons
+- Stats: 5 email stat cards (sent, opened, clicked, replied, open rate)
+
+3E. Routing Integration:
+- Updated page.tsx: Separated "crm" → CRMView and "email" → EmailView (previously both mapped to CRMView)
+- Added EmailView import
+
+Verification:
+- npx next build: PASS (0 TypeScript errors, 29 API routes)
+- CRM Engine tests: PASS (contact scoring, pipeline summary, stage advancement, currency formatting)
+- Email Engine tests: PASS (stats computation, template rendering, sequence validation, default sequences)
+- DB CRUD tests: PASS (Contact, Deal, EmailSequence, EmailMessage, PipelineStage, ActivityLog)
+
+Stage Summary:
+- Phase 3 Multi-canal fully implemented with 2 lib modules, 2 major UI components, proper routing
+- CRM: Contact scoring, Kanban pipeline, deal management, format helpers
+- Email: 6 templates, 3 default sequences, stats engine, inbox with filters, composer
+- All 27 Prisma models remain intact, all 29 API routes functional
+- Dark theme consistency maintained (#0A0E14/#0F1520/#18212F, #00D4FF accent)
