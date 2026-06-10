@@ -219,3 +219,126 @@ Stage Summary:
 - Best posting time analysis based on B2B engagement research
 - 6 tabs instead of 4 in the LinkedIn section
 - All features work with or without API key (fallback templates)
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Rebuild HERMÈS project with ALL 3 phases: Orchestrateur, Feedback/A/B Testing, Multi-canal CRM
+
+Work Log:
+
+**Phase 1: Fondations — Orchestrateur, DB Migration, Compliance**
+
+1.1 Prisma Schema — Replaced entire schema with 27 models:
+- User (with all relation arrays), UserSettings, AgentConfig, ICPConfig, Lead, GeneratedPost, GeneratedMessage, GeneratedComment, MarketBriefing, NurturingAction, PerformanceInsight, ConnectionRequest, LinkedInAuth, LinkedInPost, ScheduledPost, Metrics, ActivityLog, ApiMetric, ComplianceLog, MessageTemplate, Experiment, ExperimentResult, FeedbackEvent, ContentMetric, Contact, Deal, EmailSequence, EmailMessage, PipelineStage
+- Proper indexes and unique constraints for all models
+- All models have userId with User relation and onDelete: Cascade
+
+1.2 Orchestrator Module — Created /src/lib/orchestrator/:
+- types.ts: 26 AgentEventType strings, AgentEvent, Trigger (discriminated union), HeartbeatRule, OrchestratorState, OrchestratorMetrics, AgentDependency, DEFAULT_DEPENDENCIES (7 edges), AGENT_IDS, AGENT_NAMES
+- event-bus.ts: HermesEventBus class with on, once, onAny, emit, emitEvent, getHistory, clearHistory, removeAllListeners — singleton eventBus
+- agent-orchestrator.ts: AgentOrchestrator class with initialize, start, stop, pause, resume, getState, getMetrics, getRules, toggleRule, runAgentNow, processAgentEvent — singleton orchestrator
+- heartbeat-parser.ts: parseHeartbeat, parseAllHeartbeats, getRulesForEvent, getScheduleRules, getTriggerDelayMs, parseDelay — parses 8 agent heartbeat configs into rules
+- index.ts: Re-exports all types and singletons
+
+1.3 Compliance Module — Created /src/lib/compliance/:
+- types.ts: LinkedInLimits, ComplianceStatus, ComplianceLevel, WarmupDayConfig (14-day schedule), MimicryConfig, DEFAULT_LIMITS (strict/moderate/aggressive), WARMUP_SCHEDULE, DEFAULT_MIMICRY
+- linkedin-compliance.ts: LinkedInComplianceManager with canPerformAction, recordAction, waitForMimicryDelay, getStatus, startWarmup, getWarmupInfo, setLevel — singleton linkedInCompliance
+- index.ts: Re-exports
+
+1.4 DB Module — Updated /src/lib/db.ts:
+- Added DEFAULT_USER_ID = "default"
+- Added ensureDefaultUser() — creates default user if not exists
+
+1.5 API Routes Phase 1:
+- /api/data/leads (GET, POST, PUT, DELETE)
+- /api/data/metrics (GET, PUT with upsert)
+- /api/data/activity-logs (GET, POST, DELETE)
+- /api/data/generated (GET, POST — polymorphic for posts/messages/comments/briefings/nurturing/insights)
+- /api/data/orchestrator (GET — state, metrics, rules, recentEvents)
+- /api/data/compliance (GET — status, warmupInfo)
+
+1.6 OrchestratorView.tsx — 3 tabs:
+- Orchestrateur: Stats grid (events, rules, processing time, uptime), agent activity bars, heartbeat rules with toggle
+- Compliance: Warmup progress bar, usage bars (invitations/messages/comments/likes/posts), violations, compliance level selector
+- Événements: Real-time event stream with agent colors
+
+**Phase 2: Feedback — A/B Testing, Feedback Loop, Analytics**
+
+2.1 A/B Testing Module — Created /src/lib/ab-testing/:
+- types.ts: ExperimentType, ExperimentStatus, OutcomeType, Variant, ExperimentConfig, ExperimentResult, ExperimentReport, VariantReport, ABTestAssignment
+- ab-engine.ts: ABTestingEngine with createExperiment, startExperiment, assignVariant (consistent hashing), recordOutcome, checkSignificance (Z-test), getReport (Wilson score interval), updateStatus, getExperiments, loadExperiments — singleton abEngine
+- index.ts: Re-exports
+
+2.2 Feedback Module — Created /src/lib/feedback/:
+- types.ts: FeedbackMetricType, FeedbackAction, ContentType, FeedbackEventData, FeedbackInsight, FeedbackRule, AgentPerformanceSummary, FeedbackDashboardData
+- feedback-engine.ts: FeedbackEngine with recordFeedback, calculateBaseline, evaluateRules, generateRecommendation (French), getInsights, getRules, toggleRule, getAgentPerformance, getDashboardData, loadFeedbackData — 4 default rules — singleton feedbackEngine
+- index.ts: Re-exports
+
+2.3 API Routes Phase 2:
+- /api/data/experiments (GET, POST, PUT)
+- /api/data/experiments/[id] (GET, DELETE — async params)
+- /api/data/experiment-results (GET, POST)
+- /api/data/feedback (GET, POST — records feedback and returns insights)
+- /api/data/content-metrics (GET, POST — upsert with unique constraint)
+- /api/data/roi (GET — calculates cost, pipeline, ROI)
+
+2.4 AnalyticsView.tsx — 3 tabs:
+- ROI: Overview cards (cost, won value, ROI %, weighted pipeline), cost/lead and cost/meeting, metrics summary, pipeline deals
+- A/B Testing: Experiment list with create dialog, variant cards with confidence bars, status badges
+- Feedback Loop: Overall health gauge (0-100), agent performance grid with improvement arrows, insights with priority icons, feedback rules
+
+**Phase 3: Multi-canal — Email Agent, CRM, Pipeline**
+
+3.1 Email Agent Module — Created /src/lib/email-agent/:
+- types.ts: EmailSequenceStep, EmailSequenceConfig, EmailMessageStatus, EmailTemplate
+- email-agent.ts: EmailAgent with generateEmail (placeholder replacement), sendEmail, executeSequence, trackOpen/Click/Reply, getSequenceStats, 5 default templates — singleton emailAgent
+- index.ts: Re-exports
+
+3.2 CRM Module — Created /src/lib/crm/:
+- types.ts: CRMContact, CRMDeal, DealStage, DEAL_STAGES (6 stages with colors), PipelineConfig, PipelineStats, ContactTimelineEntry
+- crm-engine.ts: CRMEngine with createContact, updateContact, getContacts (with search/filters), deleteContact, createDeal, updateDeal, getDeals, deleteDeal, moveDealStage (auto-probability), getPipelineStats, getContactTimeline, linkLeadToContact — singleton crmEngine
+- index.ts: Re-exports
+
+3.3 API Routes Phase 3:
+- /api/data/contacts (GET, POST, PUT, DELETE — with search and JSON tag parsing)
+- /api/data/deals (GET, POST, PUT, DELETE — with stage and contact filters)
+- /api/data/pipeline (GET — returns stages with deals, contact info, totals)
+- /api/data/email-sequences (GET, POST, PUT — with JSON step parsing)
+- /api/data/email-messages (GET, POST, PUT — with auto-timestamp for open/click/reply)
+- /api/data/email-send (POST — creates sent email and activity log)
+
+3.4 CRMView.tsx — 3 tabs:
+- Contacts: Search, add contact form, table with delete, link to pipeline
+- Pipeline: Kanban-style board with deal cards, move to stage buttons, create deal dialog, total values per stage
+- Emails: Sequence list with status badges, message history with status icons (sent/opened/clicked/replied), stats cards
+
+3.5 Enhanced LeadsView.tsx:
+- Kanban mode toggle (table vs kanban view)
+- Bulk selection with checkboxes and select-all
+- Bulk actions bar (change status, delete)
+- Advanced filters panel (sector, score range)
+- Export to CSV button
+- Link lead to CRM contact button (creates contact via API)
+- Kanban columns per status with deal-style cards
+
+**Integration Updates:**
+- appStore.ts: Added ViewType values "orchestrator" | "analytics" | "crm" | "email"
+- Sidebar.tsx: Added Orchestrateur (Radio), Analytics & ROI (BarChart3), Email (Mail), CRM & Pipeline (Building2) with proper section headers
+- page.tsx: Added imports and cases for OrchestratorView, AnalyticsView, CRMView; both "crm" and "email" map to CRMView
+
+**Verification:**
+- Prisma schema pushed successfully with all 27 models
+- Prisma Client generated
+- ESLint passes with 0 errors
+- All API routes tested and returning correct data
+- Dev server compiles and serves all views
+- Dark theme consistency maintained (bg-[#0A0E14], bg-[#0F1520], text-white, #00D4FF accent)
+
+Stage Summary:
+- Complete 3-phase rebuild with 27 Prisma models, 6 lib modules, 18 API routes, 3 new views
+- Orchestrator: Event bus + agent orchestrator + heartbeat parser + compliance manager
+- Analytics: A/B testing engine with Z-test/Wilson score + feedback engine with 4 rules + ROI calculator
+- Multi-canal: Email agent with 5 templates + CRM engine with pipeline stats + Kanban board
+- Enhanced Leads view with Kanban, bulk actions, advanced filters, CSV export, CRM linking
+- All API routes functional with proper error handling and default user creation

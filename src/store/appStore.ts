@@ -19,7 +19,11 @@ export type ViewType =
   | "templates"
   | "monitoring"
   | "settings"
-  | "linkedin";
+  | "linkedin"
+  | "orchestrator"
+  | "analytics"
+  | "crm"
+  | "email";
 
 export interface Agent {
   id: string;

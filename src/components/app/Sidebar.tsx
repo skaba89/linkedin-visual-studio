@@ -13,6 +13,9 @@ import {
   ChevronRight,
   Zap,
   Linkedin,
+  Radio,
+  Mail,
+  Building2,
 } from "lucide-react";
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType; section?: string }[] = [
@@ -28,9 +31,13 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "agent-reseau", label: "Agent Réseau", icon: Bot },
   { id: "icp", label: "ICP & Scoring", icon: Target, section: "DATA" },
   { id: "leads", label: "Leads qualifiés", icon: Users },
+  { id: "crm", label: "CRM & Pipeline", icon: Building2 },
   { id: "templates", label: "Templates messages", icon: MessageSquare },
   { id: "linkedin", label: "LinkedIn", icon: Linkedin, section: "CANAUX" },
+  { id: "email", label: "Email", icon: Mail },
   { id: "monitoring", label: "Monitoring", icon: BarChart3, section: "SYSTÈME" },
+  { id: "orchestrator", label: "Orchestrateur", icon: Radio },
+  { id: "analytics", label: "Analytics & ROI", icon: BarChart3 },
   { id: "settings", label: "Paramètres", icon: Settings },
 ];
 

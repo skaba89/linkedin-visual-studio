@@ -186,7 +186,6 @@ export function useAgentSimulation() {
         clearInterval(intervalRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSimulating, simulationSpeed, agents]);
 
   return { isSimulating, simulationSpeed, setIsSimulating, setSimulationSpeed };

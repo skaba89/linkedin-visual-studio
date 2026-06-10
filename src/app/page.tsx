@@ -11,34 +11,44 @@ import TemplatesView from "@/components/app/TemplatesView";
 import MonitoringView from "@/components/app/MonitoringView";
 import SettingsView from "@/components/app/SettingsView";
 import LinkedInView from "@/components/app/LinkedInView";
+import OrchestratorView from "@/components/app/OrchestratorView";
+import AnalyticsView from "@/components/app/AnalyticsView";
+import CRMView from "@/components/app/CRMView";
 import { Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
 
 export default function Home() {
   const { currentView, setCurrentView, setLinkedInConnected } = useAppStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
+  const linkedInHandled = useRef(false);
 
   // Run agent simulation in the background
   useAgentSimulation();
 
   // Handle LinkedIn OAuth callback
   useEffect(() => {
+    if (linkedInHandled.current) return;
     const params = new URLSearchParams(window.location.search);
     const linkedInStatus = params.get("linkedin");
 
     if (linkedInStatus === "connected") {
-      setLinkedInConnected(true);
-      setCurrentView("linkedin");
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
+      linkedInHandled.current = true;
+      // Use microtask to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        setLinkedInConnected(true);
+        setCurrentView("linkedin");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      });
     } else if (linkedInStatus === "error") {
+      linkedInHandled.current = true;
       const errorMessage = params.get("message") || "Erreur lors de la connexion LinkedIn";
-      setLinkedInError(decodeURIComponent(errorMessage));
-      setCurrentView("linkedin");
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
+      queueMicrotask(() => {
+        setLinkedInError(decodeURIComponent(errorMessage));
+        setCurrentView("linkedin");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      });
     }
   }, [setLinkedInConnected, setCurrentView]);
 
@@ -76,6 +86,13 @@ export default function Home() {
         return <SettingsView />;
       case "linkedin":
         return <LinkedInView />;
+      case "orchestrator":
+        return <OrchestratorView />;
+      case "analytics":
+        return <AnalyticsView />;
+      case "crm":
+      case "email":
+        return <CRMView />;
       default:
         return <DashboardView />;
     }
