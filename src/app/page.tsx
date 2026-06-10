@@ -15,6 +15,9 @@ import OrchestratorView from "@/components/app/OrchestratorView";
 import AnalyticsView from "@/components/app/AnalyticsView";
 import CRMView from "@/components/app/CRMView";
 import EmailView from "@/components/app/EmailView";
+import WorkflowView from "@/components/app/WorkflowView";
+import NotificationsView from "@/components/app/NotificationsView";
+import IntegrationsView from "@/components/app/IntegrationsView";
 import { Menu, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
@@ -95,6 +98,12 @@ export default function Home() {
         return <CRMView />;
       case "email":
         return <EmailView />;
+      case "workflows":
+        return <WorkflowView />;
+      case "notifications":
+        return <NotificationsView />;
+      case "integrations":
+        return <IntegrationsView />;
       default:
         return <DashboardView />;
     }

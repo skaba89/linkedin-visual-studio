@@ -16,6 +16,9 @@ import {
   Radio,
   Mail,
   Building2,
+  GitBranch,
+  Bell,
+  Globe,
 } from "lucide-react";
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType; section?: string }[] = [
@@ -38,6 +41,9 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "monitoring", label: "Monitoring", icon: BarChart3, section: "SYSTÈME" },
   { id: "orchestrator", label: "Orchestrateur", icon: Radio },
   { id: "analytics", label: "Analytics & ROI", icon: BarChart3 },
+  { id: "workflows", label: "Automatisations", icon: GitBranch, section: "AUTOMATISATION" },
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "integrations", label: "Intégrations", icon: Globe },
   { id: "settings", label: "Paramètres", icon: Settings },
 ];
 

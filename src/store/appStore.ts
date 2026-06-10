@@ -23,7 +23,10 @@ export type ViewType =
   | "orchestrator"
   | "analytics"
   | "crm"
-  | "email";
+  | "email"
+  | "workflows"
+  | "notifications"
+  | "integrations";
 
 export interface Agent {
   id: string;
@@ -1165,7 +1168,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "hermes-app-store",
-      version: 4,
+      version: 5,
       migrate: (persistedState: Record<string, unknown>, version: number) => {
         // Migrate v1 → v2: apiKeys → providerApiKeys
         if (version < 2) {

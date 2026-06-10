@@ -422,3 +422,69 @@ Stage Summary:
 - All 29 API routes functional
 - All 22 Prisma models working with proper constraints
 - Build: 0 errors
+
+---
+Task ID: 10
+Agent: Main Agent
+Task: Phase 4 — Automatisations & Intégrations (Workflow Engine, Notifications, Webhooks)
+
+Work Log:
+
+4A. Workflow Engine — Created /src/lib/workflow/:
+- types.ts: 7 WorkflowNodeTypes, 13 TriggerTypes, 16 ActionTypes, 8 ConditionOperators, 5 WorkflowStatus, 5 WORKFLOW_TEMPLATES (lead-qualify-notify, new-lead-welcome, deal-won-celebrate, compliance-guard, cold-lead-nurture), TRIGGER_LABELS, ACTION_LABELS, NODE_COLORS
+- workflow-engine.ts: WorkflowEngine class with createWorkflow, createFromTemplate, getWorkflow, getWorkflows, updateWorkflow, setWorkflowStatus, deleteWorkflow, addNode, removeNode, addEdge, removeEdge, findWorkflowsByTrigger, executeWorkflow (async graph traversal), executeGraph, executeNode, executeAction (16 action types), getExecutionHistory, getWorkflowStats, loadWorkflows — singleton workflowEngine
+- index.ts: Re-exports
+
+4B. Notification Center — Created /src/lib/notifications/:
+- types.ts: 8 NotificationCategories, 4 NotificationPriorities, 5 NotificationChannels, Notification interface, NotificationPreference interface, NotificationStats, 8 DEFAULT_NOTIFICATION_PREFERENCES, CATEGORY_LABELS/COLORS/ICONS, PRIORITY_LABELS/COLORS, CHANNEL_LABELS
+- notification-engine.ts: NotificationEngine class with notify (with preference filtering, quiet hours, priority suppression), onNotification (real-time listener), getNotifications (with filters), markAsRead, markAllAsRead, dismiss, dismissAll, getStats, getPreferences, updatePreference, loadNotifications, loadPreferences, clearAll — singleton notificationEngine
+- index.ts: Re-exports
+
+4C. Webhook Integrations — Created /src/lib/webhooks/:
+- types.ts: 5 WebhookProviders, 22 WebhookEvents, WebhookConfig, WebhookDelivery, PROVIDER_LABELS/COLORS/ICONS, EVENT_LABELS, EVENT_CATEGORIES (7 groups), buildSlackPayload (Blocks API), buildDiscordPayload (Embeds)
+- webhook-engine.ts: WebhookEngine class with registerWebhook, getWebhook, getWebhooks, updateWebhook, deleteWebhook, toggleWebhook, findWebhooksByEvent, dispatchEvent (multi-webhook fan-out), deliverToWebhook (with retries, timeout, HMAC signing), buildPayload (provider-specific), getDeliveries, getWebhookStats, testWebhook — singleton webhookEngine
+- index.ts: Re-exports
+
+4D. API Routes:
+- /api/data/workflows (GET, POST, PUT, DELETE) — Full CRUD + template creation
+- /api/data/workflows/execute (GET, POST) — Execute workflow + get history
+- /api/data/notifications (GET, POST, PUT) — List/create/update with actions (markRead, markAllRead, dismiss, dismissAll, updatePreference)
+- /api/data/webhooks (GET, POST, PUT, DELETE) — CRUD + toggle + test + deliveries
+- /api/data/export (GET) — Export data as JSON or CSV with table selection
+- /api/data/import (POST) — Import data with merge/replace modes
+
+4E. WorkflowView.tsx — 4 tabs (Workflows, Builder, Templates, Executions):
+- Workflows: list with status badges, node flow preview, play/pause/delete/edit actions
+- Builder: node palette (6 types), visual canvas with node cards, drag-to-add, remove, inline rename, test execution
+- Templates: 5 template cards with category, description, node flow preview, one-click creation
+- Executions: history per workflow with step progress and status
+
+4F. NotificationsView.tsx — 2 tabs (Notifications, Preferences):
+- Notifications: stats grid (4 cards), category filter bar, unread toggle, notification cards with category icon, priority badge, time ago, mark read/dismiss actions
+- Preferences: per-category enable/disable, channel selection (in_app/email/slack/discord), min priority selector, quiet hours toggle
+
+4G. IntegrationsView.tsx — 3 tabs (Webhooks, Deliveries, Setup Guide):
+- Webhooks: provider quick-setup cards (Slack/Discord/Zapier/Make), webhook list with stats, test/toggle/delete, event badges, URL display
+- Deliveries: delivery history with status colors, event labels, attempt counts
+- Setup Guide: step-by-step instructions for Slack, Discord, Zapier/Make
+
+4H. Store + Routing:
+- appStore.ts: Added ViewType "workflows" | "notifications" | "integrations", bumped persist version 4→5
+- Sidebar.tsx: Added AUTOMATISATION section with GitBranch/Bell/Globe icons for workflows/notifications/integrations
+- page.tsx: Added imports for WorkflowView, NotificationsView, IntegrationsView + switch cases
+
+Bug Fixed:
+- notification-engine.ts: Line 106 used `notif` instead of `notification` — fixed
+
+Verification:
+- npx next build: PASS (0 TypeScript errors, 37 API routes including 6 new Phase 4 routes)
+- Lib module tests: 46/46 PASS (types, conditions, engine logic, payloads)
+- API tests: 12/12 PASS (CRUD workflows, template creation, execution, notifications CRUD+stats+preferences, webhooks CRUD+toggle, export, import)
+
+Stage Summary:
+- Phase 4 fully implemented with 3 lib modules, 6 API routes, 3 UI components, store+sidebar+routing updates
+- Workflow Engine: full graph execution with 13 triggers, 16 actions, 5 templates
+- Notification Center: real-time alerts with preference filtering, quiet hours, priority suppression
+- Webhook Integrations: 5 providers, 22 events, Slack/Discord payload builders, retry logic
+- Data Export/Import: full JSON/CSV export with table selection, merge/replace import
+- All 37 API routes functional, all 23 sidebar views render correctly
