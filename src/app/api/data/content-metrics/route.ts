@@ -23,6 +23,18 @@ export async function POST(req: NextRequest) {
   await ensureDefaultUser();
   const body = await req.json();
 
+  // Auto-calculate engagementRate if not provided
+  const impressions = body.impressions || 0;
+  const likes = body.likes || 0;
+  const comments = body.comments || 0;
+  const shares = body.shares || 0;
+  const clicks = body.clicks || 0;
+  const replies = body.replies || 0;
+  const conversions = body.conversions || 0;
+  const engagementRate = body.engagementRate ?? (impressions > 0
+    ? ((likes + comments + shares + clicks + replies + conversions) / impressions) * 100
+    : 0);
+
   // Upsert based on unique constraint (userId, contentId, period)
   const metric = await db.contentMetric.upsert({
     where: {
@@ -33,14 +45,14 @@ export async function POST(req: NextRequest) {
       },
     },
     update: {
-      impressions: body.impressions || 0,
-      likes: body.likes || 0,
-      comments: body.comments || 0,
-      shares: body.shares || 0,
-      clicks: body.clicks || 0,
-      replies: body.replies || 0,
-      conversions: body.conversions || 0,
-      engagementRate: body.engagementRate || 0,
+      impressions,
+      likes,
+      comments,
+      shares,
+      clicks,
+      replies,
+      conversions,
+      engagementRate,
       agentId: body.agentId || "",
       experimentId: body.experimentId,
       variantId: body.variantId,
@@ -51,14 +63,14 @@ export async function POST(req: NextRequest) {
       contentType: body.contentType || "post",
       contentId: body.contentId,
       agentId: body.agentId || "",
-      impressions: body.impressions || 0,
-      likes: body.likes || 0,
-      comments: body.comments || 0,
-      shares: body.shares || 0,
-      clicks: body.clicks || 0,
-      replies: body.replies || 0,
-      conversions: body.conversions || 0,
-      engagementRate: body.engagementRate || 0,
+      impressions,
+      likes,
+      comments,
+      shares,
+      clicks,
+      replies,
+      conversions,
+      engagementRate,
       experimentId: body.experimentId,
       variantId: body.variantId,
       period: body.period || "",

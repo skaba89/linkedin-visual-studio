@@ -25,17 +25,19 @@ export async function POST(req: NextRequest) {
   await ensureDefaultUser();
   const body = await req.json();
 
+  const baselineValue = body.baselineValue ?? 0;
+
   const insight = feedbackEngine.recordFeedback({
     sourceAgentId: body.sourceAgentId,
     contentType: body.contentType,
     contentId: body.contentId || "",
     metricType: body.metricType,
     metricValue: body.metricValue,
-    baselineValue: body.baselineValue,
+    baselineValue,
   });
 
   // Also save to DB
-  const improvement = body.metricValue - body.baselineValue;
+  const improvement = body.metricValue - baselineValue;
   await db.feedbackEvent.create({
     data: {
       userId: DEFAULT_USER_ID,
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest) {
       contentId: body.contentId || "",
       metricType: body.metricType,
       metricValue: body.metricValue,
-      baselineValue: body.baselineValue,
+      baselineValue,
       improvement,
       actionTaken: insight.action,
       lesson: insight.recommendation,

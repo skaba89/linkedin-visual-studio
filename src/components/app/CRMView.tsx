@@ -313,12 +313,21 @@ export default function CRMView() {
         fetch("/api/data/deals"),
         fetch("/api/data/pipeline"),
       ]);
-      if (contactsRes.ok) setContacts(await contactsRes.json());
-      if (dealsRes.ok) setDeals(await dealsRes.json());
+      let contactsData: ContactData[] = [];
+      let dealsData: DealData[] = [];
+
+      if (contactsRes.ok) {
+        contactsData = await contactsRes.json();
+        setContacts(contactsData);
+      }
+      if (dealsRes.ok) {
+        dealsData = await dealsRes.json();
+        setDeals(dealsData);
+      }
       if (pipelineRes.ok) {
         const pData = await pipelineRes.json();
-        // Compute full summary from pipeline data
-        const summary = computePipelineSummary(dealsRes.ok ? await dealsRes.clone().json() : []);
+        // Compute full summary from deals data (already parsed above)
+        const summary = computePipelineSummary(dealsData);
         // Override with pipeline API data for stages
         setPipelineData({ ...summary, stages: pData.stages });
       }
