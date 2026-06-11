@@ -8,6 +8,8 @@ import { getProviderBaseUrl, isOpenAICompatible } from "@/lib/providers";
  * Uses OpenAI-compatible API format for most providers.
  * Supports streaming and non-streaming responses.
  * 
+ * When no API key is provided, falls back to z-ai-web-dev-sdk (built-in).
+ * 
  * Body: {
  *   providerId: string;
  *   model: string;
@@ -31,11 +33,10 @@ export async function POST(req: NextRequest) {
 
     // Get API key from request header (client sends it from localStorage)
     const apiKey = req.headers.get("x-api-key");
+
+    // If no API key provided, use z-ai-web-dev-sdk as fallback
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "Missing API key. Please configure your API key in Settings." },
-        { status: 401 }
-      );
+      return handleBuiltinSDK(model, messages, temperature, max_tokens);
     }
 
     // Route to the correct provider
@@ -48,6 +49,59 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     console.error("[/api/ai/chat] Error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Handle requests using the built-in z-ai-web-dev-sdk (no API key needed).
+ * Maps the SDK response to OpenAI format so the client can parse it the same way.
+ */
+async function handleBuiltinSDK(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  temperature: number,
+  max_tokens: number
+) {
+  try {
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zai = await ZAI.create();
+
+    const completion = await zai.chat.completions.create({
+      messages,
+      model: model === "default" ? undefined : model,
+      temperature,
+      max_tokens,
+      stream: false,
+    });
+
+    // Map SDK response to OpenAI format for client compatibility
+    const openAIResponse = {
+      id: `zai-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: completion.model || model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: completion.choices?.[0]?.message?.content || "",
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: completion.usage || {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      },
+    };
+
+    return NextResponse.json(openAIResponse);
+  } catch (error: unknown) {
+    console.error("[/api/ai/chat] Built-in SDK error:", error);
+    const message = error instanceof Error ? error.message : "Built-in AI provider error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

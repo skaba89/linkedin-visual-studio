@@ -46,16 +46,17 @@ export async function chatCompletion(
   const model = options?.model || state.hermesConfig.model;
   const apiKey = state.hermesConfig.providerApiKeys[providerId];
 
-  if (!apiKey) {
-    throw new Error(`Clé API non configurée pour le provider "${providerId}". Allez dans Paramètres pour la configurer.`);
+  // If no API key, server will use z-ai-web-dev-sdk as fallback
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
   }
 
   const response = await fetch("/api/ai/chat", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-    },
+    headers,
     body: JSON.stringify({
       providerId,
       model,

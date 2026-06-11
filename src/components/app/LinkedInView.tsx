@@ -8,6 +8,7 @@ import {
   generateCommentSuggestions,
   generateTrendingTopics,
   improvePost,
+  analyzePostsAsDataExpert,
   getBestPostingTimes,
   getNextBestTime,
 } from "@/lib/linkedin-ai";
@@ -17,6 +18,7 @@ import type {
   LinkedInCommentSuggestion,
   TrendingTopic,
   BestTimeSlot,
+  DataExpertAnalysis,
 } from "@/lib/linkedin-ai";
 import {
   Linkedin,
@@ -53,6 +55,7 @@ import {
   BookOpen,
   Target,
   Gauge,
+  Database,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -361,7 +364,7 @@ function ConnexionTab() {
 
 /* ========== PUBLIER TAB (UPGRADED) ========== */
 function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | null; onClearPrefill: () => void }) {
-  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates, hermesConfig } = useAppStore();
+  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates, hermesConfig, generatedPosts } = useAppStore();
   const [postText, setPostText] = useState("");
   const [topicTitle, setTopicTitle] = useState("");
   const [visibility, setVisibility] = useState<"PUBLIC" | "CONNECTIONS">("PUBLIC");
@@ -383,8 +386,10 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   const [topicLoading, setTopicLoading] = useState(false);
   const [topicError, setTopicError] = useState<string | null>(null);
 
-  // Check if API key is configured
-  const hasApiKey = !!(hermesConfig.providerApiKeys[hermesConfig.provider]);
+  // Data Expert states
+  const [expertAnalysis, setExpertAnalysis] = useState<DataExpertAnalysis | null>(null);
+  const [expertLoading, setExpertLoading] = useState(false);
+  const [expertError, setExpertError] = useState<string | null>(null);
 
   const maxChars = 3000;
   const charCount = postText.length;
@@ -399,10 +404,6 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   }, [prefillTopic, onClearPrefill]);
 
   const handleGenerateAI = async () => {
-    if (!hasApiKey) {
-      setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
-      return;
-    }
     setAiLoading(true);
     setAiError(null);
     try {
@@ -410,11 +411,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       setAiSuggestions(suggestions);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("Clé API non configurée")) {
-        setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
-      } else {
-        setAiError("Impossible de générer des suggestions IA. Vérifiez votre clé API dans les Paramètres.");
-      }
+      setAiError(msg || "Impossible de générer des suggestions IA. Veuillez réessayer.");
     } finally {
       setAiLoading(false);
     }
@@ -422,10 +419,6 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
   const handleGenerateFromTopic = async () => {
     if (!topicTitle.trim()) return;
-    if (!hasApiKey) {
-      setTopicError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
-      return;
-    }
     setTopicLoading(true);
     setTopicError(null);
     setTopicPost(null);
@@ -435,11 +428,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       setPostText(result.text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("Clé API non configurée")) {
-        setTopicError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
-      } else {
-        setTopicError("Impossible de générer le post. Vérifiez votre clé API dans les Paramètres.");
-      }
+      setTopicError(msg || "Impossible de générer le post. Veuillez réessayer.");
     } finally {
       setTopicLoading(false);
     }
@@ -447,18 +436,32 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
   const handleImprove = async () => {
     if (!postText.trim()) return;
-    if (!hasApiKey) {
-      setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
-      return;
-    }
     setImproving(true);
     try {
       const result = await improvePost(postText);
       if (result.improved) setPostText(result.improved);
     } catch {
-      setAiError("Impossible d'améliorer le post. Vérifiez votre clé API.");
+      setAiError("Impossible d'améliorer le post. Veuillez réessayer.");
     } finally {
       setImproving(false);
+    }
+  };
+
+  const handleDataExpert = async () => {
+    setExpertLoading(true);
+    setExpertError(null);
+    try {
+      const allPosts = [
+        ...linkedInPosts.map(p => ({ text: p.text, likes: p.likes, comments: p.comments, createdAt: p.createdAt })),
+        ...generatedPosts.map(p => ({ text: p.text, topic: p.topic })),
+      ];
+      const analysis = await analyzePostsAsDataExpert(allPosts);
+      setExpertAnalysis(analysis);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setExpertError(msg || "Impossible de lancer l'analyse Data Expert. Veuillez réessayer.");
+    } finally {
+      setExpertLoading(false);
     }
   };
 
@@ -578,13 +581,6 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
             {topicLoading ? "Génération..." : "Générer le post"}
           </button>
         </div>
-
-        {!hasApiKey && (
-          <div className="flex items-center gap-2 text-[11px] text-[#F4A100] bg-[#F4A100]/5 border border-[#F4A100]/10 rounded-lg px-2.5 py-2 mb-2">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>Clé API non configurée pour <strong>{hermesConfig.provider}</strong>. Allez dans <strong>Paramètres</strong> pour la configurer et activer la génération IA.</span>
-          </div>
-        )}
 
         {topicError && (
           <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2">
@@ -721,13 +717,144 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
         )}
       </div>
 
+      {/* Data Expert Section */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-[#00C48C]" />
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Mode Data Expert</h3>
+            <span className="text-[10px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-1.5 py-0.5 rounded">ANALYSE</span>
+          </div>
+          <button onClick={handleDataExpert} disabled={expertLoading}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-3 py-1.5 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer disabled:opacity-50">
+            {expertLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+            Lancer l&apos;analyse
+          </button>
+        </div>
+
+        <p className="text-[12px] text-[#7B8A9A] mb-3">L&apos;IA analyse vos posts existants pour identifier les patterns, forces, faiblesses et proposer de nouveaux sujets optimisés.</p>
+
+        {expertError && (
+          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{expertError}
+          </div>
+        )}
+
+        {expertLoading && (
+          <div className="space-y-3">
+            <div className="bg-[#18212F] rounded-lg p-4 animate-pulse">
+              <div className="h-3 bg-white/[0.06] rounded mb-2 w-1/3" />
+              <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-full" />
+              <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-5/6" />
+              <div className="h-2 bg-white/[0.04] rounded w-4/6" />
+            </div>
+          </div>
+        )}
+
+        {expertAnalysis && !expertLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-3"
+          >
+            {/* Overall Score */}
+            <div className="flex items-center gap-4 bg-[#18212F] rounded-xl p-4">
+              <div className="relative flex-shrink-0">
+                <svg width="56" height="56" viewBox="0 0 64 64" className="-rotate-90">
+                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                  <circle cx="32" cy="32" r="28" fill="none" stroke={expertAnalysis.overallScore >= 70 ? "#00C48C" : expertAnalysis.overallScore >= 40 ? "#F4A100" : "#E5263A"} strokeWidth="5"
+                    strokeDasharray={`${(expertAnalysis.overallScore / 100) * 176} 176`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-base font-bold" style={{ color: expertAnalysis.overallScore >= 70 ? "#00C48C" : expertAnalysis.overallScore >= 40 ? "#F4A100" : "#E5263A" }}>{expertAnalysis.overallScore}</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#F0F4F8]">Score de stratégie contenu</p>
+                <p className="text-[11px] text-[#7B8A9A]">Basé sur l&apos;analyse de {linkedInPosts.length + generatedPosts.length} post(s)</p>
+              </div>
+            </div>
+
+            {/* Patterns, Strengths, Weaknesses */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {/* Patterns */}
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#0A66C2] uppercase tracking-wide mb-2 flex items-center gap-1"><Search className="w-3 h-3" />Patterns</p>
+                <div className="space-y-1.5">
+                  {expertAnalysis.patterns.map((p, i) => (
+                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {p}</p>
+                  ))}
+                </div>
+              </div>
+              {/* Strengths */}
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#00C48C] uppercase tracking-wide mb-2 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Forces</p>
+                <div className="space-y-1.5">
+                  {expertAnalysis.strengths.map((s, i) => (
+                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {s}</p>
+                  ))}
+                </div>
+              </div>
+              {/* Weaknesses */}
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#F4A100] uppercase tracking-wide mb-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Axes d&apos;amélioration</p>
+                <div className="space-y-1.5">
+                  {expertAnalysis.weaknesses.map((w, i) => (
+                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {w}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            {expertAnalysis.recommendations.length > 0 && (
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#00D4FF] uppercase tracking-wide mb-2 flex items-center gap-1"><Zap className="w-3 h-3" />Recommandations</p>
+                <div className="space-y-1.5">
+                  {expertAnalysis.recommendations.map((r, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#00D4FF]/15 text-[#00D4FF] text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
+                      <p className="text-[11px] text-[#7B8A9A]">{r}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Suggested Topics */}
+            {expertAnalysis.suggestedTopics.length > 0 && (
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#0A66C2] uppercase tracking-wide mb-2 flex items-center gap-1"><Target className="w-3 h-3" />Sujets proposés par l&apos;IA</p>
+                <div className="space-y-2">
+                  {expertAnalysis.suggestedTopics.map((t, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { setTopicTitle(t.topic); }}
+                      className="w-full bg-[#0F1520] border border-white/[0.04] rounded-lg p-2.5 text-left hover:border-[#0A66C2]/30 transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[12px] font-semibold text-[#F0F4F8] group-hover:text-[#0A66C2] transition-colors">{t.topic}</p>
+                        <ArrowUpRight className="w-3 h-3 text-[#7B8A9A] group-hover:text-[#0A66C2] transition-colors" />
+                      </div>
+                      <p className="text-[11px] text-[#7B8A9A] mb-0.5">{t.angle}</p>
+                      <p className="text-[10px] text-[#7B8A9A]/60 italic">{t.reason}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
+
       {/* Post Composer */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-[#F0F4F8]">Nouveau post</h3>
           <div className="flex items-center gap-2">
             {postText.trim() && (
-              <button onClick={handleImprove} disabled={improving || !hasApiKey}
+              <button onClick={handleImprove} disabled={improving}
                 className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-2.5 py-1 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
                 {improving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                 Améliorer

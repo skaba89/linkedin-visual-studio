@@ -844,9 +844,10 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ icpConfig: { ...state.icpConfig, ...updates } })),
 
       hermesConfig: {
-        provider: "groq",
-        model: "llama-3.3-70b-versatile",
+        provider: "zai",
+        model: "default",
         providerApiKeys: {
+          zai: "built-in",
           groq: "",
           google: "",
           cerebras: "",
@@ -1168,7 +1169,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "hermes-app-store",
-      version: 5,
+      version: 6,
       migrate: (persistedState: Record<string, unknown>, version: number) => {
         // Migrate v1 → v2: apiKeys → providerApiKeys
         if (version < 2) {
@@ -1244,6 +1245,26 @@ export const useAppStore = create<AppState>()(
             connectionRequests: [],
           };
         }
+        // Migrate v5 → v6: add zai built-in provider
+        if (version < 6) {
+          const old = persistedState as Record<string, unknown>;
+          const oldHermes = old.hermesConfig as Record<string, unknown> | undefined;
+          const oldApiKeys = (oldHermes?.providerApiKeys as Record<string, string>) || {};
+
+          return {
+            ...persistedState,
+            hermesConfig: {
+              ...(oldHermes || {}),
+              provider: "zai",
+              model: "default",
+              providerApiKeys: {
+                zai: "built-in",
+                ...oldApiKeys,
+              },
+            },
+          };
+        }
+
         return persistedState;
       },
     }

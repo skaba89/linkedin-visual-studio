@@ -27,6 +27,27 @@ export interface AIProvider {
 }
 
 export const AI_PROVIDERS: AIProvider[] = [
+  // ─── BUILT-IN PROVIDER (no API key needed) ─────────
+  {
+    id: "zai",
+    name: "Z AI Built-in",
+    icon: "Sparkle",
+    color: "#10B981",
+    free: true,
+    apiKeyPlaceholder: "No key needed",
+    apiKeyPrefix: "",
+    docsUrl: "",
+    models: [
+      {
+        id: "default",
+        name: "Default Model",
+        description: "Built-in AI — works out of the box, no API key required",
+        contextWindow: 128000,
+        free: true,
+      },
+    ],
+  },
+
   // ─── FREE PROVIDERS ────────────────────────────────
   {
     id: "groq",

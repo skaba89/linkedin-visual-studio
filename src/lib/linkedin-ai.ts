@@ -588,5 +588,131 @@ Règles d'amélioration :
     console.error("AI improve post error:", error);
   }
 
-  return { improved: draftText, suggestions: ["Configurez une clé API pour activer l'amélioration IA"] };
+  return { improved: draftText, suggestions: ["L'IA n'a pas pu améliorer le post. Veuillez réessayer."] };
+}
+
+// ─── Data Expert Analysis ─────────────────────────────────────────
+
+export interface DataExpertAnalysis {
+  patterns: string[];
+  strengths: string[];
+  weaknesses: string[];
+  recommendations: string[];
+  suggestedTopics: Array<{
+    topic: string;
+    angle: string;
+    reason: string;
+  }>;
+  overallScore: number;
+}
+
+/**
+ * Analyze all existing LinkedIn posts in "Data Expert" mode.
+ * Detects patterns, strengths, weaknesses and proposes new topics.
+ */
+export async function analyzePostsAsDataExpert(
+  posts: Array<{ text: string; topic?: string; createdAt?: string; likes?: number; comments?: number }>
+): Promise<DataExpertAnalysis> {
+  const context = getProjectContext();
+
+  // Build a summary of existing posts for the AI
+  const postsSummary = posts.length > 0
+    ? posts.map((p, i) => {
+        const metrics = [];
+        if (p.likes !== undefined) metrics.push(`${p.likes} likes`);
+        if (p.comments !== undefined) metrics.push(`${p.comments} comments`);
+        const metricStr = metrics.length > 0 ? ` [${metrics.join(", ")}]` : "";
+        const topicStr = p.topic ? ` (Sujet: ${p.topic})` : "";
+        return `Post ${i + 1}${topicStr}${metricStr} : "${p.text.slice(0, 200)}${p.text.length > 200 ? "..." : ""}"`;
+      }).join("\n\n")
+    : "Aucun post existant pour le moment.";
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert en analyse de données LinkedIn B2B, spécialisé dans l'audit de stratégie de contenu.
+${context}
+
+Analyse les posts LinkedIn existants de cet utilisateur en mode "Data Expert". Tu dois :
+1. Identifier les patterns récurrents (thèmes, formats, tons, structures)
+2. Repérer les forces (ce qui fonctionne bien)
+3. Repérer les faiblesses (ce qui manque ou pourrait être amélioré)
+4. Proposer des recommandations concrètes et actionnables
+5. Suggérer 5 nouveaux sujets basés sur l'analyse, avec un angle unique et la raison
+6. Donner un score global de stratégie de contenu sur 100
+
+Réponds en JSON strict :
+{
+  "patterns": ["pattern 1", "pattern 2", "pattern 3"],
+  "strengths": ["force 1", "force 2"],
+  "weaknesses": ["faiblesse 1", "faiblesse 2"],
+  "recommendations": ["recommandation 1", "recommandation 2", "recommandation 3"],
+  "suggestedTopics": [
+    { "topic": "sujet en 3-5 mots", "angle": "angle spécifique", "reason": "pourquoi ce sujet" }
+  ],
+  "overallScore": 75
+}
+
+Règles :
+- Sois factuel et data-driven dans ton analyse
+- Les recommandations doivent être spécifiques et actionnables (pas de conseils vagues)
+- Les sujets proposés doivent être originaux et différenciants par rapport aux posts existants
+- Le score doit refléter la qualité réelle de la stratégie (pas de complaisance)
+- Langue : français`,
+    },
+    {
+      role: "user",
+      content: `Voici mes ${posts.length} posts LinkedIn existants. Analyse-les en mode Data Expert :
+
+${postsSummary}
+
+Donne-moi une analyse complète avec des recommandations concrètes et de nouveaux sujets proposés.`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.5,
+      maxTokens: 2500,
+    });
+
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        patterns: parsed.patterns || [],
+        strengths: parsed.strengths || [],
+        weaknesses: parsed.weaknesses || [],
+        recommendations: parsed.recommendations || [],
+        suggestedTopics: parsed.suggestedTopics || [],
+        overallScore: parsed.overallScore || 50,
+      };
+    }
+  } catch (error) {
+    console.error("Data Expert analysis error:", error);
+  }
+
+  // Fallback analysis
+  return {
+    patterns: posts.length > 0
+      ? ["Contenu orienté IA et B2B", "Ton direct et factuel", "Structure hook-corps-CTA"]
+      : ["Aucun post publié pour le moment"],
+    strengths: posts.length > 0
+      ? ["Régularité dans la publication", "Expertise technique visible"]
+      : ["Aucun post à analyser — c'est le moment de commencer !"],
+    weaknesses: posts.length > 0
+      ? ["Manque de diversité dans les formats", "CTA pourrait être plus engageant"]
+      : ["Pas encore de contenu publié", "Aucune donnée d'engagement disponible"],
+    recommendations: posts.length > 0
+      ? ["Varier les formats (list, story, data, contrarian)", "Ajouter plus de données chiffrées", "Renforcer les CTA avec des questions ouvertes"]
+      : ["Publiez votre premier post pour commencer à collecter des données", "Utilisez la génération IA pour créer votre premier contenu", "Visez 3 posts par semaine pour maximiser la visibilité"],
+    suggestedTopics: [
+      { topic: "IA et qualité des données B2B", angle: "Pourquoi la qualité des données est le vrai enjeu de l'IA en B2B", reason: "Sujet peu traité mais fondamental pour votre audience" },
+      { topic: "ROI de l'automatisation LinkedIn", angle: "Calcul concret du ROI d'un agent IA de prospection", reason: "Angle data-driven qui résonne avec les décideurs" },
+      { topic: "Data mesh pour PME", angle: "Comment les PME peuvent adopter le data mesh sans DSI", reason: "Niche technique différenciante" },
+      { topic: "Éthique de l'IA en prospection", angle: "Les limites éthiques de l'automatisation B2B", reason: "Sujet engageant qui suscite le débat" },
+      { topic: "De data lake à data product", angle: "Pourquoi traiter vos données comme des produits change tout", reason: "Tendance montante dans la data gouvernance" },
+    ],
+    overallScore: posts.length > 0 ? 55 : 0,
+  };
 }
