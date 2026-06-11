@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore, type LinkedInPost, type ScheduledPost } from "@/store/appStore";
 import {
   generatePostSuggestions,
+  generatePostFromTopic,
   generateCommentSuggestions,
   generateTrendingTopics,
   improvePost,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/linkedin-ai";
 import type {
   LinkedInPostSuggestion,
+  LinkedInPostFromTopic,
   LinkedInCommentSuggestion,
   TrendingTopic,
   BestTimeSlot,
@@ -48,6 +50,9 @@ import {
   TrendingUp,
   Copy,
   Trash2,
+  BookOpen,
+  Target,
+  Gauge,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -356,8 +361,9 @@ function ConnexionTab() {
 
 /* ========== PUBLIER TAB (UPGRADED) ========== */
 function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | null; onClearPrefill: () => void }) {
-  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates } = useAppStore();
+  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates, hermesConfig } = useAppStore();
   const [postText, setPostText] = useState("");
+  const [topicTitle, setTopicTitle] = useState("");
   const [visibility, setVisibility] = useState<"PUBLIC" | "CONNECTIONS">("PUBLIC");
   const [publishing, setPublishing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -372,6 +378,14 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   const [aiError, setAiError] = useState<string | null>(null);
   const [improving, setImproving] = useState(false);
 
+  // Topic generation states
+  const [topicPost, setTopicPost] = useState<LinkedInPostFromTopic | null>(null);
+  const [topicLoading, setTopicLoading] = useState(false);
+  const [topicError, setTopicError] = useState<string | null>(null);
+
+  // Check if API key is configured
+  const hasApiKey = !!(hermesConfig.providerApiKeys[hermesConfig.provider]);
+
   const maxChars = 3000;
   const charCount = postText.length;
   const charPercentage = (charCount / maxChars) * 100;
@@ -379,26 +393,64 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   // Handle prefill from Tendances
   useEffect(() => {
     if (prefillTopic) {
-      setPostText((prev) => prev ? prev : `Sujet : ${prefillTopic}\n\n`);
+      setTopicTitle(prefillTopic);
       onClearPrefill();
     }
   }, [prefillTopic, onClearPrefill]);
 
   const handleGenerateAI = async () => {
+    if (!hasApiKey) {
+      setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
+      return;
+    }
     setAiLoading(true);
     setAiError(null);
     try {
       const suggestions = await generatePostSuggestions(3);
       setAiSuggestions(suggestions);
-    } catch {
-      setAiError("Impossible de générer des suggestions IA. Vérifiez votre clé API dans les Paramètres.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("Clé API non configurée")) {
+        setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
+      } else {
+        setAiError("Impossible de générer des suggestions IA. Vérifiez votre clé API dans les Paramètres.");
+      }
     } finally {
       setAiLoading(false);
     }
   };
 
+  const handleGenerateFromTopic = async () => {
+    if (!topicTitle.trim()) return;
+    if (!hasApiKey) {
+      setTopicError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
+      return;
+    }
+    setTopicLoading(true);
+    setTopicError(null);
+    setTopicPost(null);
+    try {
+      const result = await generatePostFromTopic(topicTitle.trim());
+      setTopicPost(result);
+      setPostText(result.text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("Clé API non configurée")) {
+        setTopicError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
+      } else {
+        setTopicError("Impossible de générer le post. Vérifiez votre clé API dans les Paramètres.");
+      }
+    } finally {
+      setTopicLoading(false);
+    }
+  };
+
   const handleImprove = async () => {
     if (!postText.trim()) return;
+    if (!hasApiKey) {
+      setAiError("Clé API non configurée. Allez dans Paramètres pour configurer votre provider IA.");
+      return;
+    }
     setImproving(true);
     try {
       const result = await improvePost(postText);
@@ -426,6 +478,8 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       setSuccess(true);
       addLinkedInPost({ id: data.postId || `post-${Date.now()}`, text: postText, createdAt: new Date().toISOString(), likes: 0, comments: 0, visibility });
       setPostText("");
+      setTopicTitle("");
+      setTopicPost(null);
       setTimeout(() => setSuccess(false), 3000);
     } catch {
       setError("Erreur réseau lors de la publication");
@@ -455,6 +509,8 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
         createdAt: new Date().toISOString(),
       });
       setPostText("");
+      setTopicTitle("");
+      setTopicPost(null);
       setScheduledAt("");
       setScheduleMode(false);
       setSuccess(true);
@@ -470,21 +526,161 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
   const nextBest = getNextBestTime();
 
+  // Score color helper
+  const getScoreColor = (score: number) => {
+    if (score >= 85) return "#00C48C";
+    if (score >= 70) return "#0A66C2";
+    if (score >= 55) return "#F4A100";
+    return "#E5263A";
+  };
+
+  const getScoreLabel = (score: number) => {
+    if (score >= 85) return "Excellent";
+    if (score >= 70) return "Bon";
+    if (score >= 55) return "Moyen";
+    return "À améliorer";
+  };
+
   if (!linkedInConnected) return <NotConnectedBanner />;
 
   return (
     <div className="space-y-4">
+      {/* Topic Input Section */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <BookOpen className="w-4 h-4 text-[#0A66C2]" />
+          <h3 className="text-sm font-semibold text-[#F0F4F8]">Générer à partir d&apos;un sujet</h3>
+        </div>
+        <p className="text-[12px] text-[#7B8A9A] mb-3">Entrez un titre ou sujet et l&apos;IA génère un post optimisé avec un score LinkedIn.</p>
+
+        <div className="flex gap-2 mb-3">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={topicTitle}
+              onChange={(e) => setTopicTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && topicTitle.trim()) handleGenerateFromTopic(); }}
+              placeholder="Ex: Architecture data mesh en B2B, IA et qualité des données..."
+              className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2.5 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#0A66C2]/30 pr-10"
+            />
+            {topicTitle && (
+              <button onClick={() => { setTopicTitle(""); setTopicPost(null); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#7B8A9A] hover:text-[#F0F4F8] transition-colors cursor-pointer">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleGenerateFromTopic}
+            disabled={topicLoading || !topicTitle.trim()}
+            className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-4 py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            {topicLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+            {topicLoading ? "Génération..." : "Générer le post"}
+          </button>
+        </div>
+
+        {!hasApiKey && (
+          <div className="flex items-center gap-2 text-[11px] text-[#F4A100] bg-[#F4A100]/5 border border-[#F4A100]/10 rounded-lg px-2.5 py-2 mb-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Clé API non configurée pour <strong>{hermesConfig.provider}</strong>. Allez dans <strong>Paramètres</strong> pour la configurer et activer la génération IA.</span>
+          </div>
+        )}
+
+        {topicError && (
+          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{topicError}
+          </div>
+        )}
+
+        {/* Score Display */}
+        {topicPost && !topicLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mt-3 space-y-3"
+          >
+            {/* Main Score */}
+            <div className="flex items-center gap-4 bg-[#18212F] rounded-xl p-4">
+              <div className="relative flex-shrink-0">
+                <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                  <circle cx="32" cy="32" r="28" fill="none" stroke={getScoreColor(topicPost.score)} strokeWidth="5"
+                    strokeDasharray={`${(topicPost.score / 100) * 176} 176`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-lg font-bold" style={{ color: getScoreColor(topicPost.score) }}>{topicPost.score}</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-[#F0F4F8]">Score LinkedIn</span>
+                  <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ color: getScoreColor(topicPost.score), backgroundColor: `${getScoreColor(topicPost.score)}15` }}>
+                    {getScoreLabel(topicPost.score)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#7B8A9A]">Sujet : <strong className="text-[#F0F4F8]">{topicPost.topic}</strong></p>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-[#7B8A9A]">
+                <Timer className="w-3.5 h-3.5" />
+                <span>{topicPost.bestTime}</span>
+              </div>
+            </div>
+
+            {/* Score Breakdown */}
+            <div className="grid grid-cols-5 gap-2">
+              {[
+                { key: "hook", label: "Hook", icon: Target, value: topicPost.scoreBreakdown.hook },
+                { key: "structure", label: "Structure", icon: BarChart3, value: topicPost.scoreBreakdown.structure },
+                { key: "cta", label: "CTA", icon: Zap, value: topicPost.scoreBreakdown.cta },
+                { key: "readability", label: "Lisibilité", icon: Eye, value: topicPost.scoreBreakdown.readability },
+                { key: "engagement", label: "Engagement", icon: Flame, value: topicPost.scoreBreakdown.engagement },
+              ].map((item) => {
+                const pct = (item.value / 20) * 100;
+                const color = item.value >= 17 ? "#00C48C" : item.value >= 13 ? "#0A66C2" : item.value >= 10 ? "#F4A100" : "#E5263A";
+                const Icon = item.icon;
+                return (
+                  <div key={item.key} className="bg-[#18212F] rounded-lg p-2.5 text-center">
+                    <Icon className="w-3.5 h-3.5 mx-auto mb-1" style={{ color }} />
+                    <p className="text-[10px] text-[#7B8A9A] mb-1">{item.label}</p>
+                    <div className="w-full h-1.5 rounded-full bg-[#080C10] mb-1">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                    </div>
+                    <p className="text-[12px] font-semibold" style={{ color }}>{item.value}/20</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tips */}
+            {topicPost.tips.length > 0 && (
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide mb-2">Conseils pour améliorer le score</p>
+                <div className="space-y-1.5">
+                  {topicPost.tips.map((tip, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#0A66C2]/15 text-[#0A66C2] text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
+                      <p className="text-[11px] text-[#7B8A9A]">{tip}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
+
       {/* AI Generation Section */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#00D4FF]" />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Génération IA</h3>
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Suggestions IA</h3>
           </div>
           <button onClick={handleGenerateAI} disabled={aiLoading}
             className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
             {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-            Générer avec l&apos;IA
+            Suggestions IA
           </button>
         </div>
 
@@ -531,7 +727,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
           <h3 className="text-sm font-semibold text-[#F0F4F8]">Nouveau post</h3>
           <div className="flex items-center gap-2">
             {postText.trim() && (
-              <button onClick={handleImprove} disabled={improving}
+              <button onClick={handleImprove} disabled={improving || !hasApiKey}
                 className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-2.5 py-1 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
                 {improving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                 Améliorer
@@ -546,7 +742,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
         <div className="relative mb-3">
           <textarea value={postText} onChange={(e) => setPostText(e.target.value.slice(0, maxChars))}
-            placeholder="Écrivez votre post LinkedIn ici...&#10;&#10;Astuce : Commencez par un hook percutant pour forcer le 'voir plus'."
+            placeholder="Écrivez votre post LinkedIn ici...&#10;&#10;Astuce : Entrez un sujet ci-dessus pour générer automatiquement un post optimisé."
             rows={8}
             className="w-full bg-[#18212F] border border-white/[0.06] rounded-xl px-4 py-3 text-[14px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#0A66C2]/30 resize-none leading-relaxed" />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
@@ -573,14 +769,24 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
           {/* Schedule toggle */}
           <button onClick={() => setScheduleMode(!scheduleMode)}
             className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all cursor-pointer border ${scheduleMode ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/20" : "text-[#7B8A9A] hover:text-[#F0F4F8] border-white/[0.06]"}`}>
-            <CalendarClock className="w-3.5 h-3.5" />{scheduleMode ? "Planifier" : "Planifier"}
+            <CalendarClock className="w-3.5 h-3.5" />Planifier
           </button>
+
+          {/* Copy to clipboard */}
+          {postText.trim() && (
+            <button
+              onClick={() => navigator.clipboard.writeText(postText)}
+              className="flex items-center gap-1.5 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-white/[0.1] transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />Copier
+            </button>
+          )}
 
           {!scheduleMode ? (
             <button onClick={handlePublish} disabled={publishing || !postText.trim()}
               className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto">
               {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : success ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-              {publishing ? "Publication..." : success ? "Publié !" : "Publier maintenant"}
+              {publishing ? "Publication..." : success ? "Publié !" : "Publier sur LinkedIn"}
             </button>
           ) : (
             <button onClick={handleSchedule} disabled={scheduling || !postText.trim() || !scheduledAt}

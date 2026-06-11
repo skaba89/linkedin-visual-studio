@@ -23,6 +23,24 @@ export interface LinkedInPostSuggestion {
   format: "story" | "list" | "contrarian" | "tutorial" | "data" | "question";
 }
 
+export interface LinkedInPostFromTopic {
+  id: string;
+  text: string;
+  topic: string;
+  hook: string;
+  score: number;
+  scoreBreakdown: {
+    hook: number;
+    structure: number;
+    cta: number;
+    readability: number;
+    engagement: number;
+  };
+  bestTime: string;
+  format: string;
+  tips: string[];
+}
+
 export interface LinkedInCommentSuggestion {
   id: string;
   text: string;
@@ -259,6 +277,135 @@ Quelle erreur avez-vous déjà faite ? 🤝`,
     ...t,
     bestTime: `${nextBest.day} ${nextBest.time}`,
   }));
+}
+
+// ─── AI Post Generation from Topic ──────────────────────────────
+
+/**
+ * Generate an optimized LinkedIn post from a given topic/title.
+ * Returns the post text plus a LinkedIn score with breakdown and tips.
+ */
+export async function generatePostFromTopic(
+  topicTitle: string,
+  format?: LinkedInPostSuggestion["format"]
+): Promise<LinkedInPostFromTopic> {
+  const context = getProjectContext();
+  const nextBest = getNextBestTime();
+  const chosenFormat = format || "story";
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert en contenu LinkedIn B2B spécialisé IA et acquisition de données.
+${context}
+
+Génère UN post LinkedIn optimisé pour un score maximal basé sur le sujet fourni.
+
+Réponds en JSON strict :
+{
+  "text": "texte complet du post (150-220 mots, avec hook percutant, corps court, CTA)",
+  "hook": "la première ligne seule",
+  "format": "${chosenFormat}",
+  "score": 85,
+  "scoreBreakdown": {
+    "hook": 18,
+    "structure": 17,
+    "cta": 16,
+    "readability": 17,
+    "engagement": 17
+  },
+  "tips": [" conseil 1", "conseil 2", "conseil 3"]
+}
+
+Score breakdown (chaque critère sur 20, total sur 100) :
+- hook : le hook force-t-il le "voir plus" ? (chiffre, question, contre-intuition)
+- structure : hook → corps → CTA bien défini ? Paragraphes courts ?
+- cta : appelle-t-il à l'action clairement ? (question ouverte, "commentez X")
+- readability : phrases courtes, émojis parcimonieux, blancs entre paragraphes ?
+- engagement : le post suscite-t-il débat, partage ou commentaire ?
+
+Règles de rédaction :
+- Hook qui force le "voir plus" (chiffre, question, contre-intuition)
+- Paragraphes de 2-3 lignes max, avec des blancs entre chaque
+- CTA : question ouverte ou "commentez X"
+- Ton direct, factuel, sans jargon
+- 150 à 220 mots
+- Langue : français
+- Adapte le contenu au sujet fourni de manière experte`,
+    },
+    {
+      role: "user",
+      content: `Rédige un post LinkedIn optimisé sur le sujet suivant : "${topicTitle}"
+
+Format souhaité : ${chosenFormat}
+Meilleur créneau de publication : ${nextBest.day} à ${nextBest.time}
+
+Donne-moi le post avec le meilleur score possible.`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.8,
+      maxTokens: 1500,
+    });
+
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        id: `topic-${Date.now()}`,
+        text: parsed.text || "",
+        topic: topicTitle,
+        hook: parsed.hook || "",
+        score: parsed.score || 75,
+        scoreBreakdown: parsed.scoreBreakdown || {
+          hook: 15, structure: 15, cta: 15, readability: 15, engagement: 15,
+        },
+        bestTime: `${nextBest.day} ${nextBest.time}`,
+        format: parsed.format || chosenFormat,
+        tips: parsed.tips || [],
+      };
+    }
+  } catch (error) {
+    console.error("AI post from topic error:", error);
+  }
+
+  // Fallback: generate a basic post from topic
+  return generateFallbackPostFromTopic(topicTitle);
+}
+
+function generateFallbackPostFromTopic(topicTitle: string): LinkedInPostFromTopic {
+  const nextBest = getNextBestTime();
+  const fallbackText = `${topicTitle} — voici ce que la plupart des professionnels ignorent.
+
+Après avoir analysé des dizaines de cas, un pattern clair se dégage :
+→ Les entreprises qui automatisent leur approche B2B génèrent 3x plus d'opportunités.
+→ Celles qui personalisent chaque interaction ont un taux de réponse 2.5x supérieur.
+→ Le combo des deux ? Inarrêtable.
+
+La clé n'est pas de choisir entre automatisation et personnalisation.
+C'est de faire travailler l'IA sur la répétitif, pour que vous vous concentriez sur l'humain.
+
+Qu'en pensez-vous ? Comment abordez-vous ce sujet dans votre quotidien ?`;
+
+  return {
+    id: `topic-fallback-${Date.now()}`,
+    text: fallbackText,
+    topic: topicTitle,
+    hook: `${topicTitle} — voici ce que la plupart des professionnels ignorent.`,
+    score: 72,
+    scoreBreakdown: {
+      hook: 14, structure: 15, cta: 14, readability: 15, engagement: 14,
+    },
+    bestTime: `${nextBest.day} ${nextBest.time}`,
+    format: "story",
+    tips: [
+      "Ajoutez un chiffre ou une statistique concrète dans le hook",
+      "Structurez en 3 points clés avec des flèches",
+      "Terminez par une question ouverte liée au sujet",
+    ],
+  };
 }
 
 // ─── AI Comment Generation ──────────────────────────────────────
