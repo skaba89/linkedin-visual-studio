@@ -591,6 +591,55 @@ Règles d'amélioration :
   return { improved: draftText, suggestions: ["L'IA n'a pas pu améliorer le post. Veuillez réessayer."] };
 }
 
+// ─── Image Prompt Generation ─────────────────────────────────────
+
+/**
+ * Generate an image prompt optimized for LinkedIn post illustrations.
+ * Takes the post topic/content and returns a detailed prompt for image generation.
+ */
+export async function generateImagePrompt(
+  topicOrText: string
+): Promise<string> {
+  const context = getProjectContext();
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert en design visuel pour les réseaux sociaux B2B, spécialisé dans la création d'images LinkedIn percutantes.
+${context}
+
+Génère UN prompt détaillé pour la création d'une image d'illustration LinkedIn à partir du sujet fourni.
+
+Règles pour le prompt d'image :
+- L'image doit être professionnelle et moderne, adaptée au B2B
+- Style : minimaliste, épuré, avec des couleurs cohérentes (bleu, blanc, gris, ou accents de couleur)
+- Éviter le texte dans l'image (sauf titres très courts)
+- Privilégier : abstractions géométriques, data visualisation stylisée, métaphores visuelles du sujet
+- Format adapté pour LinkedIn (format paysage ou carré)
+- Pas de personnes réalistes, préférer les illustrations flat design ou 3D isométrique
+
+Réponds UNIQUEMENT par le prompt en anglais (pour une meilleure qualité de génération), sans guillemets ni explication. Maximum 200 mots.`,
+    },
+    {
+      role: "user",
+      content: `Génère un prompt d'image pour illustrer un post LinkedIn sur le sujet : "${topicOrText}"`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.7,
+      maxTokens: 300,
+    });
+
+    return response.content.trim().replace(/^["']|["']$/g, "");
+  } catch (error) {
+    console.error("Image prompt generation error:", error);
+    // Fallback prompt
+    return `Professional LinkedIn B2B illustration: modern minimalist design representing ${topicOrText.slice(0, 80)}, clean geometric shapes, blue and white color palette, data visualization elements, flat design style, corporate social media post image`;
+  }
+}
+
 // ─── Data Expert Analysis ─────────────────────────────────────────
 
 export interface DataExpertAnalysis {
@@ -618,7 +667,7 @@ export async function analyzePostsAsDataExpert(
   // Build a summary of existing posts for the AI
   const postsSummary = posts.length > 0
     ? posts.map((p, i) => {
-        const metrics = [];
+        const metrics: string[] = [];
         if (p.likes !== undefined) metrics.push(`${p.likes} likes`);
         if (p.comments !== undefined) metrics.push(`${p.comments} comments`);
         const metricStr = metrics.length > 0 ? ` [${metrics.join(", ")}]` : "";

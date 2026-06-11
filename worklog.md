@@ -51,4 +51,35 @@ Stage Summary:
 - API key error is FIXED - z-ai-web-dev-sdk serves as built-in AI provider when no key configured
 - Workflow "title → generate → post to LinkedIn" now works out-of-the-box
 - Data Expert mode added: analyzes existing posts and proposes new optimized topics
-- All AI features (generate from topic, suggestions, improve, data expert) work without any API key configuration
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add image generation and LinkedIn post with image support
+
+Work Log:
+- Created /src/app/api/ai/generate-image/route.ts — AI image generation using z-ai-web-dev-sdk (supports multiple sizes: 1024x1024, 1344x768, etc.)
+- Created /src/app/api/linkedin/upload-image/route.ts — LinkedIn 2-step image upload (registerUpload + binary upload) to get an asset URN
+- Updated /src/app/api/linkedin/post/route.ts — Now supports `imageAsset` parameter, changes `shareMediaCategory` from "NONE" to "IMAGE" when image is attached, includes media metadata in post body
+- Added `generateImagePrompt()` function to /src/lib/linkedin-ai.ts — Generates optimized English image prompts for LinkedIn B2B illustrations from topic/post text
+- Fixed pre-existing TypeScript error in linkedin-ai.ts (metrics array type annotation)
+- Added image UI section to PublierTab in LinkedInView.tsx:
+  - "Générer une image IA" button (uses AI to generate image from topic/post text)
+  - "Uploader une image" file upload button (accepts images up to 10MB)
+  - Custom prompt input for fine-tuning image generation
+  - 5 quick style suggestion chips (Data vis, Isometric tech, Infographic, Futuristic dashboard, Neural network)
+  - Image preview with overlay showing upload status and "Prête à publier" badge
+  - Image deletion button
+  - Updated Post Preview to show attached image
+  - Updated publish/schedule button labels to indicate image attachment ("Publier avec image" / "Planifier avec image")
+- Added ImagePlus, ImageIcon imports from lucide-react
+- Image generation flow: Topic/Text → AI generates prompt → z-ai-web-dev-sdk generates image → auto-upload to LinkedIn → asset URN stored → included in post
+- Verified build succeeds with `next build` — both new API routes are compiled and available
+
+Stage Summary:
+- Users can now generate AI images for their LinkedIn posts or upload their own images
+- Full pipeline: AI prompt generation → image generation → LinkedIn upload → post with image
+- Two image sources: AI generation (via z-ai-web-dev-sdk) and file upload
+- Custom prompt support for fine-tuning generated images
+- Quick style suggestions for common B2B visual themes
+- Image preview in both the image section and the post preview
+- Post API updated to support IMAGE shareMediaCategory with asset URN

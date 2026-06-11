@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", linkedinId } = body;
+    const { text, visibility = "PUBLIC", linkedinId, imageAsset } = body;
 
     if (!text || !text.trim()) {
       return NextResponse.json(
@@ -29,16 +29,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build media content based on whether we have an image
+    const hasImage = !!imageAsset;
+    const shareMediaCategory = hasImage ? "IMAGE" : "NONE";
+
+    const shareContent: Record<string, unknown> = {
+      shareCommentary: {
+        text: text.trim(),
+      },
+      shareMediaCategory,
+    };
+
+    if (hasImage) {
+      shareContent.media = [
+        {
+          status: "READY",
+          description: {
+            text: text.trim().slice(0, 300),
+          },
+          media: imageAsset,
+          title: {
+            text: text.trim().slice(0, 200).split("\n")[0] || "Post LinkedIn",
+          },
+        },
+      ];
+    }
+
     const postBody = {
       author: `urn:li:person:${linkedinId}`,
       lifecycleState: "PUBLISHED",
       specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: {
-            text: text.trim(),
-          },
-          shareMediaCategory: "NONE",
-        },
+        "com.linkedin.ugc.ShareContent": shareContent,
       },
       visibility: {
         "com.linkedin.ugc.MemberNetworkVisibility": visibility === "CONNECTIONS" ? "CONNECTIONS" : "PUBLIC",
@@ -76,7 +97,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       postId: responseData.id,
-      message: "Post publié avec succès sur LinkedIn",
+      message: hasImage
+        ? "Post avec image publié avec succès sur LinkedIn"
+        : "Post publié avec succès sur LinkedIn",
+      hasImage,
     });
   } catch (error) {
     console.error("LinkedIn post error:", error);
