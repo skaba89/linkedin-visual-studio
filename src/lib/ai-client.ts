@@ -33,8 +33,26 @@ export interface ChatResponse {
 }
 
 /**
+ * Preferred fallback order when the configured provider has no API key.
+ */
+const PROVIDER_FALLBACK_ORDER = [
+  "groq",
+  "openrouter",
+  "google",
+  "deepseek",
+  "mistral",
+  "together",
+  "sambanova",
+  "cerebras",
+  "openai",
+  "anthropic",
+];
+
+/**
  * Send a chat completion request using the currently configured provider.
  * API key is read from the Zustand store and sent as a header.
+ * If the configured provider has no API key, automatically falls back
+ * to another provider that has one.
  */
 export async function chatCompletion(
   messages: ChatMessage[],
@@ -42,12 +60,34 @@ export async function chatCompletion(
 ): Promise<ChatResponse> {
   // Read config from store
   const state = useAppStore.getState();
-  const providerId = options?.providerId || state.hermesConfig.provider;
-  const model = options?.model || state.hermesConfig.model;
-  const apiKey = state.hermesConfig.providerApiKeys[providerId];
+  let providerId = options?.providerId || state.hermesConfig.provider;
+  let model = options?.model || state.hermesConfig.model;
+  let apiKey = state.hermesConfig.providerApiKeys[providerId];
 
+  // If no API key for the configured provider, try fallback providers
   if (!apiKey) {
-    throw new Error(`Clé API non configurée pour le provider "${providerId}". Allez dans Paramètres pour la configurer.`);
+    const fallbackProvider = PROVIDER_FALLBACK_ORDER.find(
+      (p) => state.hermesConfig.providerApiKeys[p]
+    );
+
+    if (fallbackProvider) {
+      const fallbackKey = state.hermesConfig.providerApiKeys[fallbackProvider];
+      console.warn(
+        `[HERMÈS] Clé API non configurée pour "${providerId}". ` +
+        `Fallback automatique vers "${fallbackProvider}".`
+      );
+      providerId = fallbackProvider;
+      apiKey = fallbackKey;
+      // Don't override the model if it was explicitly provided via options
+      if (!options?.model) {
+        model = state.hermesConfig.model;
+      }
+    } else {
+      throw new Error(
+        `Clé API non configurée pour le provider "${providerId}". ` +
+        `Aucun provider alternatif disponible. Allez dans Paramètres pour configurer une clé API.`
+      );
+    }
   }
 
   const response = await fetch("/api/ai/chat", {
@@ -111,14 +151,20 @@ export async function chatCompletion(
 export async function generateLinkedInPost(
   topic: string,
   icp: string = "CEO, CMO, fondateurs de startups B2B",
-  tone: string = "direct, factuel, sans jargon"
+  tone: string = "direct, factuel, sans jargon",
+  expertTopic?: string
 ): Promise<string> {
+  const topicInstruction = expertTopic
+    ? `Sujet imposé : "${expertTopic}". Tu dois absolument traiter ce sujet avec un angle d'expert data.`
+    : "";
+  
   const messages: ChatMessage[] = [
     {
       role: "system",
       content: `Tu es un expert en contenu LinkedIn spécialisé dans l'IA et l'acquisition B2B.
 Ton audience cible : ${icp}
 Ton : ${tone}
+${topicInstruction}
 Tu rédiges des posts LinkedIn percutants avec cette structure :
 - Hook (ligne 1 — doit forcer le "voir plus")
 - Corps (3 à 4 paragraphes courts, max 3 lignes chacun)
@@ -127,7 +173,9 @@ Longueur : 150 à 220 mots.`,
     },
     {
       role: "user",
-      content: `Rédige un post LinkedIn sur le sujet suivant : ${topic}`,
+      content: expertTopic
+        ? `Rédige un post LinkedIn sur le sujet : ${expertTopic}`
+        : `Rédige un post LinkedIn sur le sujet suivant : ${topic}`,
     },
   ];
 

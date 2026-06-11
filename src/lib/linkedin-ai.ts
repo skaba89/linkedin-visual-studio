@@ -37,6 +37,16 @@ export interface TrendingTopic {
   suggestedHook: string;
 }
 
+export interface PostAnalysis {
+  styleProfile: string;
+  topTopics: string[];
+  topFormats: string[];
+  avgEngagement: string;
+  recommendations: string[];
+  strengths: string[];
+  weaknesses: string[];
+}
+
 export interface BestTimeSlot {
   day: string;
   time: string;
@@ -122,18 +132,23 @@ export function getNextBestTime(): { day: string; time: string; reason: string }
  */
 export async function generatePostSuggestions(
   count: number = 3,
-  format?: LinkedInPostSuggestion["format"]
+  format?: LinkedInPostSuggestion["format"],
+  topic?: string
 ): Promise<LinkedInPostSuggestion[]> {
   const context = getProjectContext();
   const formats = format ? [format] : ["story", "list", "contrarian", "tutorial", "data", "question"];
   const nextBest = getNextBestTime();
   
+  const topicInstruction = topic
+    ? `\nSUJET IMPOSÉ : "${topic}". Tu dois générer des posts spécifiquement sur ce sujet avec un angle d'expert data. Le sujet doit être développé en profondeur avec des données, des insights et une perspective d'expert.\n`
+    : "";
+
   const messages: ChatMessage[] = [
     {
       role: "system",
       content: `Tu es un expert en contenu LinkedIn B2B spécialisé IA et acquisition.
 ${context}
-
+${topicInstruction}
 Génère ${count} suggestions de posts LinkedIn. Pour chaque suggestion, réponds en JSON strict :
 [
   {
@@ -151,11 +166,14 @@ Règles :
 - CTA : question ouverte ou "commentez X"
 - Varie les formats : ${formats.join(", ")}
 - Adapte au contexte HERMÈS et à l'actualité IA/B2B
+${topic ? `- Le sujet demandé doit être au cœur de chaque suggestion avec un angle expert data` : ""}
 - Langue : français`,
     },
     {
       role: "user",
-      content: `Génère ${count} suggestions de posts LinkedIn pour cette semaine. Varie les angles et les formats. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`,
+      content: topic
+        ? `Génère ${count} suggestions de posts LinkedIn sur le sujet : "${topic}". Adopte un angle d'expert data. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`
+        : `Génère ${count} suggestions de posts LinkedIn pour cette semaine. Varie les angles et les formats. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`,
     },
   ];
 
@@ -442,4 +460,209 @@ Règles d'amélioration :
   }
 
   return { improved: draftText, suggestions: ["Configurez une clé API pour activer l'amélioration IA"] };
+}
+
+// ─── Expert Data Mode ──────────────────────────────────────────
+
+/**
+ * Analyze the user's existing LinkedIn posts to identify patterns,
+ * top-performing content, and writing style.
+ */
+export async function analyzeMyPosts(
+  posts: { text: string; likes: number; comments: number; createdAt: string }[]
+): Promise<PostAnalysis> {
+  if (posts.length === 0) {
+    return {
+      styleProfile: "Aucun post à analyser. Publiez du contenu pour obtenir une analyse.",
+      topTopics: [],
+      topFormats: [],
+      avgEngagement: "Aucune donnée",
+      recommendations: ["Publiez régulièrement pour accumuler des données d'analyse", "Variez les formats (story, list, data, question)", "Utilisez des hooks percutants avec des chiffres"],
+      strengths: [],
+      weaknesses: ["Pas assez de données pour identifier des faiblesses"],
+    };
+  }
+
+  const postsSummary = posts.slice(0, 20).map((p, i) => {
+    const date = new Date(p.createdAt).toLocaleDateString("fr-FR");
+    return `Post ${i + 1} (${date}) — ${p.likes} likes, ${p.comments} commentaires :\n"${p.text.slice(0, 300)}"`;
+  }).join("\n\n");
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un analyste expert en contenu LinkedIn B2B, spécialisé dans l'analyse de performances et l'optimisation de stratégie de contenu.
+Tu analyses les posts d'un utilisateur pour identifier ses forces, faiblesses, et opportunités d'amélioration.
+Tu as une expertise approfondie en data, analytics et stratégie de contenu LinkedIn.
+
+Réponds en JSON strict :
+{
+  "styleProfile": "description du style d'écriture en 2-3 phrases",
+  "topTopics": ["sujet 1", "sujet 2", "sujet 3"],
+  "topFormats": ["format qui performe le mieux", "format 2"],
+  "avgEngagement": "description de l'engagement moyen",
+  "recommendations": ["recommandation actionnable 1", "recommandation 2", "recommandation 3", "recommandation 4", "recommandation 5"],
+  "strengths": ["force 1", "force 2", "force 3"],
+  "weaknesses": ["faiblesse 1", "faiblesse 2", "faiblesse 3"]
+}
+
+Langue : français`,
+    },
+    {
+      role: "user",
+      content: `Analyse mes ${posts.length} posts LinkedIn et identifie mes patterns de contenu, mon style, et mes opportunités d'amélioration :
+
+${postsSummary}`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.5,
+      maxTokens: 1500,
+    });
+
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+  } catch (error) {
+    console.error("AI post analysis error:", error);
+  }
+
+  // Fallback analysis
+  const avgLikes = posts.reduce((s, p) => s + p.likes, 0) / posts.length;
+  const avgComments = posts.reduce((s, p) => s + p.comments, 0) / posts.length;
+  return {
+    styleProfile: "Style en cours d'identification — pas assez de données IA pour une analyse approfondie.",
+    topTopics: ["IA & prospection B2B", "Automation LinkedIn", "Scoring ICP"],
+    topFormats: ["story", "list", "data"],
+    avgEngagement: `Moyenne : ${Math.round(avgLikes)} likes, ${Math.round(avgComments)} commentaires par post`,
+    recommendations: [
+      "Augmentez la fréquence de publication (3-4x/semaine)",
+      "Utilisez des hooks avec des chiffres ou des questions",
+      "Ajoutez des CTA clairs à chaque post",
+      "Testez le format 'data' avec des statistiques",
+      "Configurez une clé API pour une analyse IA complète",
+    ],
+    strengths: ["Régularité de publication", "Contenu orienté valeur"],
+    weaknesses: ["Manque de diversité dans les formats", "CTA peu engagés"],
+  };
+}
+
+/**
+ * Generate new post suggestions based on post analysis, acting as a "data expert" persona.
+ * Posts are optimized based on what performed well historically.
+ */
+export async function generateExpertPosts(
+  analysis: PostAnalysis,
+  topic?: string
+): Promise<LinkedInPostSuggestion[]> {
+  const context = getProjectContext();
+  const nextBest = getNextBestTime();
+  const count = 3;
+
+  const topicInstruction = topic
+    ? `\nSUJET IMPOSÉ : "${topic}". Tu dois générer des posts spécifiquement sur ce sujet avec un angle d'expert data.`
+    : "";
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert data et stratège de contenu LinkedIn B2B. Tu génères des posts optimisés basés sur l'analyse des performances passées de l'utilisateur.
+${context}
+
+Profil de l'utilisateur :
+- Style : ${analysis.styleProfile}
+- Sujets qui performent : ${analysis.topTopics.join(", ")}
+- Formats qui performent : ${analysis.topFormats.join(", ")}
+- Engagement moyen : ${analysis.avgEngagement}
+- Forces : ${analysis.strengths.join(", ")}
+- Faiblesses à corriger : ${analysis.weaknesses.join(", ")}
+- Recommandations : ${analysis.recommendations.join("; ")}
+${topicInstruction}
+
+Génère ${count} suggestions de posts LinkedIn optimisés. Pour chaque suggestion, réponds en JSON strict :
+[
+  {
+    "text": "texte complet du post (150-220 mots, avec hook percutant, corps court, CTA)",
+    "topic": "sujet en 3-5 mots",
+    "hook": "la première ligne seule",
+    "estimatedEngagement": "high|medium|low",
+    "format": "story|list|contrarian|tutorial|data|question"
+  }
+]
+
+Règles :
+- Maximise l'engagement en exploitant les forces identifiées
+- Corrige les faiblesses dans les suggestions
+- Utilise les formats et sujets qui performent le mieux
+- Hook qui force le "voir plus" (chiffre, question, contre-intuition)
+- Paragraphes de 2-3 lignes max
+- CTA : question ouverte ou "commentez X"
+- Angle expert data avec des insights chiffrés
+- Langue : français`,
+    },
+    {
+      role: "user",
+      content: topic
+        ? `Génère ${count} posts optimisés sur le sujet : "${topic}". Exploite mon profil et mes forces. Le meilleur créneau est ${nextBest.day} à ${nextBest.time}.`
+        : `Génère ${count} posts optimisés basés sur mon profil. Exploite mes forces et corrige mes faiblesses. Le meilleur créneau est ${nextBest.day} à ${nextBest.time}.`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.85,
+      maxTokens: 2000,
+    });
+
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed.map((p: Record<string, string>, i: number) => ({
+        id: `expert-${Date.now()}-${i}`,
+        text: p.text || "",
+        topic: p.topic || "",
+        hook: p.hook || "",
+        estimatedEngagement: p.estimatedEngagement || "high",
+        bestTime: `${nextBest.day} ${nextBest.time}`,
+        format: p.format || "data",
+      }));
+    }
+  } catch (error) {
+    console.error("AI expert posts error:", error);
+  }
+
+  // Fallback expert suggestions
+  const formats = ["data", "story", "list"];
+  return [
+    {
+      id: `expert-fallback-${Date.now()}-0`,
+      text: `3 data points qui prouvent que l'IA transforme la prospection B2B en 2026 :\n\n📊 78% des décideurs préfèrent un message personnalisé par IA\n📊 Le taux de réponse passe de 2% à 8% avec un scoring ICP dynamique\n📊 Les équipes automatisées génèrent 3x plus de RDV qualifiés\n\nLe pattern est clair : les données ne mentent pas.\nL'IA n'est plus une option, c'est un avantage compétitif mesurable.\n\nQuelle data vous a le plus convaincu ? 👇`,
+      topic: topic || "Data prospection IA",
+      hook: "3 data points qui prouvent que l'IA transforme la prospection B2B",
+      estimatedEngagement: "high" as const,
+      bestTime: `${nextBest.day} ${nextBest.time}`,
+      format: "data" as const,
+    },
+    {
+      id: `expert-fallback-${Date.now()}-1`,
+      text: `J'ai analysé 200 posts LinkedIn B2B cette semaine.\n\nLe pattern gagnant ? Ce n'est pas ce que vous croyez.\n\nCe n'est pas la longueur.\nCe n'est pas le format.\nCe n'est pas même le sujet.\n\nC'est le DATA ANGLE.\n\nLes posts avec au moins 1 donnée chiffrée obtiennent 2.5x plus d'engagement.\nLes hooks avec un pourcentage forcent le "voir plus" dans 80% des cas.\n\nVotre prochain post ? Ajoutez UN chiffre. Juste un.\n\nQuel data point allez-vous utiliser ? 📈`,
+      topic: topic || "Angle data LinkedIn",
+      hook: "J'ai analysé 200 posts LinkedIn B2B cette semaine.",
+      estimatedEngagement: "high" as const,
+      bestTime: `${nextBest.day} ${nextBest.time}`,
+      format: "story" as const,
+    },
+    {
+      id: `expert-fallback-${Date.now()}-2`,
+      text: `5 métriques que chaque équipe B2B devrait tracker sur LinkedIn :\n\n1️⃣ Taux de réponse aux DM (objectif : >15%)\n2️⃣ Engagement par format (story vs list vs data)\n3️⃣ Conversion post → DM (objectif : >3%)\n4️⃣ Temps moyen avant 1er like (objectif : <30min)\n5️⃣ Taux de qualification ICP des leads LinkedIn\n\nLa plupart des équipes trackent 0 de ces métriques.\nRésultat ? Elles publient dans le vide.\n\nLaquelle allez-vous tracker en premier ? 🎯`,
+      topic: topic || "Métriques LinkedIn B2B",
+      hook: "5 métriques que chaque équipe B2B devrait tracker sur LinkedIn",
+      estimatedEngagement: "high" as const,
+      bestTime: `${nextBest.day} ${nextBest.time}`,
+      format: "list" as const,
+    },
+  ];
 }
