@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     // If no API key provided, use z-ai-web-dev-sdk as fallback
     if (!apiKey) {
-      return handleBuiltinSDK(model, messages, temperature, max_tokens);
+      return handleBuiltinSDK(model, messages, temperature, max_tokens, providerId);
     }
 
     // Route to the correct provider
@@ -61,7 +61,8 @@ async function handleBuiltinSDK(
   model: string,
   messages: Array<{ role: string; content: string }>,
   temperature: number,
-  max_tokens: number
+  max_tokens: number,
+  requestedProviderId?: string
 ) {
   try {
     const ZAI = (await import("z-ai-web-dev-sdk")).default;
@@ -96,6 +97,10 @@ async function handleBuiltinSDK(
         completion_tokens: 0,
         total_tokens: 0,
       },
+      // Warn client if their requested provider was ignored
+      _fallback: requestedProviderId && requestedProviderId !== "zai"
+        ? `Le fournisseur "${requestedProviderId}" n'est pas disponible sans clé API. Le fournisseur intégré (z-ai) a été utilisé à la place.`
+        : undefined,
     };
 
     return NextResponse.json(openAIResponse);

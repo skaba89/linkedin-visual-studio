@@ -101,10 +101,15 @@ export async function GET(request: NextRequest) {
       }
       const headers = Object.keys(rows[0] as Record<string, unknown>);
       const csvRows = [
-        headers.join(","),
+        headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(","),
         ...rows.map((row) => {
           const r = row as Record<string, unknown>;
-          return headers.map((h) => JSON.stringify(r[h] ?? "")).join(",");
+          return headers.map((h) => {
+            const val = r[h] ?? "";
+            const str = String(val);
+            // Properly escape CSV values: wrap in quotes and escape existing quotes
+            return `"${str.replace(/"/g, '""')}"`;
+          }).join(",");
         }),
       ];
       return new NextResponse(csvRows.join("\n"), {

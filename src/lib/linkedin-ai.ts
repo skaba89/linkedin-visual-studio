@@ -9,7 +9,40 @@
  */
 
 import { chatCompletion, type ChatMessage } from "./ai-client";
-import { useAppStore } from "@/store/appStore";
+
+// Safely import useAppStore only on client side
+let useAppStore: typeof import("@/store/appStore").useAppStore | null = null;
+try {
+  if (typeof window !== "undefined") {
+    const storeModule = require("@/store/appStore");
+    useAppStore = storeModule.useAppStore;
+  }
+} catch {
+  // Server-side: store not available
+}
+
+/**
+ * Unified chat completion that works both client-side and server-side.
+ * - Client-side: uses chatCompletion (fetch to /api/ai/chat)
+ * - Server-side: uses dynamic import of server-ai-client (direct z-ai-web-dev-sdk)
+ */
+async function unifiedChatCompletion(
+  messages: ChatMessage[],
+  options?: { temperature?: number; maxTokens?: number; model?: string; providerId?: string }
+): Promise<{ content: string; model: string }> {
+  if (typeof window === "undefined") {
+    // Server-side: use direct SDK call via dynamic import
+    // Dynamic require avoids bundling z-ai-web-dev-sdk in client
+    const { serverChatCompletion } = require("./server-ai-client") as typeof import("./server-ai-client");
+    return serverChatCompletion(messages, {
+      model: options?.model,
+      temperature: options?.temperature,
+      maxTokens: options?.maxTokens,
+    });
+  }
+  // Client-side: use fetch to API endpoint
+  return chatCompletion(messages, options);
+}
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -65,15 +98,30 @@ export interface BestTimeSlot {
 // ─── Context Builder ────────────────────────────────────────────
 
 function getProjectContext(): string {
-  const state = useAppStore.getState();
-  const icpTitles = state.icpConfig.titles.join(", ");
-  const icpSectors = state.icpConfig.sectors.join(", ");
-  const recentPosts = state.generatedPosts.slice(0, 5).map(p => p.topic);
-  
-  return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
+  // Server-side safe: use default context when store is unavailable
+  if (!useAppStore) {
+    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
+8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
+ICP cible : CEO, CMO, fondateurs de startups B2B dans les secteurs SaaS, Tech, Consulting.
+Sujets récents abordés : IA, prospection B2B, automation LinkedIn, scoring ICP`;
+  }
+
+  try {
+    const state = useAppStore.getState();
+    const icpTitles = state.icpConfig.titles.join(", ");
+    const icpSectors = state.icpConfig.sectors.join(", ");
+    const recentPosts = state.generatedPosts.slice(0, 5).map(p => p.topic);
+    
+    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
 8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
 ICP cible : ${icpTitles} dans les secteurs ${icpSectors}.
 Sujets récents abordés : ${recentPosts.length > 0 ? recentPosts.join(", ") : "IA, prospection B2B, automation LinkedIn, scoring ICP"}`;
+  } catch {
+    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
+8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
+ICP cible : CEO, CMO, fondateurs de startups B2B.
+Sujets récents abordés : IA, prospection B2B, automation LinkedIn, scoring ICP`;
+  }
 }
 
 // ─── Best Time Analysis ─────────────────────────────────────────
@@ -178,7 +226,7 @@ Règles :
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.85,
       maxTokens: 2000,
     });
@@ -345,7 +393,7 @@ Donne-moi le post avec le meilleur score possible.`,
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.8,
       maxTokens: 1500,
     });
@@ -453,7 +501,7 @@ Post : "${postText.slice(0, 500)}"`,
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.75,
       maxTokens: 800,
     });
@@ -516,7 +564,7 @@ Langue : français`,
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.7,
       maxTokens: 1000,
     });
@@ -575,7 +623,7 @@ Règles d'amélioration :
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.6,
       maxTokens: 1000,
     });
@@ -627,7 +675,7 @@ Réponds UNIQUEMENT par le prompt en anglais (pour une meilleure qualité de gé
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.7,
       maxTokens: 300,
     });
@@ -716,7 +764,7 @@ Génère le contenu JSON structuré du carrousel.`,
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.75,
       maxTokens: 3000,
     });
@@ -880,7 +928,7 @@ Donne-moi une analyse complète avec des recommandations concrètes et de nouvea
   ];
 
   try {
-    const response = await chatCompletion(messages, {
+    const response = await unifiedChatCompletion(messages, {
       temperature: 0.5,
       maxTokens: 2500,
     });

@@ -52,7 +52,7 @@ export default function MonitoringView() {
     { label: "Taux engagement", value: `${metrics.tauxEngagement}%`, target: "3%+", met: metrics.tauxEngagement >= 3 },
     { label: "Profils collectés", value: metrics.profilsCollectes.toString(), target: "—", met: true },
     { label: "Leads qualifiés", value: metrics.leadsQualifies.toString(), target: "20-40/sem", met: metrics.leadsQualifies >= 20 },
-    { label: "Taux qualif.", value: `${Math.round((metrics.leadsQualifies / metrics.profilsCollectes) * 100)}%`, target: "15-25%", met: true },
+    { label: "Taux qualif.", value: metrics.profilsCollectes > 0 ? `${Math.round((metrics.leadsQualifies / metrics.profilsCollectes) * 100)}%` : "N/A", target: "15-25%", met: metrics.profilsCollectes > 0 && ((metrics.leadsQualifies / metrics.profilsCollectes) * 100) >= 15 },
     { label: "Messages envoyés", value: metrics.messagesEnvoyes.toString(), target: "—", met: true },
     { label: "Taux réponse", value: `${metrics.tauxReponse}%`, target: "20-35%", met: metrics.tauxReponse >= 20 },
     { label: "RDVs générés", value: metrics.rdvsGeneres.toString(), target: "8-12/sem", met: metrics.rdvsGeneres >= 8 },

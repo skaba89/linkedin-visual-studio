@@ -1,8 +1,12 @@
 /**
- * Client-side AI helper for HERMÈS
+ * AI helper for HERMÈS — Client-side only
  * 
  * Provides a simple interface for components to make AI calls
  * through the /api/ai/chat endpoint using the configured provider.
+ * 
+ * IMPORTANT: This module is client-side only. It uses Zustand store
+ * and fetch to the API endpoint. Server-side code should use
+ * server-ai-client.ts instead.
  */
 
 import { useAppStore } from "@/store/appStore";
@@ -20,6 +24,8 @@ export interface ChatOptions {
   providerId?: string;
   /** Override the model from config */
   model?: string;
+  /** API key override */
+  apiKey?: string;
 }
 
 export interface ChatResponse {
@@ -35,6 +41,7 @@ export interface ChatResponse {
 /**
  * Send a chat completion request using the currently configured provider.
  * API key is read from the Zustand store and sent as a header.
+ * Client-side only — uses fetch to /api/ai/chat.
  */
 export async function chatCompletion(
   messages: ChatMessage[],
@@ -44,7 +51,7 @@ export async function chatCompletion(
   const state = useAppStore.getState();
   const providerId = options?.providerId || state.hermesConfig.provider;
   const model = options?.model || state.hermesConfig.model;
-  const apiKey = state.hermesConfig.providerApiKeys[providerId];
+  const apiKey = options?.apiKey || state.hermesConfig.providerApiKeys[providerId];
 
   // If no API key, server will use z-ai-web-dev-sdk as fallback
   const headers: Record<string, string> = {

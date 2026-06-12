@@ -50,5 +50,12 @@ export async function PUT(req: NextRequest) {
     data,
   });
 
-  return NextResponse.json({ ...sequence, steps: updates.steps || [] });
+  // Parse steps from DB for response, preserving existing steps if not updated
+  const responseSteps = updates.steps
+    ? updates.steps
+    : typeof sequence.steps === "string"
+      ? JSON.parse(sequence.steps)
+      : sequence.steps;
+
+  return NextResponse.json({ ...sequence, steps: responseSteps || [] });
 }
