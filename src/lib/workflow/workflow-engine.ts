@@ -1,4 +1,4 @@
-// ─── Workflow Execution Engine ───────────────────────────────────────
+// ─── Workflow Execution Engine (Prisma-backed) ───────────────────────
 
 import {
   Workflow,
@@ -9,12 +9,79 @@ import {
   WorkflowCondition,
   WorkflowStatus,
   TriggerType,
+  WORKFLOW_TEMPLATES,
 } from "./types";
+
+import { db, DEFAULT_USER_ID } from "@/lib/db";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+/** Convert a Prisma Workflow row to our Workflow type (parse JSON fields) */
+function prismaToWorkflow(
+  row: {
+    id: string;
+    name: string;
+    description: string;
+    status: string;
+    nodes: string;
+    edges: string;
+    tags: string;
+    version: number;
+    lastExecutionAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  executions: WorkflowExecution[] = []
+): Workflow {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    status: row.status as WorkflowStatus,
+    nodes: safeParseJson<WorkflowNode[]>(row.nodes, []),
+    edges: safeParseJson<WorkflowEdge[]>(row.edges, []),
+    tags: safeParseJson<string[]>(row.tags, []),
+    version: row.version,
+    lastExecutionAt: row.lastExecutionAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    executions,
+  };
+}
+
+/** Convert a Prisma WorkflowExecution row to our WorkflowExecution type */
+function prismaToExecution(row: {
+  id: string;
+  workflowId: string;
+  status: string;
+  triggerNode: string;
+  currentNode: string | null;
+  error: string | null;
+  data: string;
+  steps: string;
+  startedAt: Date;
+  completedAt: Date | null;
+}): WorkflowExecution {
+  return {
+    id: row.id,
+    workflowId: row.workflowId,
+    status: row.status as WorkflowExecution["status"],
+    triggerNode: row.triggerNode,
+    currentNode: row.currentNode,
+    startedAt: row.startedAt.toISOString(),
+    completedAt: row.completedAt?.toISOString() ?? null,
+    error: row.error,
+    data: safeParseJson<Record<string, unknown>>(row.data, {}),
+    steps: safeParseJson<WorkflowExecutionStep[]>(row.steps, []),
+  };
+}
+
+function safeParseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 // ─── Condition Evaluator ────────────────────────────────────────────
@@ -63,41 +130,36 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 // ─── Workflow Engine ────────────────────────────────────────────────
 
 class WorkflowEngine {
-  private workflows: Map<string, Workflow> = new Map();
-
   /**
    * Create a new workflow from scratch
    */
-  createWorkflow(input: {
+  async createWorkflow(input: {
     name: string;
     description?: string;
     nodes?: WorkflowNode[];
     edges?: WorkflowEdge[];
     tags?: string[];
-  }): Workflow {
-    const workflow: Workflow = {
-      id: generateId(),
-      name: input.name,
-      description: input.description ?? "",
-      status: "draft",
-      nodes: input.nodes ?? [],
-      edges: input.edges ?? [],
-      executions: [],
-      lastExecutionAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: input.tags ?? [],
-      version: 1,
-    };
-    this.workflows.set(workflow.id, workflow);
-    return workflow;
+  }): Promise<Workflow> {
+    const row = await db.workflow.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        name: input.name,
+        description: input.description ?? "",
+        status: "draft",
+        nodes: JSON.stringify(input.nodes ?? []),
+        edges: JSON.stringify(input.edges ?? []),
+        tags: JSON.stringify(input.tags ?? []),
+        version: 1,
+      },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Create a workflow from a template
    */
-  createFromTemplate(templateId: string, name?: string): Workflow | null {
-    const { WORKFLOW_TEMPLATES } = require("./types");
+  async createFromTemplate(templateId: string, name?: string): Promise<Workflow | null> {
     const template = WORKFLOW_TEMPLATES.find((t: { id: string }) => t.id === templateId);
     if (!template) return null;
 
@@ -124,112 +186,206 @@ class WorkflowEngine {
   /**
    * Get a workflow by ID
    */
-  getWorkflow(id: string): Workflow | undefined {
-    return this.workflows.get(id);
+  async getWorkflow(id: string): Promise<Workflow | undefined> {
+    const row = await db.workflow.findUnique({
+      where: { id },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
+    });
+
+    if (!row) return undefined;
+
+    const executions = row.executions.map(prismaToExecution);
+    return prismaToWorkflow(row, executions);
   }
 
   /**
    * Get all workflows
    */
-  getWorkflows(): Workflow[] {
-    return Array.from(this.workflows.values());
+  async getWorkflows(): Promise<Workflow[]> {
+    const rows = await db.workflow.findMany({
+      where: { userId: DEFAULT_USER_ID },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
+    });
+
+    return rows.map((row) => {
+      const executions = row.executions.map(prismaToExecution);
+      return prismaToWorkflow(row, executions);
+    });
   }
 
   /**
    * Update a workflow
    */
-  updateWorkflow(id: string, updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>): Workflow | null {
-    const workflow = this.workflows.get(id);
-    if (!workflow) return null;
+  async updateWorkflow(
+    id: string,
+    updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>
+  ): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id } });
+    if (!existing) return null;
 
-    Object.assign(workflow, updates, { updatedAt: new Date().toISOString() });
-    return workflow;
+    const data: Record<string, unknown> = {};
+    if (updates.name !== undefined) data.name = updates.name;
+    if (updates.description !== undefined) data.description = updates.description;
+    if (updates.nodes !== undefined) data.nodes = JSON.stringify(updates.nodes);
+    if (updates.edges !== undefined) data.edges = JSON.stringify(updates.edges);
+    if (updates.tags !== undefined) data.tags = JSON.stringify(updates.tags);
+
+    const row = await db.workflow.update({
+      where: { id },
+      data,
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Change workflow status
    */
-  setWorkflowStatus(id: string, status: WorkflowStatus): Workflow | null {
-    const workflow = this.workflows.get(id);
-    if (!workflow) return null;
+  async setWorkflowStatus(id: string, status: WorkflowStatus): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id } });
+    if (!existing) return null;
 
-    workflow.status = status;
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    const row = await db.workflow.update({
+      where: { id },
+      data: { status },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Delete a workflow
    */
-  deleteWorkflow(id: string): boolean {
-    return this.workflows.delete(id);
+  async deleteWorkflow(id: string): Promise<boolean> {
+    try {
+      await db.workflow.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Add a node to a workflow
    */
-  addNode(workflowId: string, node: WorkflowNode): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return null;
+  async addNode(workflowId: string, node: WorkflowNode): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.nodes.push(node);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
+    nodes.push(node);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { nodes: JSON.stringify(nodes) },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Remove a node from a workflow (and its edges)
    */
-  removeNode(workflowId: string, nodeId: string): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return null;
+  async removeNode(workflowId: string, nodeId: string): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.nodes = workflow.nodes.filter((n) => n.id !== nodeId);
-    workflow.edges = workflow.edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
+    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
+
+    const filteredNodes = nodes.filter((n) => n.id !== nodeId);
+    const filteredEdges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: {
+        nodes: JSON.stringify(filteredNodes),
+        edges: JSON.stringify(filteredEdges),
+      },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Add an edge between two nodes
    */
-  addEdge(workflowId: string, edge: WorkflowEdge): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return null;
+  async addEdge(workflowId: string, edge: WorkflowEdge): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
+
+    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
+    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
 
     // Validate nodes exist
-    const fromExists = workflow.nodes.some((n) => n.id === edge.from);
-    const toExists = workflow.nodes.some((n) => n.id === edge.to);
+    const fromExists = nodes.some((n) => n.id === edge.from);
+    const toExists = nodes.some((n) => n.id === edge.to);
     if (!fromExists || !toExists) return null;
 
-    workflow.edges.push(edge);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    edges.push(edge);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { edges: JSON.stringify(edges) },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Remove an edge
    */
-  removeEdge(workflowId: string, edgeId: string): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return null;
+  async removeEdge(workflowId: string, edgeId: string): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.edges = workflow.edges.filter((e) => e.id !== edgeId);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
+    const filteredEdges = edges.filter((e) => e.id !== edgeId);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { edges: JSON.stringify(filteredEdges) },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Find workflows that match a trigger type
    */
-  findWorkflowsByTrigger(triggerType: TriggerType): Workflow[] {
-    return Array.from(this.workflows.values()).filter(
-      (w) =>
-        w.status === "active" &&
-        w.nodes.some(
-          (n) => n.type === "trigger" && n.triggerType === triggerType
-        )
-    );
+  async findWorkflowsByTrigger(triggerType: TriggerType): Promise<Workflow[]> {
+    const rows = await db.workflow.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        status: "active",
+      },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
+    });
+
+    return rows
+      .map((row) => {
+        const executions = row.executions.map(prismaToExecution);
+        return prismaToWorkflow(row, executions);
+      })
+      .filter((w) =>
+        w.nodes.some((n) => n.type === "trigger" && n.triggerType === triggerType)
+      );
   }
 
   /**
@@ -240,10 +396,10 @@ class WorkflowEngine {
     triggerData: Record<string, unknown> = {},
     triggerNodeOverride?: string
   ): Promise<WorkflowExecution> {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) {
       return {
-        id: generateId(),
+        id: "",
         workflowId,
         status: "failed",
         triggerNode: "",
@@ -256,15 +412,18 @@ class WorkflowEngine {
       };
     }
 
+    const workflow = prismaToWorkflow(existing);
+    const nodes = workflow.nodes;
+    const edges = workflow.edges;
+
     // Find trigger node
-    const triggerNode =
-      triggerNodeOverride
-        ? workflow.nodes.find((n) => n.id === triggerNodeOverride)
-        : workflow.nodes.find((n) => n.type === "trigger");
+    const triggerNode = triggerNodeOverride
+      ? nodes.find((n) => n.id === triggerNodeOverride)
+      : nodes.find((n) => n.type === "trigger");
 
     if (!triggerNode) {
       return {
-        id: generateId(),
+        id: "",
         workflowId,
         status: "failed",
         triggerNode: "",
@@ -277,25 +436,41 @@ class WorkflowEngine {
       };
     }
 
+    // Create execution record in DB
+    const steps: WorkflowExecutionStep[] = nodes.map((n) => ({
+      nodeId: n.id,
+      nodeLabel: n.label,
+      status: "pending" as const,
+      startedAt: null,
+      completedAt: null,
+      output: null,
+      error: null,
+    }));
+
+    const executionRow = await db.workflowExecution.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+        status: "running",
+        triggerNode: triggerNode.id,
+        currentNode: triggerNode.id,
+        data: JSON.stringify({ ...triggerData }),
+        steps: JSON.stringify(steps),
+      },
+    });
+
+    // Build in-memory execution object for graph traversal
     const execution: WorkflowExecution = {
-      id: generateId(),
+      id: executionRow.id,
       workflowId,
       status: "running",
       triggerNode: triggerNode.id,
       currentNode: triggerNode.id,
-      startedAt: new Date().toISOString(),
+      startedAt: executionRow.startedAt.toISOString(),
       completedAt: null,
       error: null,
       data: { ...triggerData },
-      steps: workflow.nodes.map((n) => ({
-        nodeId: n.id,
-        nodeLabel: n.label,
-        status: "pending" as const,
-        startedAt: null,
-        completedAt: null,
-        output: null,
-        error: null,
-      })),
+      steps,
     };
 
     // Mark trigger as completed
@@ -317,10 +492,24 @@ class WorkflowEngine {
     execution.completedAt = new Date().toISOString();
     execution.currentNode = null;
 
-    // Store execution
-    workflow.executions.unshift(execution);
-    if (workflow.executions.length > 100) workflow.executions = workflow.executions.slice(0, 100);
-    workflow.lastExecutionAt = new Date().toISOString();
+    // Update execution record in DB
+    await db.workflowExecution.update({
+      where: { id: executionRow.id },
+      data: {
+        status: execution.status,
+        currentNode: null,
+        error: execution.error,
+        data: JSON.stringify(execution.data),
+        steps: JSON.stringify(execution.steps),
+        completedAt: new Date(),
+      },
+    });
+
+    // Update workflow's lastExecutionAt
+    await db.workflow.update({
+      where: { id: workflowId },
+      data: { lastExecutionAt: new Date() },
+    });
 
     return execution;
   }
@@ -564,46 +753,56 @@ class WorkflowEngine {
   /**
    * Get execution history for a workflow
    */
-  getExecutionHistory(workflowId: string, limit = 20): WorkflowExecution[] {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return [];
-    return workflow.executions.slice(0, limit);
+  async getExecutionHistory(workflowId: string, limit = 20): Promise<WorkflowExecution[]> {
+    const rows = await db.workflowExecution.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+      },
+      orderBy: { startedAt: "desc" },
+      take: limit,
+    });
+
+    return rows.map(prismaToExecution);
   }
 
   /**
    * Get workflow statistics
    */
-  getWorkflowStats(workflowId: string): {
+  async getWorkflowStats(workflowId: string): Promise<{
     totalExecutions: number;
     successRate: number;
     avgDurationMs: number;
     lastExecution: string | null;
-  } {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow || workflow.executions.length === 0) {
+  }> {
+    const executions = await db.workflowExecution.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+      },
+      orderBy: { startedAt: "desc" },
+    });
+
+    if (executions.length === 0) {
       return { totalExecutions: 0, successRate: 0, avgDurationMs: 0, lastExecution: null };
     }
 
-    const completed = workflow.executions.filter((e) => e.status === "completed");
-    const durations = workflow.executions
+    const completed = executions.filter((e) => e.status === "completed");
+    const durations = executions
       .filter((e) => e.startedAt && e.completedAt)
       .map((e) => new Date(e.completedAt!).getTime() - new Date(e.startedAt).getTime());
 
-    return {
-      totalExecutions: workflow.executions.length,
-      successRate: completed.length / workflow.executions.length,
-      avgDurationMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
-      lastExecution: workflow.lastExecutionAt,
-    };
-  }
+    const workflow = await db.workflow.findUnique({
+      where: { id: workflowId },
+      select: { lastExecutionAt: true },
+    });
 
-  /**
-   * Load workflows from external data (e.g., API response)
-   */
-  loadWorkflows(workflows: Workflow[]): void {
-    for (const w of workflows) {
-      this.workflows.set(w.id, w);
-    }
+    return {
+      totalExecutions: executions.length,
+      successRate: completed.length / executions.length,
+      avgDurationMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
+      lastExecution: workflow?.lastExecutionAt?.toISOString() ?? null,
+    };
   }
 }
 

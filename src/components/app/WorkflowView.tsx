@@ -13,7 +13,6 @@ import {
   TriggerType,
   ActionType,
 } from "@/lib/workflow/types";
-import { workflowEngine } from "@/lib/workflow";
 import {
   Plus,
   Play,
@@ -50,8 +49,7 @@ export default function WorkflowView() {
       const data = await res.json();
       setWorkflows(data.workflows ?? []);
     } catch {
-      // Use local engine as fallback
-      setWorkflows(workflowEngine.getWorkflows());
+      // Fallback unavailable — engine is server-only
     }
   }, []);
 
@@ -74,11 +72,7 @@ export default function WorkflowView() {
         fetchWorkflows();
       }
     } catch {
-      const workflow = workflowEngine.createFromTemplate(templateId);
-      if (workflow) {
-        setSelectedWorkflow(workflow);
-        setActiveTab("builder");
-      }
+      // API unavailable
     }
   };
 
@@ -100,10 +94,7 @@ export default function WorkflowView() {
         setNewDesc("");
       }
     } catch {
-      const workflow = workflowEngine.createWorkflow({ name: newName || "Nouveau Workflow", description: newDesc });
-      setSelectedWorkflow(workflow);
-      setActiveTab("builder");
-      setShowCreateDialog(false);
+      // API unavailable
     }
   };
 
@@ -117,7 +108,6 @@ export default function WorkflowView() {
         body: JSON.stringify({ id: wf.id, status: newStatus }),
       });
     } catch { /* fallback */ }
-    workflowEngine.setWorkflowStatus(wf.id, newStatus as never);
     fetchWorkflows();
   };
 
@@ -126,7 +116,6 @@ export default function WorkflowView() {
     try {
       await fetch(`/api/data/workflows?id=${id}`, { method: "DELETE" });
     } catch { /* fallback */ }
-    workflowEngine.deleteWorkflow(id);
     fetchWorkflows();
   };
 
@@ -141,13 +130,12 @@ export default function WorkflowView() {
       const data = await res.json();
       setExecutionResult(data.execution);
     } catch {
-      const execution = await workflowEngine.executeWorkflow(wf.id, {});
-      setExecutionResult(execution);
+      // API unavailable
     }
   };
 
   // Add node to builder
-  const addNodeToBuilder = (type: WorkflowNodeType) => {
+  const addNodeToBuilder = async (type: WorkflowNodeType) => {
     if (!selectedWorkflow) return;
     const id = `node_${Date.now()}`;
     const baseY = 200;
@@ -159,8 +147,18 @@ export default function WorkflowView() {
       config: {},
       position: { x, y: baseY },
     };
-    const updated = workflowEngine.addNode(selectedWorkflow.id, node);
-    if (updated) setSelectedWorkflow({ ...updated });
+    // Optimistic update + persist via API
+    const optimistic = { ...selectedWorkflow, nodes: [...selectedWorkflow.nodes, node] };
+    setSelectedWorkflow(optimistic);
+    try {
+      const res = await fetch("/api/data/workflows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes }),
+      });
+      const data = await res.json();
+      if (data.workflow) setSelectedWorkflow(data.workflow);
+    } catch { /* keep optimistic */ }
   };
 
   const tabs: { id: TabType; label: string }[] = [
@@ -317,8 +315,16 @@ export default function WorkflowView() {
                   <input
                     value={selectedWorkflow.name}
                     onChange={(e) => {
-                      const updated = workflowEngine.updateWorkflow(selectedWorkflow.id, { name: e.target.value });
-                      if (updated) setSelectedWorkflow({ ...updated });
+                      const newNameVal = e.target.value;
+                      setSelectedWorkflow({ ...selectedWorkflow, name: newNameVal });
+                      fetch("/api/data/workflows", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: selectedWorkflow.id, name: newNameVal }),
+                      }).then(async (res) => {
+                        const data = await res.json();
+                        if (data.workflow) setSelectedWorkflow(data.workflow);
+                      }).catch(() => {});
                     }}
                     className="bg-transparent text-white text-sm font-semibold outline-none border-b border-transparent hover:border-white/20 focus:border-[#00D4FF] pb-0.5"
                   />
@@ -368,9 +374,22 @@ export default function WorkflowView() {
                           >
                             {/* Remove button */}
                             <button
-                              onClick={() => {
-                                const updated = workflowEngine.removeNode(selectedWorkflow.id, node.id);
-                                if (updated) setSelectedWorkflow({ ...updated });
+                              onClick={async () => {
+                                const optimistic = {
+                                  ...selectedWorkflow,
+                                  nodes: selectedWorkflow.nodes.filter((n) => n.id !== node.id),
+                                  edges: selectedWorkflow.edges.filter((e) => e.from !== node.id && e.to !== node.id),
+                                };
+                                setSelectedWorkflow(optimistic);
+                                try {
+                                  const res = await fetch("/api/data/workflows", {
+                                    method: "PUT",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes, edges: optimistic.edges }),
+                                  });
+                                  const data = await res.json();
+                                  if (data.workflow) setSelectedWorkflow(data.workflow);
+                                } catch { /* keep optimistic */ }
                               }}
                               className="absolute -top-2 -right-2 w-5 h-5 bg-[#E5263A] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                             >

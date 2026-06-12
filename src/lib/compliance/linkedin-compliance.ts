@@ -1,4 +1,5 @@
 // HERMÈS LinkedIn Compliance Manager — Rate limiting, warmup, mimicry
+// Persisted to SQLite via Prisma
 
 import {
   ComplianceLevel,
@@ -11,33 +12,101 @@ import {
   WARMUP_SCHEDULE,
   DEFAULT_MIMICRY,
 } from "./types";
+import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
 
 type LinkedInAction = "invitation" | "message" | "comment" | "like" | "profileView" | "post";
+
+const DEFAULT_USAGE: Record<LinkedInAction, number> = {
+  invitation: 0,
+  message: 0,
+  comment: 0,
+  like: 0,
+  profileView: 0,
+  post: 0,
+};
 
 export class LinkedInComplianceManager {
   private level: ComplianceLevel = "moderate";
   private limits: LinkedInLimits;
   private warmupActive = false;
   private warmupStartDate?: Date;
-  private usage: Record<LinkedInAction, number> = {
-    invitation: 0,
-    message: 0,
-    comment: 0,
-    like: 0,
-    profileView: 0,
-    post: 0,
-  };
+  private usage: Record<LinkedInAction, number> = { ...DEFAULT_USAGE };
   private weeklyInvitations = 0;
   private lastResetDate = new Date().toDateString();
   private lastWeeklyReset = new Date().toDateString();
   private mimicryConfig: MimicryConfig = DEFAULT_MIMICRY;
   private violations: ComplianceViolation[] = [];
+  private initialized = false;
+  private userId = DEFAULT_USER_ID;
 
   constructor() {
     this.limits = { ...DEFAULT_LIMITS.moderate };
   }
 
-  canPerformAction(action: LinkedInAction): { allowed: boolean; reason?: string } {
+  /** Load state from DB. Must be called before using the manager. */
+  async initialize(): Promise<void> {
+    await ensureDefaultUser();
+
+    const row = await db.complianceState.findUnique({
+      where: { userId: this.userId },
+    });
+
+    if (row) {
+      this.level = row.level as ComplianceLevel;
+      this.limits = { ...DEFAULT_LIMITS[this.level] };
+      this.warmupActive = row.warmupActive;
+      this.warmupStartDate = row.warmupStartDate ?? undefined;
+      this.usage = JSON.parse(row.usage) as Record<LinkedInAction, number>;
+      this.weeklyInvitations = row.weeklyInvitations;
+      this.lastResetDate = row.lastResetDate;
+      this.lastWeeklyReset = row.lastWeeklyReset;
+      this.violations = JSON.parse(row.violations) as ComplianceViolation[];
+      if (row.mimicryConfig && row.mimicryConfig !== "{}") {
+        this.mimicryConfig = JSON.parse(row.mimicryConfig) as MimicryConfig;
+      }
+    }
+
+    this.initialized = true;
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  /** Persist current in-memory state to DB */
+  private async saveState(): Promise<void> {
+    await db.complianceState.upsert({
+      where: { userId: this.userId },
+      update: {
+        level: this.level,
+        warmupActive: this.warmupActive,
+        warmupStartDate: this.warmupStartDate ?? null,
+        usage: JSON.stringify(this.usage),
+        weeklyInvitations: this.weeklyInvitations,
+        lastResetDate: this.lastResetDate,
+        lastWeeklyReset: this.lastWeeklyReset,
+        violations: JSON.stringify(this.violations),
+        mimicryConfig: JSON.stringify(this.mimicryConfig),
+      },
+      create: {
+        userId: this.userId,
+        level: this.level,
+        warmupActive: this.warmupActive,
+        warmupStartDate: this.warmupStartDate ?? null,
+        usage: JSON.stringify(this.usage),
+        weeklyInvitations: this.weeklyInvitations,
+        lastResetDate: this.lastResetDate,
+        lastWeeklyReset: this.lastWeeklyReset,
+        violations: JSON.stringify(this.violations),
+        mimicryConfig: JSON.stringify(this.mimicryConfig),
+      },
+    });
+  }
+
+  async canPerformAction(action: LinkedInAction): Promise<{ allowed: boolean; reason?: string }> {
+    await this.ensureLoaded();
     this.checkReset();
 
     const currentCount = this.usage[action];
@@ -68,7 +137,8 @@ export class LinkedInComplianceManager {
     return { allowed: true };
   }
 
-  recordAction(action: LinkedInAction): void {
+  async recordAction(action: LinkedInAction): Promise<void> {
+    await this.ensureLoaded();
     this.checkReset();
     this.usage[action]++;
 
@@ -88,6 +158,8 @@ export class LinkedInComplianceManager {
         timestamp: new Date(),
       });
     }
+
+    await this.saveState();
   }
 
   async waitForMimicryDelay(): Promise<void> {
@@ -95,7 +167,8 @@ export class LinkedInComplianceManager {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
-  getStatus(): ComplianceStatus {
+  async getStatus(): Promise<ComplianceStatus> {
+    await this.ensureLoaded();
     this.checkReset();
     return {
       level: this.level,
@@ -113,13 +186,16 @@ export class LinkedInComplianceManager {
     };
   }
 
-  startWarmup(): void {
+  async startWarmup(): Promise<void> {
+    await this.ensureLoaded();
     this.warmupActive = true;
     this.warmupStartDate = new Date();
-    this.usage = { invitation: 0, message: 0, comment: 0, like: 0, profileView: 0, post: 0 };
+    this.usage = { ...DEFAULT_USAGE };
+    await this.saveState();
   }
 
-  getWarmupInfo(): { active: boolean; day: number; totalDays: number; config?: WarmupDayConfig } {
+  async getWarmupInfo(): Promise<{ active: boolean; day: number; totalDays: number; config?: WarmupDayConfig }> {
+    await this.ensureLoaded();
     if (!this.warmupActive) {
       return { active: false, day: 0, totalDays: 14 };
     }
@@ -133,9 +209,11 @@ export class LinkedInComplianceManager {
     };
   }
 
-  setLevel(level: ComplianceLevel): void {
+  async setLevel(level: ComplianceLevel): Promise<void> {
+    await this.ensureLoaded();
     this.level = level;
     this.limits = { ...DEFAULT_LIMITS[level] };
+    await this.saveState();
   }
 
   private getLimitForAction(action: LinkedInAction): number {
@@ -172,7 +250,7 @@ export class LinkedInComplianceManager {
   private checkReset(): void {
     const today = new Date().toDateString();
     if (today !== this.lastResetDate) {
-      this.usage = { invitation: 0, message: 0, comment: 0, like: 0, profileView: 0, post: 0 };
+      this.usage = { ...DEFAULT_USAGE };
       this.lastResetDate = today;
       this.violations = [];
     }

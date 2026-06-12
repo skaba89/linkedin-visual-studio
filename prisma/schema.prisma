@@ -43,6 +43,16 @@ model User {
   emailSequences       EmailSequence[]
   emailMessages        EmailMessage[]
   pipelineStages       PipelineStage[]
+  workflows            Workflow[]
+  workflowExecutions   WorkflowExecution[]
+  notifications        Notification[]
+  notificationPreferences NotificationPreference[]
+  webhooks             Webhook[]
+  webhookDeliveries    WebhookDelivery[]
+  orchestratorState    OrchestratorState?
+  complianceState      ComplianceState?
+  feedbackRules        FeedbackRule[]
+  eventHistory         EventHistory[]
 }
 
 model UserSettings {
@@ -519,4 +529,211 @@ model PipelineStage {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, order])
+}
+
+// ─── Workflow persistence ────────────────────────────────────────────
+
+model Workflow {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  description     String    @default("")
+  status          String    @default("draft")  // draft | active | paused | archived
+  nodes           String    @default("[]")      // JSON
+  edges           String    @default("[]")      // JSON
+  tags            String    @default("[]")      // JSON
+  version         Int       @default(1)
+  lastExecutionAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executions  WorkflowExecution[]
+
+  @@index([userId, status])
+}
+
+model WorkflowExecution {
+  id           String   @id @default(cuid())
+  userId       String
+  workflowId   String
+  status       String   @default("running")  // running | completed | failed
+  triggerNode  String   @default("")
+  currentNode  String?
+  error        String?
+  data         String   @default("{}")       // JSON
+  steps        String   @default("[]")       // JSON
+  startedAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, workflowId])
+  @@index([userId, startedAt])
+}
+
+// ─── Notification persistence ────────────────────────────────────────
+
+model Notification {
+  id             String    @id @default(cuid())
+  userId         String
+  title          String
+  message        String
+  category       String    @default("system")  // agent | lead | deal | email | linkedin | compliance | workflow | system
+  priority       String    @default("medium")  // low | medium | high | critical
+  actionUrl      String?
+  actionLabel    String?
+  sourceAgent    String?
+  sourceWorkflow String?
+  metadata       String?                        // JSON
+  read           Boolean   @default(false)
+  readAt         DateTime?
+  dismissed      Boolean   @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+  @@index([userId, dismissed])
+  @@index([userId, createdAt])
+}
+
+model NotificationPreference {
+  id                String   @id @default(cuid())
+  userId            String
+  category          String   @unique  // one preference row per category per user
+  enabled           Boolean  @default(true)
+  minPriority       String   @default("low")  // low | medium | high | critical
+  quietHoursEnabled Boolean  @default(false)
+  quietHoursStart   String   @default("")  // "22:00"
+  quietHoursEnd     String   @default("")  // "08:00"
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Webhook persistence ─────────────────────────────────────────────
+
+model Webhook {
+  id                String   @id @default(cuid())
+  userId            String
+  name              String
+  provider          String   @default("custom")  // slack | discord | zapier | make | custom
+  url               String
+  secret            String?
+  events            String   @default("[]")       // JSON array of event strings
+  status            String   @default("active")   // active | paused | error
+  headers           String?                        // JSON
+  retryCount        Int      @default(3)
+  retryDelayMs      Int      @default(5000)
+  timeoutMs         Int      @default(10000)
+  lastTriggeredAt   DateTime?
+  lastStatus        Int?
+  errorCount        Int      @default(0)
+  totalDeliveries   Int      @default(0)
+  successDeliveries Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([userId, status])
+}
+
+model WebhookDelivery {
+  id          String    @id @default(cuid())
+  userId      String
+  webhookId   String
+  event       String
+  status      String    @default("pending")  // pending | delivered | failed | retrying
+  attempts    Int       @default(0)
+  request     String    @default("{}")       // JSON
+  response    String?                         // JSON
+  deliveredAt DateTime?
+  nextRetryAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, webhookId])
+  @@index([userId, createdAt])
+}
+
+// ─── Orchestrator state persistence ──────────────────────────────────
+
+model OrchestratorState {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  state     String   @default("stopped")  // running | stopped | paused
+  rules     String   @default("[]")       // JSON (serialized HeartbeatRule[])
+  startedAt DateTime?
+  metrics   String   @default("{}")       // JSON
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Compliance state persistence ────────────────────────────────────
+
+model ComplianceState {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  level             String   @default("moderate")  // conservative | moderate | aggressive
+  warmupActive      Boolean  @default(false)
+  warmupStartDate   DateTime?
+  usage             String   @default("{}")         // JSON Record<LinkedInAction, number>
+  weeklyInvitations Int      @default(0)
+  lastResetDate     String   @default("")
+  lastWeeklyReset   String   @default("")
+  violations        String   @default("[]")         // JSON
+  mimicryConfig     String   @default("{}")         // JSON
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Feedback rule persistence ───────────────────────────────────────
+
+model FeedbackRule {
+  id         String   @id @default(cuid())
+  userId     String
+  ruleId     String   // logical ID like "low-engagement"
+  name       String
+  metricType String
+  condition  String   // below | above | equals
+  threshold  Float    @default(0)
+  action     String   @default("none")
+  message    String   @default("")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ruleId])
+}
+
+// ─── Event history persistence ───────────────────────────────────────
+
+model EventHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  eventType String
+  agentId   String   @default("")
+  agentName String   @default("")
+  data      String?                     // JSON
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType])
+  @@index([userId, createdAt])
 }

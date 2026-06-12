@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
-import { abEngine } from "@/lib/ab-testing";
 
 export async function GET() {
   const experiments = await db.experiment.findMany({

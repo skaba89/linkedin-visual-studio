@@ -1,4 +1,5 @@
 // HERMÈS Agent Orchestrator — Coordinates agent execution and dependencies
+// State persisted to SQLite via Prisma
 
 import {
   AgentEvent,
@@ -14,26 +15,90 @@ import {
 } from "./types";
 import { eventBus } from "./event-bus";
 import { parseAllHeartbeats, getRulesForEvent, getScheduleRules, getTriggerDelayMs } from "./heartbeat-parser";
+import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+
+const DEFAULT_METRICS: OrchestratorMetrics = {
+  totalEventsProcessed: 0,
+  totalRulesFired: 0,
+  averageProcessingTimeMs: 0,
+  eventsByAgent: {},
+  eventsByType: {},
+  uptimeMs: 0,
+};
 
 export class AgentOrchestrator {
   private state: OrchestratorState = "stopped";
   private rules: HeartbeatRule[] = [];
   private startTime?: Date;
-  private metrics: OrchestratorMetrics = {
-    totalEventsProcessed: 0,
-    totalRulesFired: 0,
-    averageProcessingTimeMs: 0,
-    eventsByAgent: {},
-    eventsByType: {},
-    uptimeMs: 0,
-  };
+  private metrics: OrchestratorMetrics = { ...DEFAULT_METRICS };
   private intervalId?: ReturnType<typeof setInterval>;
-  private userId: string = "default";
+  private userId: string = DEFAULT_USER_ID;
+  private initialized = false;
 
-  async initialize(userId: string = "default"): Promise<void> {
+  async initialize(userId: string = DEFAULT_USER_ID): Promise<void> {
     this.userId = userId;
-    this.rules = parseAllHeartbeats();
+    await ensureDefaultUser();
+
+    // Load persisted state from DB
+    const row = await db.orchestratorState.findUnique({
+      where: { userId: this.userId },
+    });
+
+    if (row) {
+      this.state = row.state as OrchestratorState;
+      this.rules = JSON.parse(row.rules) as HeartbeatRule[];
+      this.startTime = row.startedAt ?? undefined;
+
+      // Restore metrics if they were persisted
+      if (row.metrics && row.metrics !== "{}") {
+        try {
+          const saved = JSON.parse(row.metrics) as Partial<OrchestratorMetrics>;
+          this.metrics = {
+            totalEventsProcessed: saved.totalEventsProcessed ?? 0,
+            totalRulesFired: saved.totalRulesFired ?? 0,
+            averageProcessingTimeMs: saved.averageProcessingTimeMs ?? 0,
+            eventsByAgent: saved.eventsByAgent ?? {},
+            eventsByType: saved.eventsByType ?? {},
+            lastEventAt: saved.lastEventAt ? new Date(saved.lastEventAt) : undefined,
+            uptimeMs: saved.uptimeMs ?? 0,
+          };
+        } catch {
+          this.metrics = { ...DEFAULT_METRICS };
+        }
+      }
+    } else {
+      // No persisted state — parse default heartbeat rules
+      this.rules = parseAllHeartbeats();
+    }
+
     this.setupEventListeners();
+    this.initialized = true;
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  /** Persist current orchestrator state to DB */
+  private async saveState(): Promise<void> {
+    await db.orchestratorState.upsert({
+      where: { userId: this.userId },
+      update: {
+        state: this.state,
+        rules: JSON.stringify(this.rules),
+        startedAt: this.startTime ?? null,
+        metrics: JSON.stringify(this.metrics),
+      },
+      create: {
+        userId: this.userId,
+        state: this.state,
+        rules: JSON.stringify(this.rules),
+        startedAt: this.startTime ?? null,
+        metrics: JSON.stringify(this.metrics),
+      },
+    });
   }
 
   private setupEventListeners(): void {
@@ -43,13 +108,14 @@ export class AgentOrchestrator {
     });
   }
 
-  start(): void {
+  async start(): Promise<void> {
+    await this.ensureLoaded();
     if (this.state === "running") return;
     this.state = "running";
     this.startTime = new Date();
 
     // Emit startup event
-    eventBus.emitEvent("system:startup", "system", "Système");
+    await eventBus.emitEvent("system:startup", "system", "Système");
 
     // Start scheduler tick every minute
     this.intervalId = setInterval(() => {
@@ -58,9 +124,12 @@ export class AgentOrchestrator {
 
     // Also tick immediately
     this.tickSchedule();
+
+    await this.saveState();
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    await this.ensureLoaded();
     if (this.state === "stopped") return;
     this.state = "stopped";
 
@@ -69,47 +138,58 @@ export class AgentOrchestrator {
       this.intervalId = undefined;
     }
 
-    eventBus.emitEvent("system:shutdown", "system", "Système");
+    await eventBus.emitEvent("system:shutdown", "system", "Système");
+    await this.saveState();
   }
 
-  pause(): void {
+  async pause(): Promise<void> {
+    await this.ensureLoaded();
     if (this.state !== "running") return;
     this.state = "paused";
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
     }
+    await this.saveState();
   }
 
-  resume(): void {
+  async resume(): Promise<void> {
+    await this.ensureLoaded();
     if (this.state !== "paused") return;
     this.state = "running";
     this.intervalId = setInterval(() => {
       this.tickSchedule();
     }, 60000);
+    await this.saveState();
   }
 
-  getState(): OrchestratorState {
+  async getState(): Promise<OrchestratorState> {
+    await this.ensureLoaded();
     return this.state;
   }
 
-  getMetrics(): OrchestratorMetrics {
+  async getMetrics(): Promise<OrchestratorMetrics> {
+    await this.ensureLoaded();
     const uptimeMs = this.startTime ? Date.now() - this.startTime.getTime() : 0;
     return { ...this.metrics, uptimeMs };
   }
 
-  getRules(): HeartbeatRule[] {
+  async getRules(): Promise<HeartbeatRule[]> {
+    await this.ensureLoaded();
     return [...this.rules];
   }
 
-  toggleRule(ruleId: string, enabled?: boolean): HeartbeatRule | undefined {
+  async toggleRule(ruleId: string, enabled?: boolean): Promise<HeartbeatRule | undefined> {
+    await this.ensureLoaded();
     const rule = this.rules.find((r) => r.id === ruleId);
     if (!rule) return undefined;
     rule.enabled = enabled ?? !rule.enabled;
+    await this.saveState();
     return rule;
   }
 
-  runAgentNow(agentId: AgentId): void {
+  async runAgentNow(agentId: AgentId): Promise<void> {
+    await this.ensureLoaded();
     const agentName = AGENT_NAMES[agentId] || agentId;
     const eventType = `${agentId}:post_published` as AgentEventType;
 
@@ -126,7 +206,7 @@ export class AgentOrchestrator {
     };
 
     const event = agentEventMap[agentId] || eventType;
-    eventBus.emitEvent(event, agentId, agentName, { manual: true });
+    await eventBus.emitEvent(event, agentId, agentName, { manual: true });
   }
 
   processAgentEvent(event: AgentEvent): void {
@@ -160,6 +240,11 @@ export class AgentOrchestrator {
     const total = this.metrics.totalEventsProcessed;
     this.metrics.averageProcessingTimeMs =
       (this.metrics.averageProcessingTimeMs * (total - 1) + processingTime) / total;
+
+    // Persist metrics in the background (non-blocking)
+    this.saveState().catch((err) => {
+      console.error("[Orchestrator] Failed to persist metrics:", err);
+    });
   }
 
   private fireRule(rule: HeartbeatRule, _triggerEvent?: AgentEvent): void {

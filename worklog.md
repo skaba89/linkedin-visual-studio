@@ -120,3 +120,34 @@ Stage Summary:
 - Topic input: Users can now specify a subject/title before AI generation, posts are generated with an expert data angle
 - Expert Data mode: New tab that analyzes existing LinkedIn posts, identifies patterns/strengths/weaknesses, and generates optimized posts based on the analysis
 - All changes compile successfully with Next.js build
+---
+Task ID: BUG-H2
+Agent: Main Agent
+Task: Persist all in-memory data stores to SQLite via Prisma (BUG-H2)
+
+Work Log:
+- Audited all 9 in-memory data stores across the codebase
+- Identified 5 critical stores (workflows, notifications, webhooks, scheduled posts, A/B tests) and 4 moderate stores (event bus, compliance, feedback, orchestrator)
+- Added 9 new Prisma models to schema: Workflow, WorkflowExecution, Notification, NotificationPreference, Webhook, WebhookDelivery, OrchestratorState, ComplianceState, FeedbackRule, EventHistory
+- Added corresponding relations to User model
+- Ran `npx prisma db push` to migrate the schema
+- Refactored workflow-engine.ts: replaced Map<string, Workflow> with Prisma queries, all methods now async
+- Refactored notification-engine.ts: removed in-memory arrays, uses DB for persistence, auto-seeds preferences
+- Refactored webhook-engine.ts: replaced Map + array with Prisma, keeps HTTP delivery logic
+- Refactored linkedin/schedule/route.ts: replaced in-memory ScheduledPost[] with db.scheduledPost
+- Refactored ab-engine.ts: eliminated dual-store problem, uses Prisma as single source of truth, kept assignments Map as session cache
+- Refactored feedback-engine.ts: uses Prisma for both events and rules, auto-seeds default rules
+- Refactored agent-orchestrator.ts: persists state, rules, metrics to DB
+- Refactored event-bus.ts: persists event history to DB, keeps in-memory listeners
+- Refactored linkedin-compliance.ts: persists level, warmup, usage, violations to DB
+- Updated all API routes to add `await` to async engine calls
+- Verified build compiles successfully
+- Tested all endpoints individually: workflows, notifications, webhooks, compliance, orchestrator, feedback, experiments, scheduled posts — all return 200 OK with data persisted in SQLite
+
+Stage Summary:
+- BUG-H2 is now FIXED — all 9 in-memory data stores now persist to SQLite via Prisma
+- Data survives server restarts
+- The dual-store problem in A/B testing and feedback is eliminated (single source of truth in DB)
+- 9 new Prisma models added with proper indexes
+- All engines converted to async DB-backed operations
+- Build passes cleanly with no errors
