@@ -635,9 +635,169 @@ Réponds UNIQUEMENT par le prompt en anglais (pour une meilleure qualité de gé
     return response.content.trim().replace(/^["']|["']$/g, "");
   } catch (error) {
     console.error("Image prompt generation error:", error);
-    // Fallback prompt
     return `Professional LinkedIn B2B illustration: modern minimalist design representing ${topicOrText.slice(0, 80)}, clean geometric shapes, blue and white color palette, data visualization elements, flat design style, corporate social media post image`;
   }
+}
+
+// ─── Carousel Content Generation ────────────────────────────────
+
+export interface CarouselSlideData {
+  type: "cover" | "content" | "stat" | "list" | "quote" | "cta";
+  headline: string;
+  body: string;
+  accent?: string;
+  bullets?: string[];
+  stat?: { value: string; label: string; context: string };
+}
+
+/**
+ * AI-powered carousel content structuring.
+ * Takes a post text and breaks it into professional LinkedIn carousel slides.
+ * This is the #1 format for LinkedIn engagement — carousels get 3-5x more engagement than text posts.
+ */
+export async function generateCarouselContent(
+  postText: string,
+  topicTitle?: string
+): Promise<CarouselSlideData[]> {
+  const context = getProjectContext();
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert en création de carrousels LinkedIn viraux B2B. Tu transformes un post texte en un carrousel multi-slides percutant.
+
+${context}
+
+RÈGLES POUR UN CARROUSEL LINKEDIN VIRAL :
+1. PREMIÈRE SLIDE = HOOK PUissant qui force le "voir plus" (chiffre choc, question provocante, contre-intuition)
+2. Chaque slide = UNE idée forte, jamais plus
+3. Texte GROS et LISIBLE (pas de paragraphes)
+4. DERNIÈRE SLIDE = CTA clair ("Commentez", "Suivez-moi", "Partagez")
+5. 5 à 8 slides optimal
+6. Alterner les formats : cover → list → stat → quote → content → cta
+
+Génère le contenu structuré du carrousel en JSON strict :
+[
+  {
+    "type": "cover|content|stat|list|quote|cta",
+    "headline": "Titre percutant de la slide (court, max 40 chars)",
+    "body": "Texte complémentaire (max 100 chars)",
+    "accent": "émoji ou texte court d'accent",
+    "bullets": ["point 1", "point 2"],   // uniquement si type=list
+    "stat": {                              // uniquement si type=stat
+      "value": "78%",
+      "label": "des décideurs B2B",
+      "context": "Source : étude 2025"
+    }
+  }
+]
+
+RÈGLES DE STRUCTURE :
+- Slide 1 : type=cover — Hook ultra-percutant, donne envie de swiper
+- Slides intermédiaires : alterne list, stat, quote, content pour varier le rythme
+- Avant-dernière slide : résumé ou insight clé
+- Dernière slide : type=cta — Appel à l'action clair
+
+RÈGLES DE STYLE :
+- headline : COURT et IMPACTANT (max 40 caractères)
+- body : COMPLÉMENT concis (max 100 caractères)
+- bullets : 3-5 points, chaque point max 60 caractères
+- Langue : français
+- Ton : direct, expert, sans jargon`,
+    },
+    {
+      role: "user",
+      content: `Transforme ce post LinkedIn en carrousel viral de 5-8 slides :
+
+${topicTitle ? `Sujet : ${topicTitle}\n\n` : ""}${postText}
+
+Génère le contenu JSON structuré du carrousel.`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.75,
+      maxTokens: 3000,
+    });
+
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Validate and normalize
+      return parsed.map((slide: Record<string, unknown>) => ({
+        type: (["cover", "content", "stat", "list", "quote", "cta"].includes(slide.type as string)
+          ? slide.type : "content") as CarouselSlideData["type"],
+        headline: String(slide.headline || "").slice(0, 60),
+        body: String(slide.body || "").slice(0, 150),
+        accent: slide.accent ? String(slide.accent) : undefined,
+        bullets: Array.isArray(slide.bullets)
+          ? slide.bullets.map((b: unknown) => String(b).slice(0, 80))
+          : undefined,
+        stat: slide.stat && typeof slide.stat === "object"
+          ? {
+              value: String((slide.stat as Record<string, unknown>).value || ""),
+              label: String((slide.stat as Record<string, unknown>).label || ""),
+              context: String((slide.stat as Record<string, unknown>).context || ""),
+            }
+          : undefined,
+      }));
+    }
+  } catch (error) {
+    console.error("Carousel content generation error:", error);
+  }
+
+  // Fallback: create basic carousel from post text
+  return generateFallbackCarouselContent(postText, topicTitle);
+}
+
+function generateFallbackCarouselContent(postText: string, topicTitle?: string): CarouselSlideData[] {
+  const title = topicTitle || "Insight Data & IA";
+  const lines = postText.split("\n").filter(l => l.trim());
+  const bullets = lines.filter(l => l.trim().startsWith("→") || l.trim().startsWith("-") || l.trim().startsWith("•") || l.trim().startsWith("✅"))
+    .map(l => l.replace(/^[→•\-✅]\s*/, "").trim())
+    .slice(0, 5);
+  
+  return [
+    {
+      type: "cover",
+      headline: title.length > 40 ? title.slice(0, 37) + "..." : title,
+      body: "Ce que la plupart des professionnels ignorent",
+      accent: "📌 INSIGHT",
+    },
+    {
+      type: "list",
+      headline: "Les points clés",
+      body: "",
+      bullets: bullets.length > 0 ? bullets : [
+        "L'IA transforme la prospection B2B",
+        "Les données sont le nouveau pétrole",
+        "L'automatisation augmente l'efficacité 3x",
+        "La personnalisation fait la différence",
+      ],
+    },
+    {
+      type: "stat",
+      headline: "Le chiffre qui change tout",
+      body: "",
+      stat: {
+        value: "3x",
+        label: "Plus d'engagement",
+        context: "Avec un carrousel vs post texte",
+      },
+    },
+    {
+      type: "content",
+      headline: "L'essentiel à retenir",
+      body: "Le combo automatisation + personnalisation est la clé de la prospection moderne. L'IA gère le répétitif, vous vous concentrez sur l'humain.",
+    },
+    {
+      type: "cta",
+      headline: "Et vous ?",
+      body: "Quelle est votre expérience sur le sujet ?",
+      accent: "💬 Commentez ci-dessous",
+    },
+  ];
 }
 
 // ─── Data Expert Analysis ─────────────────────────────────────────

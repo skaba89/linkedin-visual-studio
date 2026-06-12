@@ -12,6 +12,7 @@ import {
   getBestPostingTimes,
   getNextBestTime,
   generateImagePrompt,
+  generateCarouselContent,
 } from "@/lib/linkedin-ai";
 import type {
   LinkedInPostSuggestion,
@@ -20,6 +21,7 @@ import type {
   TrendingTopic,
   BestTimeSlot,
   DataExpertAnalysis,
+  CarouselSlideData,
 } from "@/lib/linkedin-ai";
 import {
   Linkedin,
@@ -59,6 +61,12 @@ import {
   Database,
   ImagePlus,
   ImageIcon,
+  Layers,
+  FileText,
+  Palette,
+  Download,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -403,6 +411,18 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   const [customImagePrompt, setCustomImagePrompt] = useState("");
   const [showImagePromptInput, setShowImagePromptInput] = useState(false);
 
+  // Carousel states
+  const [carouselPdfBase64, setCarouselPdfBase64] = useState<string | null>(null);
+  const [carouselPreviewBase64, setCarouselPreviewBase64] = useState<string | null>(null);
+  const [carouselSlides, setCarouselSlides] = useState<CarouselSlideData[]>([]);
+  const [carouselDocumentAsset, setCarouselDocumentAsset] = useState<string | null>(null);
+  const [carouselGenerating, setCarouselGenerating] = useState(false);
+  const [carouselUploading, setCarouselUploading] = useState(false);
+  const [carouselError, setCarouselError] = useState<string | null>(null);
+  const [carouselStyle, setCarouselStyle] = useState<"dark_pro" | "clean_light" | "gradient" | "minimal">("dark_pro");
+  const [carouselPreviewSlide, setCarouselPreviewSlide] = useState(0);
+  const [carouselSlidePreviews, setCarouselSlidePreviews] = useState<string[]>([]);
+
   const maxChars = 3000;
   const charCount = postText.length;
   const charPercentage = (charCount / maxChars) * 100;
@@ -583,6 +603,103 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
     }
   };
 
+  // ─── Carousel Handlers ──────────────────────────────────────────
+
+  const handleGenerateCarousel = async () => {
+    const sourceText = postText.trim() || topicTitle.trim();
+    if (!sourceText) {
+      setCarouselError("Rédigez un post ou entrez un sujet d'abord.");
+      return;
+    }
+    setCarouselGenerating(true);
+    setCarouselError(null);
+    try {
+      const res = await fetch("/api/ai/generate-carousel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postText: sourceText,
+          topicTitle: topicTitle || undefined,
+          authorName: linkedInProfile?.firstName ? `${linkedInProfile.firstName} ${linkedInProfile.lastName}` : "HERMÈS",
+          authorTitle: linkedInProfile?.headline || "Data & IA",
+          style: carouselStyle,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Erreur lors de la génération du carrousel");
+      }
+      setCarouselPdfBase64(data.pdfBase64);
+      setCarouselPreviewBase64(data.previewBase64);
+      setCarouselSlides(data.slides);
+      setCarouselPreviewSlide(0);
+      setCarouselSlidePreviews(data.slidePreviews || [data.previewBase64]);
+      setCarouselDocumentAsset(null);
+
+      // Automatically upload to LinkedIn if connected
+      if (linkedInProfile?.id) {
+        await handleUploadCarousel(data.pdfBase64);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setCarouselError(msg || "Impossible de générer le carrousel.");
+    } finally {
+      setCarouselGenerating(false);
+    }
+  };
+
+  const handleUploadCarousel = async (pdfBase64: string) => {
+    if (!linkedInProfile?.id) {
+      setCarouselError("Connectez votre compte LinkedIn pour uploader le carrousel.");
+      return;
+    }
+    setCarouselUploading(true);
+    setCarouselError(null);
+    try {
+      const res = await fetch("/api/linkedin/upload-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdfBase64, linkedinId: linkedInProfile.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Erreur lors de l'upload du carrousel");
+      }
+      setCarouselDocumentAsset(data.asset);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setCarouselError(msg || "Impossible d'uploader le carrousel sur LinkedIn.");
+    } finally {
+      setCarouselUploading(false);
+    }
+  };
+
+  const handleRemoveCarousel = () => {
+    setCarouselPdfBase64(null);
+    setCarouselPreviewBase64(null);
+    setCarouselSlides([]);
+    setCarouselDocumentAsset(null);
+    setCarouselPreviewSlide(0);
+    setCarouselSlidePreviews([]);
+  };
+
+  const handleDownloadCarousel = () => {
+    if (!carouselPdfBase64) return;
+    const byteCharacters = atob(carouselPdfBase64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `carousel-linkedin-${Date.now()}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handlePublish = async () => {
     if (!postText.trim() || !linkedInProfile?.id) return;
     setPublishing(true);
@@ -592,7 +709,13 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       const res = await fetch("/api/linkedin/post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id, imageAsset: postImageAsset || undefined }),
+        body: JSON.stringify({
+          text: postText,
+          visibility,
+          linkedinId: linkedInProfile.id,
+          imageAsset: postImageAsset || undefined,
+          documentAsset: carouselDocumentAsset || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Erreur lors de la publication"); return; }
@@ -602,6 +725,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       setTopicTitle("");
       setTopicPost(null);
       handleRemoveImage();
+      handleRemoveCarousel();
       setTimeout(() => setSuccess(false), 3000);
     } catch {
       setError("Erreur réseau lors de la publication");
@@ -968,29 +1092,42 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
         )}
       </div>
 
-      {/* Image Section */}
+      {/* ─── CAROUSEL & IMAGE SECTION ─── */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <ImageIcon className="w-4 h-4 text-[#F4A100]" />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Image du post</h3>
-            {postImageBase64 && (
+            <Layers className="w-4 h-4 text-[#F4A100]" />
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Visuel du post</h3>
+            {carouselPdfBase64 && (
               <span className="text-[10px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-1.5 py-0.5 rounded">
-                {postImageAsset ? "UPLOADÉE" : "PRÊTE"}
+                CARROUSEL {carouselSlides.length} SLIDES
+              </span>
+            )}
+            {!carouselPdfBase64 && postImageBase64 && (
+              <span className="text-[10px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-1.5 py-0.5 rounded">
+                IMAGE
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowImagePromptInput(!showImagePromptInput)}
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-lg transition-all cursor-pointer border ${showImagePromptInput ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/20" : "text-[#7B8A9A] hover:text-[#F0F4F8] border-white/[0.06]"}`}
-            >
-              <Search className="w-3 h-3" />
-              Prompt personnalisé
-            </button>
-            {postImageBase64 && (
-              <button
-                onClick={handleRemoveImage}
+            {carouselPdfBase64 && (
+              <>
+                <button onClick={handleDownloadCarousel}
+                  className="flex items-center gap-1.5 text-[12px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-2.5 py-1 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3 h-3" />
+                  Télécharger PDF
+                </button>
+                <button onClick={handleRemoveCarousel}
+                  className="flex items-center gap-1.5 text-[12px] font-medium text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 px-2.5 py-1 rounded-lg hover:bg-[#E5263A]/15 transition-colors cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                  Supprimer
+                </button>
+              </>
+            )}
+            {!carouselPdfBase64 && postImageBase64 && (
+              <button onClick={handleRemoveImage}
                 className="flex items-center gap-1.5 text-[12px] font-medium text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 px-2.5 py-1 rounded-lg hover:bg-[#E5263A]/15 transition-colors cursor-pointer"
               >
                 <X className="w-3 h-3" />
@@ -1000,41 +1137,102 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
           </div>
         </div>
 
-        <p className="text-[12px] text-[#7B8A9A] mb-3">
-          Ajoutez une image pour augmenter l&apos;engagement de votre post LinkedIn. Les posts avec image génèrent 2x plus d&apos;engagement.
+        <p className="text-[12px] text-[#7B8A9A] mb-4">
+          Les carrousels PDF génèrent <strong className="text-[#00C48C]">3 à 5x plus d&apos;engagement</strong> que les posts texte. C&apos;est le format #1 sur LinkedIn dans le monde.
         </p>
 
-        {imageError && (
+        {/* Error display */}
+        {(carouselError || imageError) && (
           <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{imageError}
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{carouselError || imageError}
           </div>
         )}
 
-        {/* Custom Image Prompt Input */}
-        {showImagePromptInput && (
-          <div className="mb-3 space-y-2">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customImagePrompt}
-                onChange={(e) => setCustomImagePrompt(e.target.value)}
-                placeholder="Décrivez l'image que vous souhaitez générer (en anglais pour de meilleurs résultats)..."
-                className="flex-1 bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#F4A100]/30"
+        {/* ─── CAROUSEL PREVIEW ─── */}
+        {carouselPdfBase64 ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-3"
+          >
+            {/* Main preview image */}
+            <div className="relative rounded-xl overflow-hidden border border-white/[0.06]">
+              <img
+                src={`data:image/png;base64,${carouselPreviewBase64}`}
+                alt={`Slide ${carouselPreviewSlide + 1}`}
+                className="w-full h-auto max-h-[500px] object-contain bg-[#080C10]"
               />
+              {carouselUploading && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-white">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-sm font-medium">Upload du carrousel vers LinkedIn...</span>
+                  </div>
+                </div>
+              )}
+              {carouselDocumentAsset && (
+                <div className="absolute top-3 right-3">
+                  <span className="flex items-center gap-1 text-[11px] font-semibold text-[#00C48C] bg-[#00C48C]/90 px-2.5 py-1 rounded-lg shadow-lg">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Prêt à publier
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Slide navigation */}
+            <div className="flex items-center justify-between">
               <button
-                onClick={() => handleGenerateImage(customImagePrompt || undefined)}
-                disabled={imageGenerating || !customImagePrompt.trim()}
-                className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#F4A100] hover:bg-[#d4900a] px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                onClick={() => setCarouselPreviewSlide(Math.max(0, carouselPreviewSlide - 1))}
+                disabled={carouselPreviewSlide === 0}
+                className="flex items-center gap-1 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] disabled:opacity-30 cursor-pointer"
               >
-                {imageGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                {imageGenerating ? "Génération..." : "Générer"}
+                <ChevronLeft className="w-4 h-4" /> Précédent
+              </button>
+              <div className="flex items-center gap-1">
+                {carouselSlides.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCarouselPreviewSlide(i)}
+                    className={`w-2 h-2 rounded-full transition-all cursor-pointer ${i === carouselPreviewSlide ? "bg-[#F4A100] w-4" : "bg-white/20 hover:bg-white/40"}`}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => setCarouselPreviewSlide(Math.min(carouselSlides.length - 1, carouselPreviewSlide + 1))}
+                disabled={carouselPreviewSlide === carouselSlides.length - 1}
+                className="flex items-center gap-1 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] disabled:opacity-30 cursor-pointer"
+              >
+                Suivant <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-          </div>
-        )}
 
-        {/* Image Preview */}
-        {postImageBase64 ? (
+            {/* Slide content summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {carouselSlides.map((slide, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCarouselPreviewSlide(i)}
+                  className={`text-left p-2 rounded-lg border transition-all cursor-pointer ${
+                    i === carouselPreviewSlide
+                      ? "bg-[#F4A100]/10 border-[#F4A100]/30"
+                      : "bg-[#18212F] border-white/[0.04] hover:border-white/[0.1]"
+                  }`}
+                >
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[9px] font-bold text-[#7B8A9A] bg-white/[0.06] px-1.5 py-0.5 rounded">
+                      {i + 1}
+                    </span>
+                    <span className="text-[9px] font-medium text-[#F4A100] uppercase">{slide.type}</span>
+                  </div>
+                  <p className="text-[11px] text-[#F0F4F8] line-clamp-1">{slide.headline}</p>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        ) : postImageBase64 ? (
+          /* ─── SINGLE IMAGE PREVIEW ─── */
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1062,77 +1260,120 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
                 </span>
               </div>
             )}
-            {customImagePrompt && (
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
-                <p className="text-[10px] text-white/70 truncate">Prompt: {customImagePrompt}</p>
-              </div>
-            )}
           </motion.div>
         ) : (
-          <div className="flex flex-col sm:flex-row gap-2">
-            {/* Generate AI Image Button */}
+          /* ─── GENERATION OPTIONS ─── */
+          <div className="space-y-3">
+            {/* Main CTA: Generate Carousel */}
             <button
-              onClick={() => handleGenerateImage()}
-              disabled={imageGenerating}
-              className="flex-1 flex items-center justify-center gap-2 text-[13px] font-semibold text-white bg-[#F4A100] hover:bg-[#d4900a] px-4 py-3 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleGenerateCarousel}
+              disabled={carouselGenerating || (!postText.trim() && !topicTitle.trim())}
+              className="w-full flex items-center justify-center gap-3 text-[14px] font-bold text-white bg-gradient-to-r from-[#F4A100] to-[#E5263A] hover:from-[#d4900a] hover:to-[#c42030] px-5 py-4 rounded-xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#F4A100]/10"
             >
-              {imageGenerating ? (
+              {carouselGenerating ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Génération IA en cours...
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Génération du carrousel IA en cours...
                 </>
               ) : (
                 <>
-                  <ImagePlus className="w-4 h-4" />
-                  Générer une image IA
+                  <Layers className="w-5 h-5" />
+                  Générer un carrousel PDF
+                  <span className="text-[11px] font-medium bg-white/20 px-2 py-0.5 rounded-full ml-1">#1 FORMAT</span>
                 </>
               )}
             </button>
-            {/* Upload from File */}
-            <label className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-[#7B8A9A] bg-[#18212F] border border-white/[0.06] hover:border-[#F4A100]/30 hover:text-[#F0F4F8] px-4 py-3 rounded-xl transition-all cursor-pointer">
-              {imageUploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Upload en cours...
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="w-4 h-4" />
-                  Uploader une image
-                </>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-                disabled={imageUploading}
-              />
-            </label>
-          </div>
-        )}
 
-        {/* Quick image style suggestions */}
-        {!postImageBase64 && !imageGenerating && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {[
-              "Data visualisation abstraite",
-              "Architecture tech isométrique",
-              "Infographie minimaliste",
-              "Dashboard futuriste",
-              "Réseau neuronal visuel",
-            ].map((style) => (
+            {/* Style selector */}
+            <div className="flex items-center gap-2">
+              <Palette className="w-3.5 h-3.5 text-[#7B8A9A]" />
+              <span className="text-[11px] text-[#7B8A9A]">Style :</span>
+              {([
+                { id: "dark_pro", label: "Dark Pro", desc: "Sombre premium" },
+                { id: "clean_light", label: "Light", desc: "Clair épuré" },
+                { id: "gradient", label: "Gradient", desc: "Couleurs vives" },
+                { id: "minimal", label: "Minimal", desc: "Ultra clean" },
+              ] as const).map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setCarouselStyle(s.id)}
+                  className={`flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-all cursor-pointer border ${
+                    carouselStyle === s.id
+                      ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/30"
+                      : "text-[#7B8A9A] bg-[#18212F] border-white/[0.04] hover:border-white/[0.1]"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Secondary options */}
+            <div className="flex gap-2">
+              {/* AI Image */}
               <button
-                key={style}
-                onClick={() => {
-                  setCustomImagePrompt(`Professional LinkedIn B2B illustration: ${style}, modern minimalist design, blue and white palette, flat design, clean corporate style`);
-                  setShowImagePromptInput(true);
-                }}
-                className="px-2.5 py-1 rounded-full text-[11px] bg-[#18212F] text-[#7B8A9A] hover:bg-[#F4A100]/10 hover:text-[#F4A100] border border-white/[0.04] hover:border-[#F4A100]/20 transition-colors cursor-pointer"
+                onClick={() => handleGenerateImage()}
+                disabled={imageGenerating}
+                className="flex-1 flex items-center justify-center gap-2 text-[12px] font-medium text-[#7B8A9A] bg-[#18212F] border border-white/[0.06] hover:border-[#0A66C2]/30 hover:text-[#F0F4F8] px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50"
               >
-                {style}
+                {imageGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                Image IA
               </button>
-            ))}
+              {/* Upload file */}
+              <label className="flex-1 flex items-center justify-center gap-2 text-[12px] font-medium text-[#7B8A9A] bg-[#18212F] border border-white/[0.06] hover:border-[#0A66C2]/30 hover:text-[#F0F4F8] px-4 py-2.5 rounded-lg transition-all cursor-pointer">
+                {imageUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                Uploader image
+                <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} className="hidden" disabled={imageUploading} />
+              </label>
+              {/* Custom prompt */}
+              <button
+                onClick={() => setShowImagePromptInput(!showImagePromptInput)}
+                className={`flex items-center justify-center gap-1.5 text-[12px] font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer border ${
+                  showImagePromptInput ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/20" : "text-[#7B8A9A] bg-[#18212F] border-white/[0.06] hover:text-[#F0F4F8]"
+                }`}
+              >
+                <Search className="w-3.5 h-3.5" />
+                Prompt
+              </button>
+            </div>
+
+            {/* Custom Image Prompt Input */}
+            {showImagePromptInput && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customImagePrompt}
+                  onChange={(e) => setCustomImagePrompt(e.target.value)}
+                  placeholder="Décrivez l'image (en anglais pour de meilleurs résultats)..."
+                  className="flex-1 bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#F4A100]/30"
+                />
+                <button
+                  onClick={() => handleGenerateImage(customImagePrompt || undefined)}
+                  disabled={imageGenerating || !customImagePrompt.trim()}
+                  className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {imageGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  Générer
+                </button>
+              </div>
+            )}
+
+            {/* Tips */}
+            <div className="bg-[#18212F] rounded-lg p-3 border border-white/[0.04]">
+              <p className="text-[11px] font-semibold text-[#F4A100] mb-2">💡 Pourquoi le carrousel ?</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { stat: "3-5x", label: "Plus d'engagement" },
+                  { stat: "2x", label: "Plus de partages" },
+                  { stat: "#1", label: "Format LinkedIn" },
+                ].map((item) => (
+                  <div key={item.label} className="text-center">
+                    <p className="text-[16px] font-bold text-[#F4A100]">{item.stat}</p>
+                    <p className="text-[10px] text-[#7B8A9A]">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1202,13 +1443,13 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
             <button onClick={handlePublish} disabled={publishing || !postText.trim()}
               className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto">
               {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : success ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-              {publishing ? "Publication..." : success ? "Publié !" : postImageBase64 ? "Publier avec image" : "Publier sur LinkedIn"}
+              {publishing ? "Publication..." : success ? "Publié !" : carouselPdfBase64 ? "Publier avec carrousel" : postImageBase64 ? "Publier avec image" : "Publier sur LinkedIn"}
             </button>
           ) : (
             <button onClick={handleSchedule} disabled={scheduling || !postText.trim() || !scheduledAt}
               className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#F4A100] hover:bg-[#d4900a] px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto">
               {scheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
-              {scheduling ? "Planification..." : postImageBase64 ? "Planifier avec image" : "Planifier la publication"}
+              {scheduling ? "Planification..." : carouselPdfBase64 ? "Planifier avec carrousel" : postImageBase64 ? "Planifier avec image" : "Planifier la publication"}
             </button>
           )}
         </div>

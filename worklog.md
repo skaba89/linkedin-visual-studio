@@ -83,3 +83,40 @@ Stage Summary:
 - Quick style suggestions for common B2B visual themes
 - Image preview in both the image section and the post preview
 - Post API updated to support IMAGE shareMediaCategory with asset URN
+---
+Task ID: 3
+Agent: Main Agent
+Task: Complete overhaul of image generation — professional carousel PDF system (#1 LinkedIn format)
+
+Work Log:
+- Installed pdf-lib for PDF generation
+- Created /src/lib/carousel-generator.ts — Full carousel rendering engine with:
+  - 4 professional styles: Dark Pro, Clean Light, Gradient, Minimal
+  - 6 slide types: cover, content, stat, list, quote, CTA
+  - SVG template rendering → Sharp PNG conversion → PDF-Lib assembly
+  - 1080x1350 slides (optimal LinkedIn 4:5 portrait)
+  - Gradient backgrounds, branded headers, author bar, swipe indicators
+  - Numbered bullet lists, big stat numbers, quote formatting, CTA buttons
+- Added generateCarouselContent() to /src/lib/linkedin-ai.ts — AI breaks down any post into 5-8 carousel slides with structured JSON output (type, headline, body, bullets, stats)
+- Created /src/app/api/ai/generate-carousel/route.ts — Full pipeline: AI content → SVG slides → PNG → PDF → base64 + preview
+- Created /src/app/api/linkedin/upload-document/route.ts — LinkedIn document upload for PDF carousels (2-step: registerUpload + binary upload)
+- Updated /src/app/api/linkedin/post/route.ts — Now supports documentAsset for carousel posts (shareMediaCategory: ARTICLE)
+- Completely redesigned the "Visuel du post" section in LinkedInView.tsx:
+  - Primary CTA: "Générer un carrousel PDF" with gradient button (#1 FORMAT badge)
+  - Style selector: Dark Pro / Light / Gradient / Minimal
+  - Carousel preview with slide navigation (dots, prev/next buttons)
+  - Slide content summary grid showing all slides with type and headline
+  - Download PDF button for offline use
+  - Secondary options: Image IA, Uploader image, Prompt personnalisé
+  - Stats banner: "3-5x Plus d'engagement", "2x Plus de partages", "#1 Format LinkedIn"
+  - Updated publish buttons: "Publier avec carrousel" / "Publier avec image"
+- Added new icon imports: Layers, FileText, Palette, Download, ChevronLeft, ChevronRight
+- Verified build succeeds with `next build` — all new routes compiled
+
+Stage Summary:
+- Complete carousel PDF generation system — the #1 format for LinkedIn engagement worldwide
+- AI automatically structures any post into professional multi-slide carousels
+- 4 design styles matching top LinkedIn creator aesthetics
+- Full pipeline: Post text → AI structured content → SVG rendering → PNG → PDF → LinkedIn upload
+- Users can download PDFs for manual upload or auto-upload to LinkedIn
+- Single image generation still available as secondary option

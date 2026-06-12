@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", linkedinId, imageAsset } = body;
+    const { text, visibility = "PUBLIC", linkedinId, imageAsset, documentAsset } = body;
 
     if (!text || !text.trim()) {
       return NextResponse.json(
@@ -29,9 +29,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build media content based on whether we have an image
-    const hasImage = !!imageAsset;
-    const shareMediaCategory = hasImage ? "IMAGE" : "NONE";
+    // Determine media category
+    // Priority: document (carousel) > image > text only
+    const hasDocument = !!documentAsset;
+    const hasImage = !!imageAsset && !hasDocument;
+    const shareMediaCategory = hasDocument ? "ARTICLE" : hasImage ? "IMAGE" : "NONE";
 
     const shareContent: Record<string, unknown> = {
       shareCommentary: {
@@ -40,7 +42,22 @@ export async function POST(request: NextRequest) {
       shareMediaCategory,
     };
 
-    if (hasImage) {
+    if (hasDocument) {
+      // Document (carousel PDF) post
+      shareContent.media = [
+        {
+          status: "READY",
+          description: {
+            text: text.trim().slice(0, 300),
+          },
+          media: documentAsset,
+          title: {
+            text: text.trim().slice(0, 200).split("\n")[0] || "Carrousel LinkedIn",
+          },
+        },
+      ];
+    } else if (hasImage) {
+      // Single image post
       shareContent.media = [
         {
           status: "READY",
@@ -94,13 +111,16 @@ export async function POST(request: NextRequest) {
 
     const responseData = await postResponse.json();
 
+    let mediaType = "texte";
+    if (hasDocument) mediaType = "carrousel";
+    else if (hasImage) mediaType = "image";
+
     return NextResponse.json({
       success: true,
       postId: responseData.id,
-      message: hasImage
-        ? "Post avec image publié avec succès sur LinkedIn"
-        : "Post publié avec succès sur LinkedIn",
+      message: `Post avec ${mediaType} publié avec succès sur LinkedIn`,
       hasImage,
+      hasDocument,
     });
   } catch (error) {
     console.error("LinkedIn post error:", error);
