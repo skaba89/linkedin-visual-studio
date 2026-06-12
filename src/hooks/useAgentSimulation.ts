@@ -79,9 +79,9 @@ export function useAgentSimulation() {
         // Store generated post
         if (result.post) {
           store.addGeneratedPost(result.post);
+          // Only increment post count — impressions come from real LinkedIn analytics
           store.updateMetrics({
             postsPublished: store.metrics.postsPublished + 1,
-            impressionsMoy: store.metrics.impressionsMoy + Math.floor(Math.random() * 300 + 100),
           });
         }
       } else if (agent.id === "qualif") {
@@ -109,9 +109,9 @@ export function useAgentSimulation() {
         for (const leadId of result.transitionedLeadIds) {
           store.updateLead(leadId, { statut: "contacted" });
         }
+        // Only increment message count — response rate comes from real LinkedIn data
         store.updateMetrics({
           messagesEnvoyes: store.metrics.messagesEnvoyes + result.messages.length,
-          tauxReponse: Math.max(5, Math.min(60, store.metrics.tauxReponse + (Math.random() * 2 - 0.5))),
         });
       } else if (agent.id === "engagement") {
         const result = await runEngagementAgent();

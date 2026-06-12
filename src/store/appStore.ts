@@ -234,7 +234,7 @@ interface AppState {
   simulationSpeed: number; // 1 = normal, 2 = fast, 4 = ultra
   setSimulationSpeed: (s: number) => void;
   updateMetrics: (updates: Partial<AppState["metrics"]>) => void;
-  runAgentNow: (agentId: string) => void;
+  runAgentNow: (agentId: string) => Promise<void>;
 
   // LinkedIn integration
   linkedInConnected: boolean;
@@ -680,32 +680,7 @@ Si vous avez 20 min cette semaine, je serais ravi de vous montrer comment on l'a
   },
 ];
 
-const defaultLeads: Lead[] = [
-  { id: "1", prenom: "Marie", poste: "CMO", entreprise: "Startup SaaS B2B", secteur: "SaaS B2B", score: 82, action: "commented", postSujet: "automation LinkedIn", statut: "new", dateCollected: "2026-06-08" },
-  { id: "2", prenom: "Thomas", poste: "CEO", entreprise: "Conseil & Co", secteur: "Conseil", score: 75, action: "liked", postSujet: "IA pour PME", statut: "contacted", dateCollected: "2026-06-07" },
-  { id: "3", prenom: "Sophie", poste: "Directrice Marketing", entreprise: "Agence Digitale Plus", secteur: "Agences digitales", score: 71, action: "commented", postSujet: "prospection automatisée", statut: "replied", dateCollected: "2026-06-07" },
-  { id: "4", prenom: "Lucas", poste: "Fondateur", entreprise: "GrowthLab", secteur: "SaaS B2B", score: 68, action: "liked", postSujet: "automation LinkedIn", statut: "new", dateCollected: "2026-06-06" },
-  { id: "5", prenom: "Camille", poste: "VP Sales", entreprise: "ScaleUp CRM", secteur: "SaaS B2B", score: 91, action: "commented", postSujet: "séquences prospection", statut: "booked", dateCollected: "2026-06-06" },
-  { id: "6", prenom: "Antoine", poste: "Head of Growth", entreprise: "DataViz", secteur: "SaaS B2B", score: 63, action: "liked", postSujet: "IA pour PME", statut: "new", dateCollected: "2026-06-05" },
-  { id: "7", prenom: "Julie", poste: "Directrice Commerciale", entreprise: "Formation Pro", secteur: "Formation professionnelle", score: 77, action: "commented", postSujet: "scoring ICP", statut: "contacted", dateCollected: "2026-06-05" },
-  { id: "8", prenom: "Pierre", poste: "Co-fondateur", entreprise: "Automate.io", secteur: "SaaS B2B", score: 88, action: "commented", postSujet: "agents IA", statut: "replied", dateCollected: "2026-06-04" },
-];
-
-// Helper for simulation
-const sampleNames = ["Léa", "Hugo", "Chloé", "Maxime", "Emma", "Alexandre", "Sarah", "Romain", "Camille", "Nicolas"];
-const sampleCompanies = ["TechFlow", "DataPulse", "ScaleForce", "InnovateLab", "CloudPeak", "GrowthStudio", "NexaConsulting", "SmartBiz", "AgileCRM", "Vertuo"];
-const samplePostes = ["CEO", "CMO", "Head of Growth", "Directrice Marketing", "VP Sales", "Co-fondateur", "Directeur Commercial", "Fondateur", "CTO", "Business Developer"];
-const sampleSecteurs = ["SaaS B2B", "Conseil", "Agences digitales", "Formation professionnelle", "MarTech"];
-const sampleActions: ("liked" | "commented" | "viewed")[] = ["liked", "commented", "viewed"];
-const sampleSujets = ["automation LinkedIn", "IA pour PME", "prospection automatisée", "scoring ICP", "agents IA", "séquences prospection"];
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function pickRandom<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+// No default fake leads — leads start empty and are populated only by real agent runs
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -825,7 +800,7 @@ export const useAppStore = create<AppState>()(
           agents: state.agents.map((a) => (a.id === id ? { ...a, ...updates } : a)),
         })),
 
-      leads: defaultLeads,
+      leads: [],
       addLead: (lead) => set((state) => ({ leads: [...state.leads, lead] })),
       updateLead: (id, updates) =>
         set((state) => ({
@@ -879,14 +854,14 @@ export const useAppStore = create<AppState>()(
         })),
 
       metrics: {
-        postsPublished: 12,
-        impressionsMoy: 2340,
-        tauxEngagement: 3.8,
-        profilsCollectes: 156,
-        leadsQualifies: 34,
-        messagesEnvoyes: 28,
-        tauxReponse: 28.5,
-        rdvsGeneres: 8,
+        postsPublished: 0,
+        impressionsMoy: 0,
+        tauxEngagement: 0,
+        profilsCollectes: 0,
+        leadsQualifies: 0,
+        messagesEnvoyes: 0,
+        tauxReponse: 0,
+        rdvsGeneres: 0,
       },
 
       activityLogs: [],
@@ -1013,166 +988,267 @@ export const useAppStore = create<AppState>()(
       executingAgent: null,
       setExecutingAgent: (agentId) => set({ executingAgent: agentId }),
 
-      runAgentNow: (agentId) => {
+      runAgentNow: async (agentId) => {
         const state = get();
         const agent = state.agents.find((a) => a.id === agentId);
         if (!agent) return;
 
         const now = getCurrentTimeHHMM();
 
-        // Update agent: lastRun, runsToday, set to active temporarily
+        // Update agent: lastRun, runsToday, set to active
         set((s) => ({
           agents: s.agents.map((a) =>
             a.id === agentId
               ? { ...a, lastRun: now, runsToday: a.runsToday + 1, status: "active" as AgentStatus }
               : a
           ),
+          executingAgent: agentId,
         }));
 
         // Add activity log for the run start
-        const newLog: Omit<ActivityLog, "id" | "timestamp"> = {
-          agentId: agent.id,
-          agentName: agent.name,
-          type: "info",
-          message: `Agent ${agent.name} exécuté`,
-          details: `Run #${(agent.runsToday + 1)} aujourd'hui`,
-        };
-
         set((s) => ({
           activityLogs: [
-            { ...newLog, id: generateId(), timestamp: new Date().toISOString() },
+            {
+              id: generateId(),
+              timestamp: new Date().toISOString(),
+              agentId: agent.id,
+              agentName: agent.name,
+              type: "info",
+              message: `Agent ${agent.name} exécuté`,
+              details: `Run #${agent.runsToday + 1} aujourd'hui`,
+            },
             ...s.activityLogs,
           ],
         }));
 
-        // Agent-specific logic
-        if (agentId === "contenu") {
-          const bumpImpressions = randInt(100, 400);
-          const engagementDelta = (Math.random() * 0.6 - 0.2);
-          const newImpressions = state.metrics.impressionsMoy + bumpImpressions;
-          const newEngagement = Math.round((state.metrics.tauxEngagement + engagementDelta) * 10) / 10;
+        // Dynamically import agent-runner to avoid circular dependency
+        const agentRunner = await import("@/lib/agent-runner");
 
-          set((s) => ({
-            metrics: {
-              ...s.metrics,
-              postsPublished: s.metrics.postsPublished + 1,
-              impressionsMoy: newImpressions,
-              tauxEngagement: Math.max(0.5, newEngagement),
-            },
-            activityLogs: [
-              {
-                id: generateId(),
-                timestamp: new Date().toISOString(),
-                agentId: "contenu",
-                agentName: "Contenu",
-                type: "success",
-                message: `Post publié — +${bumpImpressions} impressions`,
-                details: `Taux engagement: ${Math.max(0.5, newEngagement).toFixed(1)}%`,
-              },
-              ...s.activityLogs,
-            ],
-          }));
-        } else if (agentId === "qualif") {
-          const profilsBump = randInt(5, 15);
-          const leadsBump = randInt(2, 5);
-          const newLead: Lead = {
-            id: generateId(),
-            prenom: pickRandom(sampleNames),
-            poste: pickRandom(samplePostes),
-            entreprise: pickRandom(sampleCompanies),
-            secteur: pickRandom(sampleSecteurs),
-            score: randInt(55, 95),
-            action: pickRandom(sampleActions),
-            postSujet: pickRandom(sampleSujets),
-            statut: "new",
-            dateCollected: new Date().toISOString().split("T")[0],
-          };
+        try {
+          // ── AGENT CONTENU ──────────────────────────────────
+          if (agentId === "contenu") {
+            const result = await agentRunner.runContenuAgent();
 
-          set((s) => ({
-            metrics: {
-              ...s.metrics,
-              profilsCollectes: s.metrics.profilsCollectes + profilsBump,
-              leadsQualifies: s.metrics.leadsQualifies + leadsBump,
-            },
-            leads: [...s.leads, newLead],
-            activityLogs: [
-              {
-                id: generateId(),
-                timestamp: new Date().toISOString(),
-                agentId: "qualif",
-                agentName: "Qualification",
-                type: "success",
-                message: `${profilsBump} profils collectés, ${leadsBump} leads qualifiés`,
-                details: `Nouveau lead: ${newLead.prenom} (${newLead.entreprise}, score ${newLead.score})`,
-              },
-              ...s.activityLogs,
-            ],
-          }));
-        } else if (agentId === "prospection") {
-          const messagesBump = randInt(3, 8);
-          const rdvsBump = randInt(0, 2);
-          const reponseDelta = Math.random() * 2 - 0.5;
-          const newTauxReponse = Math.round((state.metrics.tauxReponse + reponseDelta) * 10) / 10;
-
-          // Update lead statuses
-          const statusTransitions: Array<{ from: Lead["statut"]; to: Lead["statut"] }> = [
-            { from: "new", to: "contacted" },
-            { from: "contacted", to: "replied" },
-            { from: "replied", to: "booked" },
-          ];
-
-          const transitionedLeads: string[] = [];
-
-          set((s) => {
-            const updatedLeads = [...s.leads];
-            // Try to transition up to 2 leads
-            for (const transition of statusTransitions) {
-              const idx = updatedLeads.findIndex(
-                (l) => l.statut === transition.from && !transitionedLeads.includes(l.id)
-              );
-              if (idx !== -1) {
-                updatedLeads[idx] = { ...updatedLeads[idx], statut: transition.to };
-                transitionedLeads.push(updatedLeads[idx].id);
-                if (transitionedLeads.length >= 2) break;
-              }
+            // Add all logs from the runner
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
             }
 
-            const transitionDetails = transitionedLeads.length > 0
-              ? `${transitionedLeads.length} lead(s) mis à jour`
-              : undefined;
-
-            return {
-              leads: updatedLeads,
-              metrics: {
-                ...s.metrics,
-                messagesEnvoyes: s.metrics.messagesEnvoyes + messagesBump,
-                tauxReponse: Math.max(5, Math.min(60, newTauxReponse)),
-                rdvsGeneres: s.metrics.rdvsGeneres + rdvsBump,
-              },
-              activityLogs: [
-                {
-                  id: generateId(),
-                  timestamp: new Date().toISOString(),
-                  agentId: "prospection",
-                  agentName: "Prospection",
-                  type: rdvsBump > 0 ? "success" : "info",
-                  message: `${messagesBump} messages envoyés, ${rdvsBump} RDV générés`,
-                  details: transitionDetails,
+            // Update metrics only if a real post was generated
+            if (result.post) {
+              set((s) => ({
+                generatedPosts: [result.post!, ...s.generatedPosts],
+                metrics: {
+                  ...s.metrics,
+                  postsPublished: s.metrics.postsPublished + 1,
                 },
-                ...s.activityLogs,
-              ],
-            };
-          });
+              }));
+            }
+
+          // ── AGENT QUALIFICATION ─────────────────────────────
+          } else if (agentId === "qualif") {
+            const result = await agentRunner.runQualificationAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.newLeads.length > 0) {
+              const qualifiedCount = result.newLeads.filter((l) => l.score >= 60).length;
+              set((s) => ({
+                leads: [...result.newLeads, ...s.leads],
+                metrics: {
+                  ...s.metrics,
+                  profilsCollectes: s.metrics.profilsCollectes + result.newLeads.length,
+                  leadsQualifies: s.metrics.leadsQualifies + qualifiedCount,
+                },
+              }));
+            }
+
+          // ── AGENT PROSPECTION ───────────────────────────────
+          } else if (agentId === "prospection") {
+            const result = await agentRunner.runProspectionAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.messages.length > 0) {
+              // Transition leads from "new" to "contacted"
+              const transitionedIds = new Set(result.transitionedLeadIds);
+              set((s) => ({
+                generatedMessages: [...result.messages, ...s.generatedMessages],
+                leads: s.leads.map((l) =>
+                  transitionedIds.has(l.id) ? { ...l, statut: "contacted" as Lead["statut"] } : l
+                ),
+                metrics: {
+                  ...s.metrics,
+                  messagesEnvoyes: s.metrics.messagesEnvoyes + result.messages.length,
+                },
+              }));
+            }
+
+          // ── AGENT ENGAGEMENT ────────────────────────────────
+          } else if (agentId === "engagement") {
+            const result = await agentRunner.runEngagementAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.comments.length > 0) {
+              set((s) => ({
+                generatedComments: [...result.comments, ...s.generatedComments],
+              }));
+            }
+
+          // ── AGENT VEILLE ───────────────────────────────────
+          } else if (agentId === "veille") {
+            const result = await agentRunner.runVeilleAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.briefing) {
+              set((s) => ({
+                marketBriefings: [result.briefing!, ...s.marketBriefings],
+              }));
+            }
+
+          // ── AGENT NURTURING ────────────────────────────────
+          } else if (agentId === "nurturing") {
+            const result = await agentRunner.runNurturingAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.actions.length > 0) {
+              set((s) => ({
+                nurturingActions: [...result.actions, ...s.nurturingActions],
+              }));
+            }
+
+          // ── AGENT ANALYSE ──────────────────────────────────
+          } else if (agentId === "analyse") {
+            const result = await agentRunner.runAnalyseAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.insights.length > 0) {
+              set((s) => ({
+                performanceInsights: [...result.insights, ...s.performanceInsights],
+              }));
+            }
+
+          // ── AGENT RÉSEAU ───────────────────────────────────
+          } else if (agentId === "reseau") {
+            const result = await agentRunner.runReseauAgent();
+
+            for (const log of result.logs) {
+              set((s) => ({
+                activityLogs: [
+                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+                  ...s.activityLogs,
+                ],
+              }));
+            }
+
+            if (result.requests.length > 0) {
+              set((s) => ({
+                connectionRequests: [...result.requests, ...s.connectionRequests],
+              }));
+            }
+          }
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+          set((s) => ({
+            activityLogs: [
+              {
+                id: generateId(),
+                timestamp: new Date().toISOString(),
+                agentId,
+                agentName: agent.name,
+                type: "error",
+                message: `Erreur agent ${agent.name}: ${errMsg.slice(0, 80)}`,
+              },
+              ...s.activityLogs,
+            ],
+          }));
+        } finally {
+          // Reset agent status and executing state
+          set((s) => ({
+            agents: s.agents.map((a) =>
+              a.id === agentId ? { ...a, status: "active" as AgentStatus } : a
+            ),
+            executingAgent: null,
+          }));
         }
       },
     }),
     {
       name: "hermes-app-store",
-      version: 5,
-      migrate: (persistedState: Record<string, unknown>, version: number) => {
+      version: 6,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as Record<string, unknown>;
+        // Migrate v5 → v6: remove fake data, reset metrics to zero, clear fake leads
+        if (version < 6) {
+          return {
+            ...state,
+            leads: [],
+            metrics: {
+              postsPublished: 0,
+              impressionsMoy: 0,
+              tauxEngagement: 0,
+              profilsCollectes: 0,
+              leadsQualifies: 0,
+              messagesEnvoyes: 0,
+              tauxReponse: 0,
+              rdvsGeneres: 0,
+            },
+          };
+        }
         // Migrate v1 → v2: apiKeys → providerApiKeys
         if (version < 2) {
-          const old = persistedState as Record<string, unknown>;
+          const old = state;
           const oldHermes = old.hermesConfig as Record<string, unknown> | undefined;
           const oldApiKeys = oldHermes?.apiKeys as Record<string, string> | undefined;
 
@@ -1203,7 +1279,7 @@ export const useAppStore = create<AppState>()(
           }
 
           return {
-            ...persistedState,
+            ...state,
             hermesConfig: {
               ...(oldHermes || {}),
               provider,
@@ -1214,7 +1290,7 @@ export const useAppStore = create<AppState>()(
         }
         // Migrate v2 → v3: add 5 new agents + new data arrays
         if (version < 3) {
-          const old = persistedState as Record<string, unknown>;
+          const old = state;
           const oldAgents = (old.agents as Array<Record<string, unknown>>) || [];
           // Only add new agents if they don't already exist
           const existingIds = new Set(oldAgents.map((a) => a.id as string));
@@ -1235,7 +1311,7 @@ export const useAppStore = create<AppState>()(
             newAgents.push({ id: "reseau", name: "Réseau", num: "AGENT 08", status: "setup", role: "Croissance stratégique du réseau LinkedIn", lastRun: null, runsToday: 0, nextRun: "09:00" });
           }
           return {
-            ...persistedState,
+            ...state,
             agents: newAgents,
             generatedComments: [],
             marketBriefings: [],

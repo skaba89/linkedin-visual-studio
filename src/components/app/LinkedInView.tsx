@@ -738,8 +738,12 @@ function PlanifierTab() {
     }
   };
 
-  const bestTimes = getBestPostingTimes();
+  const [bestTimes, setBestTimes] = useState<BestTimeSlot[]>([]);
   const nextBest = getNextBestTime();
+
+  useEffect(() => {
+    getBestPostingTimes().then(setBestTimes).catch(() => setBestTimes([]));
+  }, []);
 
   if (!linkedInConnected) return <NotConnectedBanner />;
 
@@ -1236,8 +1240,12 @@ function TendancesTab({ onUseTopic }: { onUseTopic: (topic: string) => void }) {
   };
 
   const weekDays = getWeekDays();
-  const bestTimes = getBestPostingTimes();
+  const [bestTimes, setBestTimes] = useState<BestTimeSlot[]>([]);
   const bestTimeDays = new Set(bestTimes.filter((s) => s.score >= 80).map((s) => s.day));
+
+  useEffect(() => {
+    getBestPostingTimes().then(setBestTimes).catch(() => setBestTimes([]));
+  }, []);
 
   if (!linkedInConnected) return <NotConnectedBanner />;
 
@@ -1343,7 +1351,11 @@ function ExpertTab({ onUsePost }: { onUsePost: (postText: string) => void }) {
     setAnalysisError(null);
     try {
       const result = await analyzeMyPosts(linkedInPosts);
-      setAnalysis(result);
+      if (result) {
+        setAnalysis(result);
+      } else {
+        setAnalysisError("Impossible d'analyser vos posts. Vérifiez votre clé API et réessayez.");
+      }
     } catch {
       setAnalysisError("Impossible d'analyser vos posts. Vérifiez votre clé API.");
     } finally {

@@ -6,6 +6,9 @@
  * - Current trends and news on LinkedIn
  * - ICP (Ideal Customer Profile) configuration
  * - Best posting times analysis
+ * 
+ * NOTE: No hardcoded fallback content. All data comes from AI or web search.
+ * If AI/web search is unavailable, functions return empty arrays or null.
  */
 
 import { chatCompletion, type ChatMessage } from "./ai-client";
@@ -33,7 +36,7 @@ export interface LinkedInCommentSuggestion {
 export interface TrendingTopic {
   topic: string;
   angle: string;
- 热度: "hot" | "warm" | "rising";
+  热度: "hot" | "warm" | "rising";
   suggestedHook: string;
 }
 
@@ -54,6 +57,28 @@ export interface BestTimeSlot {
   reason: string;
 }
 
+// ─── Web Search Helper ──────────────────────────────────────────
+
+/**
+ * Calls the server-side web search API route (backed by z-ai-web-dev-sdk).
+ * Must go through the API route because the SDK is backend-only.
+ */
+async function webSearch(query: string, num: number = 10): Promise<unknown[]> {
+  try {
+    const res = await fetch("/api/ai/web-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, num }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  } catch (error) {
+    console.error("Web search error:", error);
+    return [];
+  }
+}
+
 // ─── Context Builder ────────────────────────────────────────────
 
 function getProjectContext(): string {
@@ -72,18 +97,100 @@ Sujets récents abordés : ${recentPosts.length > 0 ? recentPosts.join(", ") : "
 
 /**
  * Returns optimal posting times for LinkedIn B2B content.
- * Based on LinkedIn engagement research for French/European B2B audiences.
+ * Tries web search first, then LLM, then falls back to a simple default.
  */
-export function getBestPostingTimes(): BestTimeSlot[] {
+export async function getBestPostingTimes(): Promise<BestTimeSlot[]> {
+  // Strategy 1: Web search for current best posting times
+  try {
+    const results = await webSearch(
+      `best times to post on LinkedIn B2B ${new Date().getFullYear()} engagement research`,
+      5
+    );
+
+    if (results.length > 0) {
+      // Extract useful info from search results and ask LLM to structure it
+      const searchContext = JSON.stringify(results).slice(0, 3000);
+
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un analyste de données LinkedIn. À partir des résultats de recherche web ci-dessous, identifie les meilleurs créneaux de publication LinkedIn pour une audience B2B française/européenne.
+
+Réponds en JSON strict (tableau) :
+[
+  { "day": "jour en français", "time": "HH:MM", "score": 0-100, "reason": "raison courte en français" }
+]
+
+Données de recherche web :
+${searchContext}`,
+        },
+        {
+          role: "user",
+          content: "Quels sont les meilleurs créneaux de publication LinkedIn B2B d'après ces données ?",
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.4,
+        maxTokens: 800,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Web search best times error:", error);
+  }
+
+  // Strategy 2: Ask LLM directly
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un expert en stratégie de contenu LinkedIn B2B pour une audience française/européenne.
+Recommande les meilleurs créneaux de publication pour maximiser l'engagement B2B.
+
+Réponds en JSON strict (tableau de 5-7 entrées) :
+[
+  { "day": "jour en français", "time": "HH:MM", "score": 0-100, "reason": "raison courte en français" }
+]
+
+Langue : français`,
+      },
+      {
+        role: "user",
+        content: "Quels sont les meilleurs créneaux de publication LinkedIn pour une audience B2B en 2025 ?",
+      },
+    ];
+
+    const response = await chatCompletion(messages, {
+      temperature: 0.4,
+      maxTokens: 800,
+    });
+
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+      }
+    }
+  } catch (error) {
+    console.error("LLM best times error:", error);
+  }
+
+  // Strategy 3: Simple default fallback
+  console.warn("[HERMÈS] getBestPostingTimes: AI and web search unavailable, using simple default times");
   return [
-    { day: "Lundi", time: "08:00", score: 92, reason: "Début de semaine, haute attention professionnelle" },
-    { day: "Mardi", time: "07:45", score: 95, reason: "Meilleur jour B2B, audience proactive" },
-    { day: "Mercredi", time: "08:15", score: 88, reason: "Mi-semaine, bonne rétention" },
-    { day: "Mercredi", time: "12:00", score: 82, reason: "Pause déjeuner, scroll LinkedIn" },
-    { day: "Jeudi", time: "08:00", score: 85, reason: "Toujours bon pour le contenu pro" },
-    { day: "Vendredi", time: "09:00", score: 70, reason: "Attention en baisse, bon pour le contenu léger" },
-    { day: "Dimanche", time: "18:00", score: 65, reason: "Préparation de la semaine, audience ciblée" },
-  ].sort((a, b) => b.score - a.score);
+    { day: "Lundi", time: "09:00", score: 80, reason: "Créneau matinal par défaut" },
+    { day: "Mercredi", time: "12:00", score: 75, reason: "Pause déjeuner par défaut" },
+    { day: "Jeudi", time: "18:00", score: 70, reason: "Créneau en soirée par défaut" },
+  ];
 }
 
 /**
@@ -200,83 +307,60 @@ ${topic ? `- Le sujet demandé doit être au cœur de chaque suggestion avec un 
     console.error("AI post suggestion error:", error);
   }
 
-  // Fallback suggestions
-  return generateFallbackSuggestions(count);
+  // Fallback: try a simpler AI prompt before giving up
+  return generateFallbackSuggestions(count, formats, nextBest);
 }
 
-function generateFallbackSuggestions(count: number): LinkedInPostSuggestion[] {
-  const nextBest = getNextBestTime();
-  const templates = [
-    {
-      text: `Le saviez-vous ? 78% des décideurs B2B préfèrent être contactés par un pair plutôt que par un commercial.
+/**
+ * Fallback for post generation: tries AI with a simpler prompt.
+ * Returns empty array if AI is also unavailable.
+ */
+async function generateFallbackSuggestions(
+  count: number,
+  formats: string[],
+  nextBest: { day: string; time: string }
+): Promise<LinkedInPostSuggestion[]> {
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Génère ${count} posts LinkedIn B2B en français. Réponds en JSON :
+[
+  { "text": "post complet", "topic": "sujet", "hook": "première ligne", "estimatedEngagement": "high|medium|low", "format": "${formats.join("|")}" }
+]`,
+      },
+      {
+        role: "user",
+        content: `Génère ${count} posts LinkedIn sur l'IA et la prospection B2B.`,
+      },
+    ];
 
-C'est exactement pourquoi les agents IA changent la donne en matière de prospection :
+    const response = await chatCompletion(messages, {
+      temperature: 0.9,
+      maxTokens: 1500,
+    });
 
-→ Ils identifient les signaux d'achat en temps réel
-→ Ils personnalisent chaque premier message à partir du contexte
-→ Ils maintiennent le suivi sans que vous n'ayez à y penser
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p: Record<string, string>, i: number) => ({
+          id: `sug-fallback-${Date.now()}-${i}`,
+          text: p.text || "",
+          topic: p.topic || "",
+          hook: p.hook || "",
+          estimatedEngagement: p.estimatedEngagement || "medium",
+          bestTime: `${nextBest.day} ${nextBest.time}`,
+          format: p.format || formats[i % formats.length],
+        }));
+      }
+    }
+  } catch (error) {
+    console.error("Fallback AI post suggestion error:", error);
+  }
 
-Le résultat ? Un taux de réponse 3x supérieur aux séquences traditionnelles.
-
-Qui utilise déjà l'IA dans sa prospection ? 👇`,
-      topic: "IA & prospection B2B",
-      hook: "Le saviez-vous ? 78% des décideurs B2B préfèrent être contactés par un pair",
-      estimatedEngagement: "high" as const,
-      format: "data" as const,
-    },
-    {
-      text: `J'ai automatisé 100% de ma prospection LinkedIn en 30 jours.
-
-Voici ce qui a changé :
-
-📊 156 profils qualifiés / semaine (vs 12 avant)
-📧 28 messages personnalisés / jour (vs 5)
-🎯 8 RDV générés / semaine (vs 2)
-
-Le secret ? 3 agents IA qui travaillent 24/7 :
-1️⃣ Agent Contenu → publie chaque matin
-2️⃣ Agent Qualification → collecte et score les leads
-3️⃣ Agent Prospection → envoie les messages et gère les relances
-
-Le tout sans un seul cold call.
-
-Détail du setup en commentaire 👇`,
-      topic: "Automation prospection",
-      hook: "J'ai automatisé 100% de ma prospection LinkedIn en 30 jours.",
-      estimatedEngagement: "high" as const,
-      format: "story" as const,
-    },
-    {
-      text: `5 erreurs qui tuent vos messages de prospection LinkedIn :
-
-1️⃣ Commencer par "Bonjour, je me permets de vous contacter car..."
-2️⃣ Envoyer un lien Calendly dans le 1er message
-3️⃣ Copier-coller le même message à 50 personnes
-4️⃣ Parler de vous au lieu de parler du prospect
-5️⃣ Oublier de faire un suivi après J+3
-
-La bonne approche ?
-✅ Référencez une action précise du prospect
-✅ Ajoutez UNE valeur spécifique à son secteur
-✅ Posez UNE question ouverte
-
-80 mots max. Pas de pitch. Pas de lien.
-
-Le but du 1er message ? Obtenir une réponse. Pas un RDV.
-
-Quelle erreur avez-vous déjà faite ? 🤝`,
-      topic: "Erreurs prospection",
-      hook: "5 erreurs qui tuent vos messages de prospection LinkedIn :",
-      estimatedEngagement: "high" as const,
-      format: "list" as const,
-    },
-  ];
-
-  return templates.slice(0, count).map((t, i) => ({
-    id: `sug-fallback-${Date.now()}-${i}`,
-    ...t,
-    bestTime: `${nextBest.day} ${nextBest.time}`,
-  }));
+  console.warn("[HERMÈS] generateFallbackSuggestions: AI unavailable, returning empty array");
+  return [];
 }
 
 // ─── AI Comment Generation ──────────────────────────────────────
@@ -343,26 +427,93 @@ Post : "${postText.slice(0, 500)}"`,
     console.error("AI comment suggestion error:", error);
   }
 
-  // Fallback comments
-  return [
-    { id: `comment-fb-${Date.now()}-1`, text: "Très pertinent ! L'approche que vous décrivez rejoint ce qu'on observe chez nos clients : la personnalisation IA fait la différence. Quel outil utilisez-vous pour automatiser ?", postExcerpt: postText.slice(0, 80) + "...", tone: "value-add" as const },
-    { id: `comment-fb-${Date.now()}-2`, text: "Je suis 100% d'accord. La clé c'est le bon dosage entre automatisation et personnalisation. Vous avez testé des séquences multi-canal ?", postExcerpt: postText.slice(0, 80) + "...", tone: "question" as const },
-    { id: `comment-fb-${Date.now()}-3`, text: "Intéressant ! J'ajouterai que le timing du premier message est tout aussi crucial que son contenu. Un post comme celui-ci mériterait un thread 👏", postExcerpt: postText.slice(0, 80) + "...", tone: "agreement" as const },
-  ].slice(0, count);
+  // No hardcoded fallback — return empty array if AI fails
+  console.warn("[HERMÈS] generateCommentSuggestions: AI unavailable, returning empty array");
+  return [];
 }
 
 // ─── Trending Topics Detection ──────────────────────────────────
 
 /**
  * Generate trending topic suggestions for LinkedIn content based on current context.
+ * Uses web search first, then LLM, then returns empty array.
  */
 export async function generateTrendingTopics(): Promise<TrendingTopic[]> {
   const context = getProjectContext();
-  
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
+  const state = useAppStore.getState();
+  const sectors = state.icpConfig.sectors.join(", ");
+
+  // Strategy 1: Web search for current trending topics
+  try {
+    const results = await webSearch(
+      `LinkedIn trending topics ${sectors} ${new Date().getFullYear()}`,
+      10
+    );
+
+    if (results.length > 0) {
+      // Extract and deduplicate topics from search results, then ask LLM to structure them
+      const searchContext = JSON.stringify(results).slice(0, 4000);
+
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
+${context}
+
+À partir des résultats de recherche web ci-dessous, identifie 5 sujets tendance pour du contenu LinkedIn B2B dans la niche IA/prospection.
+Pour chaque sujet, propose un angle et un hook.
+
+Réponds en JSON strict :
+[
+  {
+    "topic": "sujet en 3-5 mots",
+    "angle": "angle spécifique à aborder",
+    "热度": "hot|warm|rising",
+    "suggestedHook": "première ligne du post"
+  }
+]
+
+Données de recherche web :
+${searchContext}
+
+Langue : français`,
+        },
+        {
+          role: "user",
+          content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection, d'après ces données de recherche ?",
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.7,
+        maxTokens: 1000,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Deduplicate by topic
+          const seen = new Set<string>();
+          return parsed.filter((t: TrendingTopic) => {
+            const key = t.topic?.toLowerCase().trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Web search trending topics error:", error);
+  }
+
+  // Strategy 2: Ask LLM directly (without web search context)
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
 ${context}
 
 Identifie 5 sujets tendance cette semaine pour du contenu LinkedIn B2B dans la niche IA/prospection.
@@ -379,14 +530,13 @@ Réponds en JSON strict :
 ]
 
 Langue : français`,
-    },
-    {
-      role: "user",
-      content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection ?",
-    },
-  ];
+      },
+      {
+        role: "user",
+        content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection ?",
+      },
+    ];
 
-  try {
     const response = await chatCompletion(messages, {
       temperature: 0.7,
       maxTokens: 1000,
@@ -397,17 +547,12 @@ Langue : français`,
       return JSON.parse(jsonMatch[0]);
     }
   } catch (error) {
-    console.error("AI trending topics error:", error);
+    console.error("LLM trending topics error:", error);
   }
 
-  // Fallback trends
-  return [
-    { topic: "Agents IA autonomes", angle: "Comment les agents IA remplacent les workflows manuels en prospection B2B", 热度: "hot", suggestedHook: "En 2026, 60% des équipes B2B utilisent des agents IA autonomes. Pas des chatbots. Des AGENTS." },
-    { topic: "Scoring ICP temps réel", angle: "L'ICP dynamique qui s'adapte aux signaux d'achat en temps réel", 热度: "hot", suggestedHook: "Votre ICP est statique ? C'est comme naviguer sans GPS en 2026." },
-    { topic: "Prospection sans cold call", angle: "Les alternatives au cold call qui génèrent plus de RDV", 热度: "warm", suggestedHook: "Dernier cold call que j'ai passé : mars 2024. Depuis ? 3x plus de RDV." },
-    { topic: "OpenAI vs open-source", angle: "Pourquoi les modèles open-source gagnent en B2B", 热度: "rising", suggestedHook: "GPT-4o ou Llama 3 ? Le vrai choix n'est pas celui que vous croyez." },
-    { topic: "Nurturing automatisé", angle: "Comment automatiser le nurturing sans perdre l'humain", 热度: "warm", suggestedHook: "80% de vos leads qualifiés ne sont pas prêts à acheter. Qu'est-ce que vous en faites ?" },
-  ];
+  // No hardcoded fallback — return empty array if both web search and LLM fail
+  console.warn("[HERMÈS] generateTrendingTopics: AI and web search unavailable, returning empty array");
+  return [];
 }
 
 // ─── Post Improvement ───────────────────────────────────────────
@@ -467,10 +612,11 @@ Règles d'amélioration :
 /**
  * Analyze the user's existing LinkedIn posts to identify patterns,
  * top-performing content, and writing style.
+ * Returns null if AI is unavailable.
  */
 export async function analyzeMyPosts(
   posts: { text: string; likes: number; comments: number; createdAt: string }[]
-): Promise<PostAnalysis> {
+): Promise<PostAnalysis | null> {
   if (posts.length === 0) {
     return {
       styleProfile: "Aucun post à analyser. Publiez du contenu pour obtenir une analyse.",
@@ -530,29 +676,15 @@ ${postsSummary}`,
     console.error("AI post analysis error:", error);
   }
 
-  // Fallback analysis
-  const avgLikes = posts.reduce((s, p) => s + p.likes, 0) / posts.length;
-  const avgComments = posts.reduce((s, p) => s + p.comments, 0) / posts.length;
-  return {
-    styleProfile: "Style en cours d'identification — pas assez de données IA pour une analyse approfondie.",
-    topTopics: ["IA & prospection B2B", "Automation LinkedIn", "Scoring ICP"],
-    topFormats: ["story", "list", "data"],
-    avgEngagement: `Moyenne : ${Math.round(avgLikes)} likes, ${Math.round(avgComments)} commentaires par post`,
-    recommendations: [
-      "Augmentez la fréquence de publication (3-4x/semaine)",
-      "Utilisez des hooks avec des chiffres ou des questions",
-      "Ajoutez des CTA clairs à chaque post",
-      "Testez le format 'data' avec des statistiques",
-      "Configurez une clé API pour une analyse IA complète",
-    ],
-    strengths: ["Régularité de publication", "Contenu orienté valeur"],
-    weaknesses: ["Manque de diversité dans les formats", "CTA peu engagés"],
-  };
+  // No hardcoded fallback — return null if AI fails
+  console.warn("[HERMÈS] analyzeMyPosts: AI unavailable, returning null");
+  return null;
 }
 
 /**
  * Generate new post suggestions based on post analysis, acting as a "data expert" persona.
  * Posts are optimized based on what performed well historically.
+ * Returns empty array if AI fails.
  */
 export async function generateExpertPosts(
   analysis: PostAnalysis,
@@ -634,35 +766,7 @@ Règles :
     console.error("AI expert posts error:", error);
   }
 
-  // Fallback expert suggestions
-  const formats = ["data", "story", "list"];
-  return [
-    {
-      id: `expert-fallback-${Date.now()}-0`,
-      text: `3 data points qui prouvent que l'IA transforme la prospection B2B en 2026 :\n\n📊 78% des décideurs préfèrent un message personnalisé par IA\n📊 Le taux de réponse passe de 2% à 8% avec un scoring ICP dynamique\n📊 Les équipes automatisées génèrent 3x plus de RDV qualifiés\n\nLe pattern est clair : les données ne mentent pas.\nL'IA n'est plus une option, c'est un avantage compétitif mesurable.\n\nQuelle data vous a le plus convaincu ? 👇`,
-      topic: topic || "Data prospection IA",
-      hook: "3 data points qui prouvent que l'IA transforme la prospection B2B",
-      estimatedEngagement: "high" as const,
-      bestTime: `${nextBest.day} ${nextBest.time}`,
-      format: "data" as const,
-    },
-    {
-      id: `expert-fallback-${Date.now()}-1`,
-      text: `J'ai analysé 200 posts LinkedIn B2B cette semaine.\n\nLe pattern gagnant ? Ce n'est pas ce que vous croyez.\n\nCe n'est pas la longueur.\nCe n'est pas le format.\nCe n'est pas même le sujet.\n\nC'est le DATA ANGLE.\n\nLes posts avec au moins 1 donnée chiffrée obtiennent 2.5x plus d'engagement.\nLes hooks avec un pourcentage forcent le "voir plus" dans 80% des cas.\n\nVotre prochain post ? Ajoutez UN chiffre. Juste un.\n\nQuel data point allez-vous utiliser ? 📈`,
-      topic: topic || "Angle data LinkedIn",
-      hook: "J'ai analysé 200 posts LinkedIn B2B cette semaine.",
-      estimatedEngagement: "high" as const,
-      bestTime: `${nextBest.day} ${nextBest.time}`,
-      format: "story" as const,
-    },
-    {
-      id: `expert-fallback-${Date.now()}-2`,
-      text: `5 métriques que chaque équipe B2B devrait tracker sur LinkedIn :\n\n1️⃣ Taux de réponse aux DM (objectif : >15%)\n2️⃣ Engagement par format (story vs list vs data)\n3️⃣ Conversion post → DM (objectif : >3%)\n4️⃣ Temps moyen avant 1er like (objectif : <30min)\n5️⃣ Taux de qualification ICP des leads LinkedIn\n\nLa plupart des équipes trackent 0 de ces métriques.\nRésultat ? Elles publient dans le vide.\n\nLaquelle allez-vous tracker en premier ? 🎯`,
-      topic: topic || "Métriques LinkedIn B2B",
-      hook: "5 métriques que chaque équipe B2B devrait tracker sur LinkedIn",
-      estimatedEngagement: "high" as const,
-      bestTime: `${nextBest.day} ${nextBest.time}`,
-      format: "list" as const,
-    },
-  ];
+  // No hardcoded fallback — return empty array if AI fails
+  console.warn("[HERMÈS] generateExpertPosts: AI unavailable, returning empty array");
+  return [];
 }

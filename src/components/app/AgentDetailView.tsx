@@ -100,9 +100,9 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
         for (const log of result.logs) store.addActivityLog(log);
         if (result.post) {
           store.addGeneratedPost(result.post);
+          // Only increment post count — impressions come from real LinkedIn analytics
           store.updateMetrics({
             postsPublished: store.metrics.postsPublished + 1,
-            impressionsMoy: store.metrics.impressionsMoy + Math.floor(Math.random() * 300 + 100),
           });
         }
       } else if (agentId === "qualif") {

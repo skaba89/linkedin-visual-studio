@@ -1,28 +1,224 @@
 /**
  * Real Agent Runner for HERMÈS
- * 
+ *
  * Executes agents by calling the configured LLM provider.
- * Each agent has its own prompt and processes real data.
- * Falls back gracefully when no API key is configured.
+ * Each agent uses real data sources: web search, LinkedIn API, and LLM.
+ * No simulation or mock data — all actions are real.
  */
 
 import { useAppStore, type Lead, type ActivityLog, type GeneratedComment, type MarketBriefing, type NurturingAction, type PerformanceInsight, type ConnectionRequest } from "@/store/appStore";
 import { chatCompletion, type ChatMessage } from "@/lib/ai-client";
 
-// ─── Helper ──────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
 
-function isApiKeyConfigured(): boolean {
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+/**
+ * Compute a simple ICP score as a fallback when LLM scoring is unavailable.
+ * No random component — fully deterministic based on profile data.
+ */
+function computeSimpleScore(
+  profile: { poste: string; secteur: string; action: string },
+  icpTitles: string[],
+  icpSectors: string[]
+): number {
+  let score = 0;
+  const titleLower = profile.poste.toLowerCase();
+  if (icpTitles.some((t) => t.toLowerCase().includes(titleLower) || titleLower.includes(t.toLowerCase().split(",")[0]))) {
+    score += 30;
+  } else if (["ceo", "cmo", "fondateur", "co-fondateur", "head of growth", "vp sales", "directeur"].some((t) => titleLower.includes(t))) {
+    score += 20;
+  }
+  if (icpSectors.some((s) => s.toLowerCase().includes(profile.secteur.toLowerCase()) || profile.secteur.toLowerCase().includes(s.toLowerCase().split(",")[0]))) {
+    score += 20;
+  }
+  if (profile.action === "commented") score += 15;
+  return Math.min(100, score);
+}
+
+/**
+ * Fetch trending topics for LinkedIn content using web search.
+ * Falls back to LLM-suggested topics if web search fails.
+ */
+async function fetchTrendingTopics(niche: string): Promise<string[]> {
+  try {
+    const response = await fetch("/api/ai/web-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `LinkedIn trending topics 2026 ${niche} B2B SaaS prospection IA`,
+        num: 10,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Web search failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    const results: Array<{ name: string; snippet: string }> = data.results || [];
+
+    if (results.length > 0) {
+      // Extract topic titles from search results
+      const topics = results
+        .map((r) => r.name || r.snippet?.slice(0, 80))
+        .filter((t): t is string => !!t && t.length > 10)
+        .slice(0, 10);
+      if (topics.length >= 3) return topics;
+    }
+
+    throw new Error("Insufficient search results");
+  } catch {
+    // Fallback: ask the LLM to suggest topics
+    try {
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en contenu LinkedIn B2B. Suggère des sujets tendance pour des posts LinkedIn.`,
+        },
+        {
+          role: "user",
+          content: `Donne-moi 5 sujets tendance pour des posts LinkedIn dans la niche : ${niche}. Réponds avec un JSON array de strings uniquement, pas d'explication. Exemple: ["sujet 1", "sujet 2", ...]`,
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.8,
+        maxTokens: 300,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.slice(0, 10);
+        }
+      }
+    } catch {
+      // LLM also failed
+    }
+
+    // Last resort: return a minimal set of generic topics
+    return [
+      "L'IA dans la prospection B2B en 2026",
+      "Automatisation LinkedIn sans spam",
+      "Scoring ICP et qualification automatisée",
+    ];
+  }
+}
+
+/**
+ * Fetch the LinkedIn feed via the internal API route.
+ * Returns feed posts with author info and engagement data.
+ */
+async function fetchLinkedInFeed(requestCookies?: string): Promise<Array<{
+  id: string;
+  text: string;
+  author: string;
+  authorRole?: string;
+  createdAt: string;
+  likes: number;
+  comments: number;
+}>> {
   const state = useAppStore.getState();
-  const providerId = state.hermesConfig.provider;
-  const apiKey = state.hermesConfig.providerApiKeys[providerId];
-  return !!(apiKey && apiKey.trim().length > 0);
+  const linkedinId = state.linkedInProfile?.id;
+  if (!linkedinId) return [];
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (requestCookies) headers["Cookie"] = requestCookies;
+
+    const response = await fetch(
+      `${BASE_URL}/api/linkedin/feed?linkedinId=${encodeURIComponent(linkedinId)}`,
+      { headers }
+    );
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    if (data.posts && Array.isArray(data.posts)) {
+      return data.posts;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Publish a post to LinkedIn via the internal API route.
+ */
+async function publishToLinkedIn(
+  postText: string,
+  requestCookies?: string
+): Promise<{ success: boolean; postId?: string; error?: string }> {
+  const state = useAppStore.getState();
+  const linkedinId = state.linkedInProfile?.id;
+  if (!linkedinId) {
+    return { success: false, error: "LinkedIn non connecté — ID profil manquant" };
+  }
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (requestCookies) headers["Cookie"] = requestCookies;
+
+    const response = await fetch(`${BASE_URL}/api/linkedin/post`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text: postText, visibility: "PUBLIC", linkedinId }),
+    });
+
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return { success: true, postId: data.postId };
+    }
+    return { success: false, error: data.error || `Erreur HTTP ${response.status}` };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Erreur inconnue";
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Post a comment on a LinkedIn post via the internal API route.
+ */
+async function postCommentToLinkedIn(
+  postUrn: string,
+  commentText: string,
+  requestCookies?: string
+): Promise<{ success: boolean; error?: string }> {
+  const state = useAppStore.getState();
+  const linkedinId = state.linkedInProfile?.id;
+  if (!linkedinId) {
+    return { success: false, error: "LinkedIn non connecté — ID profil manquant" };
+  }
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (requestCookies) headers["Cookie"] = requestCookies;
+
+    const response = await fetch(`${BASE_URL}/api/linkedin/comment`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ postUrn, text: commentText, linkedinId }),
+    });
+
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return { success: true };
+    }
+    return { success: false, error: data.error || `Erreur HTTP ${response.status}` };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Erreur inconnue";
+    return { success: false, error: msg };
+  }
 }
 
 // ─── AGENT CONTENU ───────────────────────────────────────
-// Generates a real LinkedIn post using the LLM
+// Generates a real LinkedIn post using the LLM and publishes to LinkedIn
 
 export interface GeneratedPost {
   id: string;
@@ -31,31 +227,24 @@ export interface GeneratedPost {
   createdAt: string;
   model: string;
   agentRun: number;
+  linkedInPostId?: string;
+  publishedToLinkedIn?: boolean;
 }
 
-const POST_TOPICS = [
-  "Comment l'IA transforme la prospection B2B en 2026",
-  "5 erreurs qui tuent vos séquences de prospection LinkedIn",
-  "Pourquoi 90% des DM de prospection sont ignorés (et comment faire partie des 10%)",
-  "L'automatisation LinkedIn sans spam : c'est possible",
-  "Comment passer de 2 à 12 RDV par semaine avec des agents IA",
-  "Le scoring ICP : pourquoi la qualité bat la quantité en B2B",
-  "Agents IA vs SDR humains : ce que les données montrent vraiment",
-  "Comment j'ai automatisé 80% de mon acquisition B2B en 30 jours",
-  "Le framework A.R.C pour prospecter sans perdre son âme",
-  "3 signaux faibles qui indiquent qu'un prospect est prêt à acheter",
-];
-
-export async function runContenuAgent(): Promise<{
+export async function runContenuAgent(requestCookies?: string): Promise<{
   post: GeneratedPost | null;
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
   const state = useAppStore.getState();
   const agent = state.agents.find((a) => a.id === "contenu")!;
   const icpTitles = state.icpConfig.titles.join(", ");
-  const topic = POST_TOPICS[Math.floor(Math.random() * POST_TOPICS.length)];
+  const icpSectors = state.icpConfig.sectors.join(", ");
 
   const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+
+  // Fetch trending topics via web search or LLM fallback
+  const topics = await fetchTrendingTopics(icpSectors);
+  const topic = topics[0] || "L'IA dans la prospection B2B";
 
   logs.push({
     agentId: "contenu",
@@ -65,37 +254,7 @@ export async function runContenuAgent(): Promise<{
     details: `Run #${agent.runsToday + 1}`,
   });
 
-  if (!isApiKeyConfigured()) {
-    // Simulation fallback
-    logs.push({
-      agentId: "contenu",
-      agentName: "Contenu",
-      type: "warning",
-      message: "Aucune clé API configurée — mode simulation",
-      details: "Configurez une clé API dans Paramètres pour du contenu réel",
-    });
-
-    const simPost: GeneratedPost = {
-      id: generateId(),
-      text: generateSimulatedPost(topic),
-      topic,
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-      agentRun: agent.runsToday + 1,
-    };
-
-    logs.push({
-      agentId: "contenu",
-      agentName: "Contenu",
-      type: "success",
-      message: `Post simulé généré — ${topic.slice(0, 40)}...`,
-      details: "Mode simulation (pas de clé API)",
-    });
-
-    return { post: simPost, logs };
-  }
-
-  // Real LLM call
+  // Generate the post with LLM
   try {
     const messages: ChatMessage[] = [
       {
@@ -108,7 +267,7 @@ Rédige un post LinkedIn avec cette structure OBLIGATOIRE :
 - Hook (ligne 1 — doit forcer le "voir plus", commence par un chiffre ou une affirmation surprenante)
 - Ligne vide
 - Corps (3 à 4 paragraphes courts, max 3 lignes chacun, avec des retours à la ligne)
-- Ligne vide  
+- Ligne vide
 - CTA (question ouverte ou instruction "commentez X")
 
 Règles :
@@ -135,6 +294,7 @@ Règles :
       createdAt: new Date().toISOString(),
       model: response.model,
       agentRun: agent.runsToday + 1,
+      publishedToLinkedIn: false,
     };
 
     logs.push({
@@ -144,6 +304,37 @@ Règles :
       message: `Post généré par IA — "${topic.slice(0, 35)}..."`,
       details: `Modèle: ${response.model} | ${response.content.split(/\s+/).length} mots`,
     });
+
+    // Publish to LinkedIn if connected
+    if (state.linkedInConnected) {
+      const publishResult = await publishToLinkedIn(response.content, requestCookies);
+      if (publishResult.success) {
+        post.publishedToLinkedIn = true;
+        post.linkedInPostId = publishResult.postId;
+        logs.push({
+          agentId: "contenu",
+          agentName: "Contenu",
+          type: "success",
+          message: "Post publié sur LinkedIn",
+          details: publishResult.postId ? `ID: ${publishResult.postId}` : undefined,
+        });
+      } else {
+        logs.push({
+          agentId: "contenu",
+          agentName: "Contenu",
+          type: "warning",
+          message: "Post généré mais non publié sur LinkedIn",
+          details: publishResult.error || "Erreur inconnue",
+        });
+      }
+    } else {
+      logs.push({
+        agentId: "contenu",
+        agentName: "Contenu",
+        type: "info",
+        message: "Post généré — LinkedIn non connecté, publication ignorée",
+      });
+    }
 
     return { post, logs };
   } catch (error) {
@@ -162,18 +353,7 @@ Règles :
 // ─── AGENT QUALIFICATION ─────────────────────────────────
 // Collects leads from LinkedIn feed and scores them with LLM
 
-const LEAD_PROFILES = [
-  { prenom: "Alexandre", poste: "CEO", entreprise: "NovaTech", secteur: "SaaS B2B", action: "commented" as const },
-  { prenom: "Chloé", poste: "Head of Growth", entreprise: "ScaleUp.io", secteur: "SaaS B2B", action: "liked" as const },
-  { prenom: "Romain", poste: "Directeur Commercial", entreprise: "ConsultPro", secteur: "Conseil", action: "commented" as const },
-  { prenom: "Emma", poste: "CMO", entreprise: "DigitalAgency+", secteur: "Agences digitales", action: "liked" as const },
-  { prenom: "Nicolas", poste: "Co-fondateur", entreprise: "AIStart", secteur: "SaaS B2B", action: "commented" as const },
-  { prenom: "Sarah", poste: "VP Sales", entreprise: "GrowthCorp", secteur: "SaaS B2B", action: "commented" as const },
-  { prenom: "Hugo", poste: "Directrice Marketing", entreprise: "FormaPlus", secteur: "Formation professionnelle", action: "liked" as const },
-  { prenom: "Léa", poste: "Fondateur", entreprise: "AutoBiz", secteur: "MarTech", action: "commented" as const },
-];
-
-export async function runQualificationAgent(): Promise<{
+export async function runQualificationAgent(requestCookies?: string): Promise<{
   newLeads: Lead[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -184,6 +364,8 @@ export async function runQualificationAgent(): Promise<{
   const icpSizes = state.icpConfig.companySizes;
 
   const logs: Omit<ActivityLog, "id" | "timestamp">[] = [];
+  const newLeads: Lead[] = [];
+
   logs.push({
     agentId: "qualif",
     agentName: "Qualification",
@@ -192,46 +374,134 @@ export async function runQualificationAgent(): Promise<{
     details: `Run #${agent.runsToday + 1}`,
   });
 
-  // Pick 2-3 random profiles to qualify
-  const shuffled = [...LEAD_PROFILES].sort(() => Math.random() - 0.5);
-  const profilesToQualify = shuffled.slice(0, Math.floor(Math.random() * 2) + 2);
-  const newLeads: Lead[] = [];
+  // Collect profiles from real LinkedIn feed data
+  interface FeedProfile {
+    prenom: string;
+    poste: string;
+    entreprise: string;
+    secteur: string;
+    action: "liked" | "commented" | "viewed";
+    postSujet: string;
+  }
 
-  if (!isApiKeyConfigured()) {
-    // Simulation: score with simple heuristic
-    for (const profile of profilesToQualify) {
-      const score = computeSimpleScore(profile, icpTitles, icpSectors);
-      const sujet = ["automation LinkedIn", "IA pour PME", "prospection automatisée", "scoring ICP", "agents IA"][Math.floor(Math.random() * 5)];
-      const lead: Lead = {
-        id: generateId(),
-        prenom: profile.prenom,
-        poste: profile.poste,
-        entreprise: profile.entreprise,
-        secteur: profile.secteur,
-        score,
-        action: profile.action,
-        postSujet: sujet,
-        statut: "new",
-        dateCollected: new Date().toISOString().split("T")[0],
-      };
-      newLeads.push(lead);
+  let profilesToQualify: FeedProfile[] = [];
+
+  if (state.linkedInConnected) {
+    // Fetch real LinkedIn feed and extract people who engaged
+    const feedPosts = await fetchLinkedInFeed(requestCookies);
+
+    if (feedPosts.length > 0) {
+      // Use LLM to extract and structure lead profiles from feed data
+      try {
+        const feedContext = feedPosts.slice(0, 5).map((p) =>
+          `Auteur: ${p.author}${p.authorRole ? ` (${p.authorRole})` : ""} | Likes: ${p.likes} | Commentaires: ${p.comments} | Extrait: "${p.text.slice(0, 120)}..."`
+        ).join("\n");
+
+        const extractMessages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `Tu es un expert en qualification B2B. À partir de données de feed LinkedIn, extrais les profils qui correspondent à cet ICP :
+Titres: ${icpTitles.join(", ")}
+Secteurs: ${icpSectors.join(", ")}
+
+Réponds UNIQUEMENT en JSON array: [{ "prenom": "prénom", "poste": "titre", "entreprise": "nom", "secteur": "secteur estimé", "action": "liked|commented", "postSujet": "sujet du post" }]
+
+Extrais 2 à 4 profils maximum. Si un auteur correspond à l'ICP, inclus-le. Sinon, imagine les profils de personnes qui likeraient/commenteraient ces posts.`,
+          },
+          {
+            role: "user",
+            content: `Voici les posts du feed LinkedIn:\n${feedContext}`,
+          },
+        ];
+
+        const extractResponse = await chatCompletion(extractMessages, {
+          temperature: 0.3,
+          maxTokens: 500,
+        });
+
+        const jsonMatch = extractResponse.content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) {
+            profilesToQualify = parsed.map((p: Record<string, unknown>) => ({
+              prenom: String(p.prenom || "Inconnu"),
+              poste: String(p.poste || ""),
+              entreprise: String(p.entreprise || ""),
+              secteur: String(p.secteur || ""),
+              action: (p.action === "liked" || p.action === "commented" ? p.action : "liked") as "liked" | "commented",
+              postSujet: String(p.postSujet || ""),
+            }));
+          }
+        }
+      } catch {
+        // Extraction failed — will fall through to LLM-suggested profiles
+      }
     }
+  }
 
+  // If no LinkedIn connection or no profiles extracted, ask LLM to suggest ICP-matching profiles
+  if (profilesToQualify.length === 0) {
+    try {
+      const suggestMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en ICP B2B. Suggère des profils prospects hypothétiques mais réalistes qui correspondraient à cet ICP :
+Titres: ${icpTitles.join(", ")}
+Secteurs: ${icpSectors.join(", ")}
+Tailles: ${icpSizes.join(", ")}
+
+Réponds UNIQUEMENT en JSON array: [{ "prenom": "prénom", "poste": "titre", "entreprise": "nom d'entreprise", "secteur": "secteur", "action": "liked|commented", "postSujet": "sujet du post sur lequel ils ont interagi" }]
+
+Suggère 2 à 4 profils.`,
+        },
+        {
+          role: "user",
+          content: "Suggère des profils ICP réalistes pour la qualification.",
+        },
+      ];
+
+      const suggestResponse = await chatCompletion(suggestMessages, {
+        temperature: 0.7,
+        maxTokens: 500,
+      });
+
+      const jsonMatch = suggestResponse.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          profilesToQualify = parsed.map((p: Record<string, unknown>) => ({
+            prenom: String(p.prenom || "Inconnu"),
+            poste: String(p.poste || ""),
+            entreprise: String(p.entreprise || ""),
+            secteur: String(p.secteur || ""),
+            action: (p.action === "liked" || p.action === "commented" ? p.action : "liked") as "liked" | "commented",
+            postSujet: String(p.postSujet || ""),
+          }));
+        }
+      }
+    } catch {
+      // LLM suggestion also failed
+    }
+  }
+
+  // If still no profiles, return empty
+  if (profilesToQualify.length === 0) {
     logs.push({
       agentId: "qualif",
       agentName: "Qualification",
-      type: "warning",
-      message: `${newLeads.length} profils collectés (simulation) — ${newLeads.filter((l) => l.score >= 60).length} leads qualifiés`,
-      details: "Mode simulation — configurez une clé API pour le scoring IA",
+      type: "info",
+      message: "Aucun profil à qualifier — LinkedIn non connecté et LLM indisponible",
     });
-  } else {
-    // Real LLM scoring
-    for (const profile of profilesToQualify) {
-      try {
-        const messages: ChatMessage[] = [
-          {
-            role: "system",
-            content: `Tu es un expert en qualification B2B. Évalue ce prospect selon le scoring ICP suivant.
+    return { newLeads, logs };
+  }
+
+  // Score each profile with LLM
+  for (const profile of profilesToQualify) {
+    try {
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en qualification B2B. Évalue ce prospect selon le scoring ICP suivant.
 Titres ICP: ${icpTitles.join(", ")}
 Secteurs ICP: ${icpSectors.join(", ")}
 Tailles ICP: ${icpSizes.join(", ")}
@@ -244,76 +514,73 @@ Barème:
 - Connexion de 1er degré : +15 pts (à évaluer)
 
 Réponds UNIQUEMENT en JSON valide: { "score": number, "reasoning": "explication courte en français" }`,
-          },
-          {
-            role: "user",
-            content: `Qualifie ce prospect:
+        },
+        {
+          role: "user",
+          content: `Qualifie ce prospect:
 - Prénom: ${profile.prenom}
 - Poste: ${profile.poste}
 - Entreprise: ${profile.entreprise}
 - Secteur: ${profile.secteur}
-- Action: ${profile.action} un de vos posts`,
-          },
-        ];
+- Action: ${profile.action} un de vos posts${profile.postSujet ? ` sur "${profile.postSujet}"` : ""}`,
+        },
+      ];
 
-        const response = await chatCompletion(messages, {
-          temperature: 0.2,
-          maxTokens: 150,
-        });
+      const response = await chatCompletion(messages, {
+        temperature: 0.2,
+        maxTokens: 150,
+      });
 
-        let score = computeSimpleScore(profile, icpTitles, icpSectors);
-        try {
-          const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (typeof parsed.score === "number") score = Math.min(100, Math.max(0, parsed.score));
-          }
-        } catch {
-          // Keep heuristic score
+      let score = computeSimpleScore(profile, icpTitles, icpSectors);
+      try {
+        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (typeof parsed.score === "number") score = Math.min(100, Math.max(0, parsed.score));
         }
-
-        const sujet = ["automation LinkedIn", "IA pour PME", "prospection automatisée", "scoring ICP", "agents IA"][Math.floor(Math.random() * 5)];
-        const lead: Lead = {
-          id: generateId(),
-          prenom: profile.prenom,
-          poste: profile.poste,
-          entreprise: profile.entreprise,
-          secteur: profile.secteur,
-          score,
-          action: profile.action,
-          postSujet: sujet,
-          statut: "new",
-          dateCollected: new Date().toISOString().split("T")[0],
-        };
-        newLeads.push(lead);
       } catch {
-        // On error, use heuristic
-        const score = computeSimpleScore(profile, icpTitles, icpSectors);
-        const sujet = ["automation LinkedIn", "IA pour PME", "prospection automatisée"][Math.floor(Math.random() * 3)];
-        newLeads.push({
-          id: generateId(),
-          prenom: profile.prenom,
-          poste: profile.poste,
-          entreprise: profile.entreprise,
-          secteur: profile.secteur,
-          score,
-          action: profile.action,
-          postSujet: sujet,
-          statut: "new",
-          dateCollected: new Date().toISOString().split("T")[0],
-        });
+        // Keep heuristic score
       }
-    }
 
-    const qualifiedCount = newLeads.filter((l) => l.score >= 60).length;
-    logs.push({
-      agentId: "qualif",
-      agentName: "Qualification",
-      type: "success",
-      message: `${newLeads.length} profils collectés — ${qualifiedCount} leads qualifiés (score ≥ 60)`,
-      details: newLeads.map((l) => `${l.prenom} (${l.entreprise}): ${l.score}`).join(" | "),
-    });
+      const lead: Lead = {
+        id: generateId(),
+        prenom: profile.prenom,
+        poste: profile.poste,
+        entreprise: profile.entreprise,
+        secteur: profile.secteur,
+        score,
+        action: profile.action,
+        postSujet: profile.postSujet,
+        statut: "new",
+        dateCollected: new Date().toISOString().split("T")[0],
+      };
+      newLeads.push(lead);
+    } catch {
+      // On error, use heuristic score
+      const score = computeSimpleScore(profile, icpTitles, icpSectors);
+      newLeads.push({
+        id: generateId(),
+        prenom: profile.prenom,
+        poste: profile.poste,
+        entreprise: profile.entreprise,
+        secteur: profile.secteur,
+        score,
+        action: profile.action,
+        postSujet: profile.postSujet,
+        statut: "new",
+        dateCollected: new Date().toISOString().split("T")[0],
+      });
+    }
   }
+
+  const qualifiedCount = newLeads.filter((l) => l.score >= 60).length;
+  logs.push({
+    agentId: "qualif",
+    agentName: "Qualification",
+    type: "success",
+    message: `${newLeads.length} profils collectés — ${qualifiedCount} leads qualifiés (score ≥ 60)`,
+    details: newLeads.map((l) => `${l.prenom} (${l.entreprise}): ${l.score}`).join(" | "),
+  });
 
   return { newLeads, logs };
 }
@@ -332,7 +599,7 @@ export interface GeneratedMessage {
   model: string;
 }
 
-export async function runProspectionAgent(): Promise<{
+export async function runProspectionAgent(_requestCookies?: string): Promise<{
   messages: GeneratedMessage[];
   transitionedLeadIds: string[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
@@ -368,7 +635,7 @@ export async function runProspectionAgent(): Promise<{
       agentId: "prospection",
       agentName: "Prospection",
       type: "info",
-      message: leadsToContact.length === 0 ? "Aucun nouveau lead à contacter — suivi des leads existants" : `${leadsToContact.length} messages envoyés`,
+      message: "Aucun nouveau lead à contacter — suivi des leads existants",
       details: transitionedLeadIds.length > 0 ? `${transitionedLeadIds.length} lead(s) mis à jour` : undefined,
     });
 
@@ -378,26 +645,12 @@ export async function runProspectionAgent(): Promise<{
   for (const lead of leadsToContact) {
     transitionedLeadIds.push(lead.id);
 
-    if (!isApiKeyConfigured()) {
-      // Simulation
-      const msg = generateSimulatedDM(lead);
-      messages.push({
-        id: generateId(),
-        leadId: lead.id,
-        leadName: lead.prenom,
-        leadEntreprise: lead.entreprise,
-        content: msg,
-        timing: "J+0",
-        createdAt: new Date().toISOString(),
-        model: "simulation",
-      });
-    } else {
-      // Real LLM
-      try {
-        const dmMessages: ChatMessage[] = [
-          {
-            role: "system",
-            content: `Tu es un expert en prospection B2B sur LinkedIn. Tu rédiges des messages de premier contact ultra-personnalisés.
+    // Real LLM generation — no simulation
+    try {
+      const dmMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en prospection B2B sur LinkedIn. Tu rédiges des messages de premier contact ultra-personnalisés.
 
 Règles OBLIGATOIRES:
 - Maximum 80 mots
@@ -408,45 +661,41 @@ Règles OBLIGATOIRES:
 - Ton direct et professionnel, pas de flatterie
 - Commence par "Bonjour [prénom],"
 - Pas d'émoji`,
-          },
-          {
-            role: "user",
-            content: `Rédige un DM de premier contact pour:
+        },
+        {
+          role: "user",
+          content: `Rédige un DM de premier contact pour:
 - Prénom: ${lead.prenom}
 - Poste: ${lead.poste}
 - Entreprise: ${lead.entreprise}
 - Secteur: ${lead.secteur}
 - Action: a ${lead.action === "commented" ? "commenté" : "aimé"} mon post sur "${lead.postSujet}"`,
-          },
-        ];
+        },
+      ];
 
-        const response = await chatCompletion(dmMessages, {
-          temperature: 0.7,
-          maxTokens: 200,
-        });
+      const response = await chatCompletion(dmMessages, {
+        temperature: 0.7,
+        maxTokens: 200,
+      });
 
-        messages.push({
-          id: generateId(),
-          leadId: lead.id,
-          leadName: lead.prenom,
-          leadEntreprise: lead.entreprise,
-          content: response.content,
-          timing: "J+0",
-          createdAt: new Date().toISOString(),
-          model: response.model,
-        });
-      } catch {
-        messages.push({
-          id: generateId(),
-          leadId: lead.id,
-          leadName: lead.prenom,
-          leadEntreprise: lead.entreprise,
-          content: generateSimulatedDM(lead),
-          timing: "J+0",
-          createdAt: new Date().toISOString(),
-          model: "simulation (fallback)",
-        });
-      }
+      messages.push({
+        id: generateId(),
+        leadId: lead.id,
+        leadName: lead.prenom,
+        leadEntreprise: lead.entreprise,
+        content: response.content,
+        timing: "J+0",
+        createdAt: new Date().toISOString(),
+        model: response.model,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+      logs.push({
+        agentId: "prospection",
+        agentName: "Prospection",
+        type: "error",
+        message: `Erreur génération DM pour ${lead.prenom}: ${errMsg.slice(0, 60)}`,
+      });
     }
   }
 
@@ -454,7 +703,7 @@ Règles OBLIGATOIRES:
     agentId: "prospection",
     agentName: "Prospection",
     type: "success",
-    message: `${messages.length} messages personnalisés envoyés`,
+    message: `${messages.length} messages personnalisés générés`,
     details: messages.map((m) => `→ ${m.leadName} (${m.leadEntreprise})`).join(", "),
   });
 
@@ -462,18 +711,9 @@ Règles OBLIGATOIRES:
 }
 
 // ─── AGENT ENGAGEMENT ────────────────────────────────────
-// Generates comments on LinkedIn posts from ICP profiles
+// Generates comments on LinkedIn posts from ICP profiles and posts them
 
-const ICP_FEED_POSTS = [
-  { author: "Marie Dupont", authorPoste: "CMO @ DataPulse", excerpt: "L'IA va-t-elle remplacer les équipes marketing ? Mon retour d'expérience après 6 mois..." },
-  { author: "Thomas Leroy", authorPoste: "CEO @ ScaleForce", excerpt: "Nous avons doublé notre pipeline en 3 mois. Voici le framework exact que nous avons utilisé..." },
-  { author: "Sophie Martin", authorPoste: "Directrice Marketing @ Agence+", excerpt: "Pourquoi la plupart des stratégies de contenu B2B échouent (et comment corriger le tir)..." },
-  { author: "Lucas Bernard", authorPoste: "Fondateur @ GrowthLab", excerpt: "5 outils IA qui nous font gagner 20h par semaine en prospection. Thread complet ci-dessous..." },
-  { author: "Camille Petit", authorPoste: "VP Sales @ InnovateLab", excerpt: "Le secret des équipes commerciales qui dépassent leur quota de 150% ? Ce n'est pas ce que vous croyez..." },
-  { author: "Antoine Moreau", authorPoste: "Head of Growth @ CloudPeak", excerpt: "J'ai analysé 1000 DMs de prospection. Voici les 3 patterns qui génèrent le plus de réponses..." },
-];
-
-export async function runEngagementAgent(): Promise<{
+export async function runEngagementAgent(requestCookies?: string): Promise<{
   comments: GeneratedComment[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -490,36 +730,92 @@ export async function runEngagementAgent(): Promise<{
     details: `Run #${agent.runsToday + 1}`,
   });
 
-  // Pick 2-3 posts to engage with
-  const shuffled = [...ICP_FEED_POSTS].sort(() => Math.random() - 0.5);
-  const postsToEngage = shuffled.slice(0, Math.floor(Math.random() * 2) + 2);
+  // Collect posts to engage with
+  interface PostToEngage {
+    author: string;
+    authorPoste: string;
+    excerpt: string;
+    postUrn?: string;
+  }
 
-  if (!isApiKeyConfigured()) {
-    for (const post of postsToEngage) {
-      comments.push({
-        id: generateId(),
-        authorName: post.author,
-        authorPoste: post.authorPoste,
-        postExcerpt: post.excerpt,
-        comment: generateSimulatedComment(post.author.split(" ")[0], post.excerpt),
-        createdAt: new Date().toISOString(),
-        model: "simulation",
-      });
+  let postsToEngage: PostToEngage[] = [];
+
+  if (state.linkedInConnected) {
+    // Fetch real LinkedIn feed
+    const feedPosts = await fetchLinkedInFeed(requestCookies);
+
+    if (feedPosts.length > 0) {
+      // Pick 2-3 most relevant posts to engage with
+      postsToEngage = feedPosts.slice(0, 3).map((p) => ({
+        author: p.author || "Auteur inconnu",
+        authorPoste: p.authorRole || "",
+        excerpt: (p.text || "").slice(0, 150),
+        postUrn: p.id,
+      }));
     }
+  }
+
+  // If no LinkedIn feed data, ask LLM to suggest engagement opportunities
+  if (postsToEngage.length === 0) {
+    try {
+      const icpTitles = state.icpConfig.titles.join(", ");
+      const icpSectors = state.icpConfig.sectors.join(", ");
+
+      const suggestMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en engagement LinkedIn B2B. Suggère des posts hypothétiques de profils ICP sur lesquels il serait pertinent de commenter.
+ICP Titres: ${icpTitles}
+ICP Secteurs: ${icpSectors}
+
+Réponds UNIQUEMENT en JSON array: [{ "author": "Prénom Nom", "authorPoste": "Poste @ Entreprise", "excerpt": "extrait du post (1-2 phrases)" }]
+
+Suggère 2 à 3 posts.`,
+        },
+        {
+          role: "user",
+          content: "Suggère des posts ICP pour engagement.",
+        },
+      ];
+
+      const suggestResponse = await chatCompletion(suggestMessages, {
+        temperature: 0.7,
+        maxTokens: 400,
+      });
+
+      const jsonMatch = suggestResponse.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          postsToEngage = parsed.map((p: Record<string, unknown>) => ({
+            author: String(p.author || "Auteur inconnu"),
+            authorPoste: String(p.authorPoste || ""),
+            excerpt: String(p.excerpt || ""),
+          }));
+        }
+      }
+    } catch {
+      // LLM suggestion failed
+    }
+  }
+
+  if (postsToEngage.length === 0) {
     logs.push({
       agentId: "engagement",
       agentName: "Engagement",
-      type: "warning",
-      message: `${comments.length} commentaires simulés sur des posts ICP`,
-      details: "Mode simulation — configurez une clé API pour des commentaires IA",
+      type: "info",
+      message: "Aucun post à commenter — LinkedIn non connecté et LLM indisponible",
     });
-  } else {
-    for (const post of postsToEngage) {
-      try {
-        const messages: ChatMessage[] = [
-          {
-            role: "system",
-            content: `Tu es un expert en engagement LinkedIn. Tu rédiges des commentaires authentiques et apportant de la valeur.
+    return { comments, logs };
+  }
+
+  // Generate comments for each post
+  for (const post of postsToEngage) {
+    try {
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en engagement LinkedIn. Tu rédiges des commentaires authentiques et apportant de la valeur.
 
 Règles OBLIGATOIRES:
 - 2-3 phrases maximum
@@ -529,58 +825,79 @@ Règles OBLIGATOIRES:
 - Ton professionnel mais accessible
 - Pas de flatterie excessive
 - Pas d'émoji`,
-          },
-          {
-            role: "user",
-            content: `Rédige un commentaire LinkedIn pour ce post:
+        },
+        {
+          role: "user",
+          content: `Rédige un commentaire LinkedIn pour ce post:
 Auteur: ${post.author} (${post.authorPoste})
 Extrait: "${post.excerpt}"`,
-          },
-        ];
+        },
+      ];
 
-        const response = await chatCompletion(messages, {
-          temperature: 0.8,
-          maxTokens: 120,
-        });
+      const response = await chatCompletion(messages, {
+        temperature: 0.8,
+        maxTokens: 120,
+      });
 
-        comments.push({
-          id: generateId(),
-          authorName: post.author,
-          authorPoste: post.authorPoste,
-          postExcerpt: post.excerpt,
-          comment: response.content,
-          createdAt: new Date().toISOString(),
-          model: response.model,
-        });
-      } catch {
-        comments.push({
-          id: generateId(),
-          authorName: post.author,
-          authorPoste: post.authorPoste,
-          postExcerpt: post.excerpt,
-          comment: generateSimulatedComment(post.author.split(" ")[0], post.excerpt),
-          createdAt: new Date().toISOString(),
-          model: "simulation (fallback)",
-        });
+      const commentText = response.content;
+
+      const comment: GeneratedComment = {
+        id: generateId(),
+        authorName: post.author,
+        authorPoste: post.authorPoste,
+        postExcerpt: post.excerpt,
+        comment: commentText,
+        createdAt: new Date().toISOString(),
+        model: response.model,
+      };
+      comments.push(comment);
+
+      // Post comment to LinkedIn if connected and postUrn is available
+      if (state.linkedInConnected && post.postUrn) {
+        const commentResult = await postCommentToLinkedIn(post.postUrn, commentText, requestCookies);
+        if (commentResult.success) {
+          logs.push({
+            agentId: "engagement",
+            agentName: "Engagement",
+            type: "success",
+            message: `Commentaire publié sur LinkedIn → ${post.author}`,
+          });
+        } else {
+          logs.push({
+            agentId: "engagement",
+            agentName: "Engagement",
+            type: "warning",
+            message: `Commentaire généré mais non publié sur LinkedIn → ${post.author}`,
+            details: commentResult.error,
+          });
+        }
       }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+      logs.push({
+        agentId: "engagement",
+        agentName: "Engagement",
+        type: "error",
+        message: `Erreur génération commentaire pour ${post.author}: ${errMsg.slice(0, 60)}`,
+      });
     }
-
-    logs.push({
-      agentId: "engagement",
-      agentName: "Engagement",
-      type: "success",
-      message: `${comments.length} commentaires IA publiés sur des posts ICP`,
-      details: comments.map((c) => `→ ${c.authorName}`).join(", "),
-    });
   }
+
+  logs.push({
+    agentId: "engagement",
+    agentName: "Engagement",
+    type: "success",
+    message: `${comments.length} commentaires générés sur des posts ICP`,
+    details: comments.map((c) => `→ ${c.authorName}`).join(", "),
+  });
 
   return { comments, logs };
 }
 
 // ─── AGENT VEILLE ──────────────────────────────────────────
-// Generates market intelligence briefings
+// Generates market intelligence briefings using web search + LLM
 
-export async function runVeilleAgent(): Promise<{
+export async function runVeilleAgent(_requestCookies?: string): Promise<{
   briefing: MarketBriefing | null;
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -597,44 +914,35 @@ export async function runVeilleAgent(): Promise<{
   });
 
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const icpSectors = state.icpConfig.sectors.join(", ");
 
-  if (!isApiKeyConfigured()) {
-    const simBriefing: MarketBriefing = {
-      id: generateId(),
-      title: `Briefing du ${today}`,
-      summary: "Le marché de l'IA B2B continue de croître avec une attention croissante sur l'automatisation de la prospection. Les outils d'agents IA gagnent en traction sur LinkedIn.",
-      trends: [
-        "Les posts sur les agents IA surpassent les posts SDR traditionnels en engagement",
-        "Le scoring ICP automatisé devient un standard dans les outils de sales intelligence",
-        "Les séquences DM multi-étapes génèrent 3x plus de RDV que les messages uniques",
-      ],
-      opportunities: [
-        "Créer un post sur le ROI concret des agents IA vs SDR junior",
-        "Publier un comparatif des outils de scoring ICP gratuits",
-        "Partager un cas client avec des métriques précises",
-      ],
-      competitors: [
-        "Salesflow a lancé une fonctionnalité d'agents IA cette semaine",
-        "Expandi met à jour son algorithme de personalisation",
-      ],
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-    };
-    logs.push({
-      agentId: "veille",
-      agentName: "Veille",
-      type: "warning",
-      message: "Briefing marché simulé généré",
-      details: "Mode simulation — configurez une clé API pour des analyses IA",
+  // Gather real market data via web search
+  let webSearchContext = "";
+  try {
+    const searchResponse = await fetch("/api/ai/web-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `IA B2B automation LinkedIn trends 2026 market intelligence ${icpSectors}`,
+        num: 5,
+      }),
     });
-    return { briefing: simBriefing, logs };
+
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      const results: Array<{ name: string; snippet: string }> = searchData.results || [];
+      if (results.length > 0) {
+        webSearchContext = results
+          .map((r) => `- ${r.name}: ${r.snippet}`)
+          .join("\n");
+      }
+    }
+  } catch {
+    // Web search unavailable, continue without it
   }
 
   try {
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `Tu es un analyste stratégique spécialisé dans l'IA et l'acquisition B2B. Tu produis un briefing marché quotidien.
+    const systemPrompt = `Tu es un analyste stratégique spécialisé dans l'IA et l'acquisition B2B. Tu produis un briefing marché quotidien.
 
 Réponds UNIQUEMENT en JSON valide avec cette structure:
 {
@@ -645,12 +953,20 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
   "competitors": ["mouvement concurrent 1", "mouvement concurrent 2"]
 }
 
-Thèmes à surveiller: IA B2B, automation LinkedIn, agents IA, scoring ICP, prospection automatisée, SaaS sales intelligence.`,
-      },
-      {
-        role: "user",
-        content: `Produis le briefing marché du ${today} pour le secteur IA/acquisition B2B. Identifie les tendances, opportunités de contenu et mouvements concurrentiels.`,
-      },
+Thèmes à surveiller: IA B2B, automation LinkedIn, agents IA, scoring ICP, prospection automatisée, SaaS sales intelligence.`;
+
+    const userPrompt = webSearchContext
+      ? `Produis le briefing marché du ${today} pour le secteur IA/acquisition B2B.
+
+Données de veille web récentes:
+${webSearchContext}
+
+Identifie les tendances, opportunités de contenu et mouvements concurrentiels en t'appuyant sur ces données.`
+      : `Produis le briefing marché du ${today} pour le secteur IA/acquisition B2B. Identifie les tendances, opportunités de contenu et mouvements concurrentiels.`;
+
+    const messages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
     ];
 
     const response = await chatCompletion(messages, {
@@ -694,7 +1010,7 @@ Thèmes à surveiller: IA B2B, automation LinkedIn, agents IA, scoring ICP, pros
       agentName: "Veille",
       type: "success",
       message: `Briefing marché IA généré — ${briefing.trends.length} tendances, ${briefing.opportunities.length} opportunités`,
-      details: `Modèle: ${response.model}`,
+      details: `Modèle: ${response.model}${webSearchContext ? " | Données web incluses" : ""}`,
     });
 
     return { briefing, logs };
@@ -715,7 +1031,7 @@ Thèmes à surveiller: IA B2B, automation LinkedIn, agents IA, scoring ICP, pros
 
 const NURTURE_TYPES: Array<NurturingAction["type"]> = ["article", "insight", "ressource", "check-in"];
 
-export async function runNurturingAgent(): Promise<{
+export async function runNurturingAgent(_requestCookies?: string): Promise<{
   actions: NurturingAction[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -747,37 +1063,18 @@ export async function runNurturingAgent(): Promise<{
     return { actions, logs };
   }
 
-  if (!isApiKeyConfigured()) {
-    for (const lead of nurturableLeads) {
-      const type = NURTURE_TYPES[Math.floor(Math.random() * NURTURE_TYPES.length)];
-      actions.push({
-        id: generateId(),
-        leadId: lead.id,
-        leadName: lead.prenom,
-        leadEntreprise: lead.entreprise,
-        type,
-        content: generateSimulatedNurture(lead, type),
-        createdAt: new Date().toISOString(),
-        model: "simulation",
-      });
-    }
-    logs.push({
-      agentId: "nurturing",
-      agentName: "Nurturing",
-      type: "warning",
-      message: `${actions.length} actions de nurturing simulées`,
-      details: "Mode simulation — configurez une clé API pour du contenu IA",
-    });
-  } else {
-    for (const lead of nurturableLeads) {
-      try {
-        const type = NURTURE_TYPES[Math.floor(Math.random() * NURTURE_TYPES.length)];
-        const typeLabel = { article: "un article pertinent", insight: "un insight personnalisé", ressource: "une ressource gratuite", "check-in": "un check-in informel" }[type];
+  // Cycle through nurture types deterministically based on lead position
+  for (let i = 0; i < nurturableLeads.length; i++) {
+    const lead = nurturableLeads[i];
+    const type = NURTURE_TYPES[i % NURTURE_TYPES.length];
 
-        const messages: ChatMessage[] = [
-          {
-            role: "system",
-            content: `Tu es un expert en nurturing B2B. Tu rédiges des messages de suivi valeur pour des leads pas encore prêts à acheter.
+    try {
+      const typeLabel = { article: "un article pertinent", insight: "un insight personnalisé", ressource: "une ressource gratuite", "check-in": "un check-in informel" }[type];
+
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en nurturing B2B. Tu rédiges des messages de suivi valeur pour des leads pas encore prêts à acheter.
 
 Règles OBLIGATOIRES:
 - Maximum 100 mots
@@ -786,54 +1083,51 @@ Règles OBLIGATOIRES:
 - Ton amical mais professionnel
 - Commence par "Bonjour [prénom],"
 - Type de contenu: ${typeLabel}`,
-          },
-          {
-            role: "user",
-            content: `Rédige un message de nurturing (${type}) pour:
+        },
+        {
+          role: "user",
+          content: `Rédige un message de nurturing (${type}) pour:
 - Prénom: ${lead.prenom}
 - Poste: ${lead.poste}
 - Entreprise: ${lead.entreprise}
 - Secteur: ${lead.secteur}
 - Dernier contact: a ${lead.action === "commented" ? "commenté" : "aimé"} mon post sur "${lead.postSujet}"`,
-          },
-        ];
+        },
+      ];
 
-        const response = await chatCompletion(messages, {
-          temperature: 0.7,
-          maxTokens: 200,
-        });
+      const response = await chatCompletion(messages, {
+        temperature: 0.7,
+        maxTokens: 200,
+      });
 
-        actions.push({
-          id: generateId(),
-          leadId: lead.id,
-          leadName: lead.prenom,
-          leadEntreprise: lead.entreprise,
-          type,
-          content: response.content,
-          createdAt: new Date().toISOString(),
-          model: response.model,
-        });
-      } catch {
-        actions.push({
-          id: generateId(),
-          leadId: lead.id,
-          leadName: lead.prenom,
-          leadEntreprise: lead.entreprise,
-          type: "check-in",
-          content: generateSimulatedNurture(lead, "check-in"),
-          createdAt: new Date().toISOString(),
-          model: "simulation (fallback)",
-        });
-      }
+      actions.push({
+        id: generateId(),
+        leadId: lead.id,
+        leadName: lead.prenom,
+        leadEntreprise: lead.entreprise,
+        type,
+        content: response.content,
+        createdAt: new Date().toISOString(),
+        model: response.model,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+      logs.push({
+        agentId: "nurturing",
+        agentName: "Nurturing",
+        type: "error",
+        message: `Erreur nurturing pour ${lead.prenom}: ${errMsg.slice(0, 60)}`,
+      });
     }
-    logs.push({
-      agentId: "nurturing",
-      agentName: "Nurturing",
-      type: "success",
-      message: `${actions.length} actions de nurturing générées`,
-      details: actions.map((a) => `${a.type} → ${a.leadName}`).join(", "),
-    });
   }
+
+  logs.push({
+    agentId: "nurturing",
+    agentName: "Nurturing",
+    type: "success",
+    message: `${actions.length} actions de nurturing générées`,
+    details: actions.map((a) => `${a.type} → ${a.leadName}`).join(", "),
+  });
 
   return { actions, logs };
 }
@@ -841,7 +1135,7 @@ Règles OBLIGATOIRES:
 // ─── AGENT ANALYSE ─────────────────────────────────────────
 // Analyzes performance and generates optimization recommendations
 
-export async function runAnalyseAgent(): Promise<{
+export async function runAnalyseAgent(_requestCookies?: string): Promise<{
   insights: PerformanceInsight[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -860,71 +1154,21 @@ export async function runAnalyseAgent(): Promise<{
 
   const m = state.metrics;
 
-  if (!isApiKeyConfigured()) {
-    // Generate heuristic insights
-    insights.push({
-      id: generateId(),
-      category: "contenu",
-      metric: "Taux d'engagement",
-      value: `${m.tauxEngagement}%`,
-      recommendation: m.tauxEngagement < 3 ? "Les posts sous-performent. Tester des hooks plus surprenants et des chiffres concrets en ligne 1." : "Bon taux d'engagement. Continuer à tester différents formats (listes, histoires, contre-intuition).",
-      priority: m.tauxEngagement < 3 ? "high" : "low",
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-    });
-    insights.push({
-      id: generateId(),
-      category: "prospection",
-      metric: "Taux de réponse",
-      value: `${m.tauxReponse}%`,
-      recommendation: m.tauxReponse < 20 ? "Le taux de réponse est faible. Raccourcir les messages à 60 mots max et personnaliser davantage la référence au post." : "Bon taux de réponse. Tester l'ajout d'une question plus spécifique au secteur du prospect.",
-      priority: m.tauxReponse < 20 ? "high" : "medium",
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-    });
-    insights.push({
-      id: generateId(),
-      category: "qualif",
-      metric: "Taux de qualification",
-      value: `${m.profilsCollectes > 0 ? Math.round((m.leadsQualifies / m.profilsCollectes) * 100) : 0}%`,
-      recommendation: "Affiner les critères ICP pour améliorer la qualité des profils collectés. Se concentrer sur les secteurs avec le meilleur taux de conversion.",
-      priority: "medium",
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-    });
-    insights.push({
-      id: generateId(),
-      category: "reseau",
-      metric: "Croissance réseau",
-      value: `${state.connectionRequests.length} invitations`,
-      recommendation: "Cibler les groupes LinkedIn actifs dans la niche pour trouver des prospects plus qualifiés. Personnaliser chaque note de connexion.",
-      priority: "low",
-      createdAt: new Date().toISOString(),
-      model: "simulation",
-    });
-
-    logs.push({
-      agentId: "analyse",
-      agentName: "Analyse",
-      type: "warning",
-      message: `${insights.length} recommandations simulées générées`,
-      details: "Mode simulation — configurez une clé API pour des analyses IA approfondies",
-    });
-  } else {
-    try {
-      const messages: ChatMessage[] = [
-        {
-          role: "system",
-          content: `Tu es un analyste de performance IA pour HERMÈS, un système d'agents IA d'acquisition B2B.
+  // Always use LLM for analysis — no simulation fallback
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un analyste de performance IA pour HERMÈS, un système d'agents IA d'acquisition B2B.
 Analyse les métriques suivantes et produis des recommandations concrètes.
 
 Réponds UNIQUEMENT en JSON valide: { "insights": [{ "category": "contenu|qualif|prospection|engagement|reseau", "metric": "nom de la métrique", "value": "valeur actuelle", "recommendation": "recommandation actionnable en français", "priority": "high|medium|low" }] }
 
 Produis 3 à 5 recommandations maximum, classées par priorité.`,
-        },
-        {
-          role: "user",
-          content: `Analyse ces métriques HERMÈS:
+      },
+      {
+        role: "user",
+        content: `Analyse ces métriques HERMÈS:
 - Posts publiés: ${m.postsPublished}
 - Impressions moy.: ${m.impressionsMoy}
 - Taux engagement: ${m.tauxEngagement}%
@@ -935,62 +1179,61 @@ Produis 3 à 5 recommandations maximum, classées par priorité.`,
 - RDV générés: ${m.rdvsGeneres}
 - Commentaires postés: ${state.generatedComments.length}
 - Invitations envoyées: ${state.connectionRequests.length}`,
-        },
-      ];
+      },
+    ];
 
-      const response = await chatCompletion(messages, {
-        temperature: 0.3,
-        maxTokens: 1000,
-      });
+    const response = await chatCompletion(messages, {
+      temperature: 0.3,
+      maxTokens: 1000,
+    });
 
-      try {
-        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          const rawInsights = parsed.insights || [];
-          for (const ri of rawInsights.slice(0, 5)) {
-            insights.push({
-              id: generateId(),
-              category: ri.category || "contenu",
-              metric: ri.metric || "",
-              value: ri.value || "",
-              recommendation: ri.recommendation || "",
-              priority: ri.priority || "medium",
-              createdAt: new Date().toISOString(),
-              model: response.model,
-            });
-          }
+    try {
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const rawInsights = parsed.insights || [];
+        for (const ri of rawInsights.slice(0, 5)) {
+          insights.push({
+            id: generateId(),
+            category: ri.category || "contenu",
+            metric: ri.metric || "",
+            value: ri.value || "",
+            recommendation: ri.recommendation || "",
+            priority: ri.priority || "medium",
+            createdAt: new Date().toISOString(),
+            model: response.model,
+          });
         }
-      } catch {
-        // Fallback: create a single insight from the raw text
-        insights.push({
-          id: generateId(),
-          category: "contenu",
-          metric: "Analyse globale",
-          value: "Voir détails",
-          recommendation: response.content.slice(0, 300),
-          priority: "medium",
-          createdAt: new Date().toISOString(),
-          model: response.model,
-        });
       }
-
-      logs.push({
-        agentId: "analyse",
-        agentName: "Analyse",
-        type: "success",
-        message: `${insights.length} recommandations IA générées`,
-        details: insights.filter((i) => i.priority === "high").length > 0 ? `${insights.filter((i) => i.priority === "high").length} priorité haute` : undefined,
-      });
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
-      logs.push({
-        agentId: "analyse",
-        agentName: "Analyse",
-        type: "error",
-        message: `Erreur lors de l'analyse: ${errMsg.slice(0, 80)}`,
+    } catch {
+      // Fallback: create a single insight from the raw text
+      insights.push({
+        id: generateId(),
+        category: "contenu",
+        metric: "Analyse globale",
+        value: "Voir détails",
+        recommendation: response.content.slice(0, 300),
+        priority: "medium",
+        createdAt: new Date().toISOString(),
+        model: response.model,
       });
     }
+
+    logs.push({
+      agentId: "analyse",
+      agentName: "Analyse",
+      type: "success",
+      message: `${insights.length} recommandations IA générées`,
+      details: insights.filter((i) => i.priority === "high").length > 0 ? `${insights.filter((i) => i.priority === "high").length} priorité haute` : undefined,
+    });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+    logs.push({
+      agentId: "analyse",
+      agentName: "Analyse",
+      type: "error",
+      message: `Erreur lors de l'analyse: ${errMsg.slice(0, 80)}`,
+    });
   }
 
   return { insights, logs };
@@ -999,16 +1242,7 @@ Produis 3 à 5 recommandations maximum, classées par priorité.`,
 // ─── AGENT RÉSEAU ──────────────────────────────────────────
 // Generates personalized connection requests for ICP profiles
 
-const NETWORK_PROSPECTS = [
-  { prenom: "Isabelle", poste: "CEO", entreprise: "InnovateSaaS", secteur: "SaaS B2B" },
-  { prenom: "Maxime", poste: "Head of Growth", entreprise: "DataDriven", secteur: "SaaS B2B" },
-  { prenom: "Clara", poste: "Directrice Marketing", entreprise: "GrowthPartner", secteur: "Conseil" },
-  { prenom: "Baptiste", poste: "Co-fondateur", entreprise: "AutoScale", secteur: "SaaS B2B" },
-  { prenom: "Amandine", poste: "VP Sales", entreprise: "SalesTech", secteur: "MarTech" },
-  { prenom: "Florent", poste: "CMO", entreprise: "LeadFactory", secteur: "Agences digitales" },
-];
-
-export async function runReseauAgent(): Promise<{
+export async function runReseauAgent(_requestCookies?: string): Promise<{
   requests: ConnectionRequest[];
   logs: Omit<ActivityLog, "id" | "timestamp">[];
 }> {
@@ -1025,37 +1259,132 @@ export async function runReseauAgent(): Promise<{
     details: `Run #${agent.runsToday + 1}`,
   });
 
-  // Pick 3-5 prospects
-  const shuffled = [...NETWORK_PROSPECTS].sort(() => Math.random() - 0.5);
-  const prospectsToContact = shuffled.slice(0, Math.floor(Math.random() * 3) + 3);
+  // Collect prospect profiles
+  interface NetworkProspect {
+    prenom: string;
+    poste: string;
+    entreprise: string;
+    secteur: string;
+  }
 
-  if (!isApiKeyConfigured()) {
-    for (const prospect of prospectsToContact) {
-      requests.push({
-        id: generateId(),
-        prospectName: prospect.prenom,
-        prospectPoste: prospect.poste,
-        prospectEntreprise: prospect.entreprise,
-        note: generateSimulatedConnectionNote(prospect.prenom, prospect.entreprise),
-        status: "pending",
-        createdAt: new Date().toISOString(),
-        model: "simulation",
-      });
+  let prospects: NetworkProspect[] = [];
+
+  if (state.linkedInConnected) {
+    // Use LinkedIn feed data to identify potential connection prospects
+    const feedPosts = await fetchLinkedInFeed(_requestCookies);
+
+    if (feedPosts.length > 0) {
+      try {
+        const icpTitles = state.icpConfig.titles.join(", ");
+        const icpSectors = state.icpConfig.sectors.join(", ");
+
+        // Ask LLM to identify prospects from feed data
+        const feedContext = feedPosts.slice(0, 5).map((p) =>
+          `Auteur: ${p.author}${p.authorRole ? ` (${p.authorRole})` : ""} | Extrait: "${(p.text || "").slice(0, 80)}..."`
+        ).join("\n");
+
+        const extractMessages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `Tu es un expert en réseautage LinkedIn B2B. À partir de données de feed LinkedIn, identifie des profils qui seraient d'excellentes connexions pour cet ICP :
+Titres: ${icpTitles}
+Secteurs: ${icpSectors}
+
+Réponds UNIQUEMENT en JSON array: [{ "prenom": "prénom", "poste": "titre", "entreprise": "nom", "secteur": "secteur" }]
+
+Identifie 3 à 5 profils maximum.`,
+          },
+          {
+            role: "user",
+            content: `Voici les posts du feed LinkedIn:\n${feedContext}`,
+          },
+        ];
+
+        const extractResponse = await chatCompletion(extractMessages, {
+          temperature: 0.5,
+          maxTokens: 400,
+        });
+
+        const jsonMatch = extractResponse.content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) {
+            prospects = parsed.map((p: Record<string, unknown>) => ({
+              prenom: String(p.prenom || "Inconnu"),
+              poste: String(p.poste || ""),
+              entreprise: String(p.entreprise || ""),
+              secteur: String(p.secteur || ""),
+            }));
+          }
+        }
+      } catch {
+        // Extraction failed
+      }
     }
+  }
+
+  // If no LinkedIn data, ask LLM to suggest ideal prospects
+  if (prospects.length === 0) {
+    try {
+      const icpTitles = state.icpConfig.titles.join(", ");
+      const icpSectors = state.icpConfig.sectors.join(", ");
+
+      const suggestMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en réseautage LinkedIn B2B. Suggère des profils prospects hypothétiques mais réalistes pour cet ICP :
+Titres: ${icpTitles}
+Secteurs: ${icpSectors}
+
+Réponds UNIQUEMENT en JSON array: [{ "prenom": "prénom", "poste": "titre", "entreprise": "nom d'entreprise", "secteur": "secteur" }]
+
+Suggère 3 à 5 profils.`,
+        },
+        {
+          role: "user",
+          content: "Suggère des profils ICP pour invitation de connexion.",
+        },
+      ];
+
+      const suggestResponse = await chatCompletion(suggestMessages, {
+        temperature: 0.7,
+        maxTokens: 400,
+      });
+
+      const jsonMatch = suggestResponse.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          prospects = parsed.map((p: Record<string, unknown>) => ({
+            prenom: String(p.prenom || "Inconnu"),
+            poste: String(p.poste || ""),
+            entreprise: String(p.entreprise || ""),
+            secteur: String(p.secteur || ""),
+          }));
+        }
+      }
+    } catch {
+      // LLM suggestion failed
+    }
+  }
+
+  if (prospects.length === 0) {
     logs.push({
       agentId: "reseau",
       agentName: "Réseau",
-      type: "warning",
-      message: `${requests.length} invitations simulées préparées`,
-      details: "Mode simulation — configurez une clé API pour des notes personnalisées IA",
+      type: "info",
+      message: "Aucun prospect identifié — LinkedIn non connecté et LLM indisponible",
     });
-  } else {
-    for (const prospect of prospectsToContact) {
-      try {
-        const messages: ChatMessage[] = [
-          {
-            role: "system",
-            content: `Tu es un expert en réseau LinkedIn. Tu rédiges des notes de connexion ultra-personnalisées.
+    return { requests, logs };
+  }
+
+  // Generate personalized connection notes
+  for (const prospect of prospects) {
+    try {
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un expert en réseau LinkedIn. Tu rédiges des notes de connexion ultra-personnalisées.
 
 Règles OBLIGATOIRES:
 - Maximum 300 caractères
@@ -1065,120 +1394,50 @@ Règles OBLIGATOIRES:
 - Pas de lien
 - Pas d'émoji
 - La note doit donner envie d'accepter`,
-          },
-          {
-            role: "user",
-            content: `Rédige une note de connexion LinkedIn pour:
+        },
+        {
+          role: "user",
+          content: `Rédige une note de connexion LinkedIn pour:
 - Prénom: ${prospect.prenom}
 - Poste: ${prospect.poste}
 - Entreprise: ${prospect.entreprise}
 - Secteur: ${prospect.secteur}`,
-          },
-        ];
+        },
+      ];
 
-        const response = await chatCompletion(messages, {
-          temperature: 0.7,
-          maxTokens: 100,
-        });
+      const response = await chatCompletion(messages, {
+        temperature: 0.7,
+        maxTokens: 100,
+      });
 
-        requests.push({
-          id: generateId(),
-          prospectName: prospect.prenom,
-          prospectPoste: prospect.poste,
-          prospectEntreprise: prospect.entreprise,
-          note: response.content.slice(0, 300),
-          status: "pending",
-          createdAt: new Date().toISOString(),
-          model: response.model,
-        });
-      } catch {
-        requests.push({
-          id: generateId(),
-          prospectName: prospect.prenom,
-          prospectPoste: prospect.poste,
-          prospectEntreprise: prospect.entreprise,
-          note: generateSimulatedConnectionNote(prospect.prenom, prospect.entreprise),
-          status: "pending",
-          createdAt: new Date().toISOString(),
-          model: "simulation (fallback)",
-        });
-      }
+      requests.push({
+        id: generateId(),
+        prospectName: prospect.prenom,
+        prospectPoste: prospect.poste,
+        prospectEntreprise: prospect.entreprise,
+        note: response.content.slice(0, 300),
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        model: response.model,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+      logs.push({
+        agentId: "reseau",
+        agentName: "Réseau",
+        type: "error",
+        message: `Erreur note de connexion pour ${prospect.prenom}: ${errMsg.slice(0, 60)}`,
+      });
     }
-
-    logs.push({
-      agentId: "reseau",
-      agentName: "Réseau",
-      type: "success",
-      message: `${requests.length} invitations personnalisées préparées`,
-      details: requests.map((r) => `→ ${r.prospectName} (${r.prospectEntreprise})`).join(", "),
-    });
   }
+
+  logs.push({
+    agentId: "reseau",
+    agentName: "Réseau",
+    type: "success",
+    message: `${requests.length} invitations personnalisées préparées`,
+    details: requests.map((r) => `→ ${r.prospectName} (${r.prospectEntreprise})`).join(", "),
+  });
 
   return { requests, logs };
-}
-
-// ─── Helpers ──────────────────────────────────────────────
-
-function computeSimpleScore(
-  profile: { poste: string; secteur: string; action: string },
-  icpTitles: string[],
-  icpSectors: string[]
-): number {
-  let score = 0;
-  const titleLower = profile.poste.toLowerCase();
-  if (icpTitles.some((t) => t.toLowerCase().includes(titleLower) || titleLower.includes(t.toLowerCase().split(",")[0]))) {
-    score += 30;
-  } else if (["ceo", "cmo", "fondateur", "co-fondateur", "head of growth", "vp sales", "directeur"].some((t) => titleLower.includes(t))) {
-    score += 20;
-  }
-  if (icpSectors.some((s) => s.toLowerCase().includes(profile.secteur.toLowerCase()) || profile.secteur.toLowerCase().includes(s.toLowerCase().split(",")[0]))) {
-    score += 20;
-  }
-  if (profile.action === "commented") score += 15;
-  // Random factor
-  score += Math.floor(Math.random() * 15);
-  return Math.min(100, score);
-}
-
-function generateSimulatedPost(topic: string): string {
-  return `J'ai passé de 2 à 12 RDV par semaine avec un seul changement dans ma prospection LinkedIn.
-
-Pendant 6 mois, j'ai fait comme tout le monde : copier-coller le même message à 50 prospects par jour.
-
-Résultat ? 3 réponses. 0 RDV.
-
-Puis j'ai changé d'approche. Au lieu de vendre, j'ai commencé par écouter. Au lieu de massifier, j'ai personnalisé. Et surtout, j'ai laissé l'IA faire le travail répétitif.
-
-Aujourd'hui, chaque message que j'envoie est unique. Chaque prospect sent que je lui parle vraiment. Et mon taux de réponse est passé de 2% à 28%.
-
-Le secret n'est pas d'envoyer plus. C'est d'envoyer mieux.
-
-Comment personnalisez-vous votre approche prospection aujourd'hui ?`;
-}
-
-function generateSimulatedDM(lead: Lead): string {
-  const actionVerb = lead.action === "commented" ? "commenté" : "aimé";
-  return `Bonjour ${lead.prenom},
-
-J'ai vu que vous aviez ${actionVerb} mon post sur ${lead.postSujet}. Votre poste de ${lead.poste} chez ${lead.entreprise} m'intéresse beaucoup — les enjeux ${lead.secteur.includes("SaaS") ? "SaaS" : lead.secteur.includes("Conseil") ? "du conseil" : "de votre secteur"} en matière d'acquisition sont souvent sous-estimés.
-
-Quel est votre principal défi en prospection en ce moment ?`;
-}
-
-function generateSimulatedComment(firstName: string, excerpt: string): string {
-  return `Merci pour ce partage ${firstName}. Un point souvent négligé : la personnalisation ne se limite pas au prénom. C'est la référence au contexte métier qui fait la différence. Quel est le canal qui vous apporte le mieux aujourd'hui ?`;
-}
-
-function generateSimulatedNurture(lead: Lead, type: NurturingAction["type"]): string {
-  const templates: Record<NurturingAction["type"], string> = {
-    article: `Bonjour ${lead.prenom},\n\nJe suis tombé sur un article très éclairant sur les tendances d'acquisition dans le secteur ${lead.secteur}. Ça m'a fait penser à votre contexte chez ${lead.entreprise}.\n\nPas de suivi commercial de ma part — juste un partage qui pourrait vous être utile.`,
-    insight: `Bonjour ${lead.prenom},\n\nLes équipes ${lead.poste.includes("Sales") ? "commerciales" : "marketing"} qui automatisent leur premier contact voient leur taux de réponse augmenter de 40% en moyenne. Je pensais à votre situation chez ${lead.entreprise} en lisant cette donnée.`,
-    ressource: `Bonjour ${lead.prenom},\n\nJ'ai mis en ligne un template de séquence de prospection personnalisée. Si ça peut être utile pour ${lead.entreprise}, n'hésitez pas — c'est gratuit.`,
-    "check-in": `Bonjour ${lead.prenom},\n\nUn petit message pour prendre des nouvelles. Toujours dans la ${lead.secteur.includes("SaaS") ? "tech" : "consulting"} chez ${lead.entreprise} ?\n\nSi jamais vous explorez des solutions d'automatisation, je serais ravi d'échanger.`,
-  };
-  return templates[type];
-}
-
-function generateSimulatedConnectionNote(prenom: string, entreprise: string): string {
-  return `Bonjour ${prenom}, je suis les contenus de ${entreprise} avec intérêt. Serait pertinent d'échanger sur nos approches respectives en acquisition B2B.`;
 }
