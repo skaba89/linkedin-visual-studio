@@ -43,6 +43,10 @@ model User {
   emailSequences       EmailSequence[]
   emailMessages        EmailMessage[]
   pipelineStages       PipelineStage[]
+  workflowData         WorkflowData[]
+  notificationData     NotificationData[]
+  webhookData          WebhookData[]
+  webhookDeliveries    WebhookDeliveryData[]
 }
 
 model UserSettings {
@@ -519,4 +523,97 @@ model PipelineStage {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, order])
+}
+
+// ─── Persisted Engine Data (BUG-H2 fix: data survives server restart) ───
+
+model WorkflowData {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  description     String    @default("")
+  status          String    @default("draft")
+  nodes           String    @default("[]")
+  edges           String    @default("[]")
+  executions      String    @default("[]")
+  lastExecutionAt String?
+  tags            String    @default("[]")
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model NotificationData {
+  id              String    @id @default(cuid())
+  userId          String
+  title           String
+  message         String
+  category        String    @default("system")
+  priority        String    @default("medium")
+  read            Boolean   @default(false)
+  dismissed       Boolean   @default(false)
+  actionUrl       String?
+  actionLabel     String?
+  sourceAgent     String?
+  sourceWorkflow  String?
+  metadata        String?   @default("{}")
+  readAt          String?
+  expiresAt       String?
+  createdAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+model WebhookData {
+  id               String    @id @default(cuid())
+  userId           String
+  name             String
+  provider         String    @default("custom")
+  url              String
+  secret           String?
+  events           String    @default("[]")
+  status           String    @default("active")
+  headers          String?   @default("{}")
+  retryCount       Int       @default(3)
+  retryDelayMs     Int       @default(5000)
+  timeoutMs        Int       @default(10000)
+  lastTriggeredAt  String?
+  lastStatus       Int?
+  errorCount       Int       @default(0)
+  totalDeliveries  Int       @default(0)
+  successDeliveries Int      @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model WebhookDeliveryData {
+  id          String   @id @default(cuid())
+  userId      String
+  webhookId   String
+  event       String
+  status      String   @default("pending")
+  attempts    Int      @default(0)
+  request     String   @default("{}")
+  response    String?
+  deliveredAt String?
+  nextRetryAt String?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, webhookId])
+  @@index([userId, createdAt])
 }

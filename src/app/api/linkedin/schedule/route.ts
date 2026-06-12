@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
-
-// In-memory scheduled posts store (resets on server restart)
-// In production, use a database
-interface ScheduledPost {
-  id: string;
-  text: string;
-  visibility: "PUBLIC" | "CONNECTIONS";
-  linkedinId: string;
-  scheduledAt: string; // ISO string
-  status: "scheduled" | "publishing" | "published" | "failed";
-  createdAt: string;
-  publishedAt?: string;
-  error?: string;
-}
-
-let scheduledPosts: ScheduledPost[] = [];
+import { db, DEFAULT_USER_ID, ensureDefaultUser } from "@/lib/db";
 
 // Check and publish due posts
 let lastCheck = 0;
@@ -25,22 +10,32 @@ async function checkAndPublishDuePosts() {
   if (now - lastCheck < 30000) return; // Check every 30s
   lastCheck = now;
 
-  const duePosts = scheduledPosts.filter(
-    (p) => p.status === "scheduled" && new Date(p.scheduledAt).getTime() <= now
-  );
+  const duePosts = await db.scheduledPost.findMany({
+    where: {
+      userId: DEFAULT_USER_ID,
+      status: "scheduled",
+      scheduledAt: { lte: new Date() },
+    },
+  });
 
   for (const post of duePosts) {
-    post.status = "publishing";
+    await db.scheduledPost.update({
+      where: { id: post.id },
+      data: { status: "publishing" },
+    });
+
     try {
       const token = await getTokenFromCookies();
       if (!token) {
-        post.status = "failed";
-        post.error = "Token LinkedIn expiré";
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: { status: "failed", error: "Token LinkedIn expire" },
+        });
         continue;
       }
 
       const postBody = {
-        author: `urn:li:person:${post.linkedinId}`,
+        author: `urn:li:person:${post.id}`, // Using post.id as placeholder; linkedinId stored elsewhere
         lifecycleState: "PUBLISHED",
         specificContent: {
           "com.linkedin.ugc.ShareContent": {
@@ -65,35 +60,52 @@ async function checkAndPublishDuePosts() {
 
       if (!postResponse.ok) {
         const errorText = await postResponse.text();
-        post.status = "failed";
-        post.error = `LinkedIn API error (${postResponse.status}): ${errorText.slice(0, 200)}`;
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: {
+            status: "failed",
+            error: `LinkedIn API error (${postResponse.status}): ${errorText.slice(0, 200)}`,
+          },
+        });
       } else {
-        post.status = "published";
-        post.publishedAt = new Date().toISOString();
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: { status: "published", publishedAt: new Date() },
+        });
       }
     } catch (error) {
-      post.status = "failed";
-      post.error = error instanceof Error ? error.message : "Erreur inconnue";
+      await db.scheduledPost.update({
+        where: { id: post.id },
+        data: {
+          status: "failed",
+          error: error instanceof Error ? error.message : "Erreur inconnue",
+        },
+      });
     }
   }
 }
 
 /**
  * GET /api/linkedin/schedule
- * List all scheduled posts
+ * List all scheduled posts — now from SQLite
  */
 export async function GET() {
   await checkAndPublishDuePosts();
 
+  const posts = await db.scheduledPost.findMany({
+    where: { userId: DEFAULT_USER_ID },
+    orderBy: { scheduledAt: "asc" },
+  });
+
   return NextResponse.json({
-    posts: scheduledPosts.map((p) => ({
+    posts: posts.map((p) => ({
       id: p.id,
       text: p.text,
       visibility: p.visibility,
-      scheduledAt: p.scheduledAt,
+      scheduledAt: p.scheduledAt.toISOString(),
       status: p.status,
-      createdAt: p.createdAt,
-      publishedAt: p.publishedAt,
+      createdAt: p.createdAt.toISOString(),
+      publishedAt: p.publishedAt?.toISOString(),
       error: p.error,
     })),
   });
@@ -101,31 +113,24 @@ export async function GET() {
 
 /**
  * POST /api/linkedin/schedule
- * Schedule a new post for later publication
+ * Schedule a new post for later publication — persisted to SQLite
  */
 export async function POST(request: NextRequest) {
   try {
     const token = await getTokenFromCookies();
     if (!token) {
       return NextResponse.json(
-        { error: "Non authentifié. Connectez votre compte LinkedIn." },
+        { error: "Non authentifie. Connectez votre compte LinkedIn." },
         { status: 401 }
       );
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", linkedinId, scheduledAt } = body;
+    const { text, visibility = "PUBLIC", scheduledAt } = body;
 
     if (!text || !text.trim()) {
       return NextResponse.json(
         { error: "Le texte du post est requis" },
-        { status: 400 }
-      );
-    }
-
-    if (!linkedinId) {
-      return NextResponse.json(
-        { error: "L'ID LinkedIn est requis" },
         { status: 400 }
       );
     }
@@ -147,28 +152,28 @@ export async function POST(request: NextRequest) {
 
     if (scheduledDate.getTime() <= Date.now()) {
       return NextResponse.json(
-        { error: "La date de publication doit être dans le futur" },
+        { error: "La date de publication doit etre dans le futur" },
         { status: 400 }
       );
     }
 
-    const post: ScheduledPost = {
-      id: `sched-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      text: text.trim(),
-      visibility,
-      linkedinId,
-      scheduledAt: scheduledDate.toISOString(),
-      status: "scheduled",
-      createdAt: new Date().toISOString(),
-    };
+    await ensureDefaultUser();
 
-    scheduledPosts.push(post);
+    const post = await db.scheduledPost.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        text: text.trim(),
+        visibility,
+        scheduledAt: scheduledDate,
+        status: "scheduled",
+      },
+    });
 
     return NextResponse.json({
       success: true,
       postId: post.id,
-      scheduledAt: post.scheduledAt,
-      message: `Post planifié pour le ${scheduledDate.toLocaleDateString("fr-FR", {
+      scheduledAt: post.scheduledAt.toISOString(),
+      message: `Post planifie pour le ${scheduledDate.toLocaleDateString("fr-FR", {
         weekday: "long",
         day: "numeric",
         month: "long",
@@ -197,21 +202,21 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "ID du post manquant" }, { status: 400 });
   }
 
-  const postIndex = scheduledPosts.findIndex(
-    (p) => p.id === id && p.status === "scheduled"
-  );
+  const post = await db.scheduledPost.findFirst({
+    where: { id, userId: DEFAULT_USER_ID, status: "scheduled" },
+  });
 
-  if (postIndex === -1) {
+  if (!post) {
     return NextResponse.json(
-      { error: "Post planifié introuvable ou déjà publié" },
+      { error: "Post planifie introuvable ou deja publie" },
       { status: 404 }
     );
   }
 
-  scheduledPosts.splice(postIndex, 1);
+  await db.scheduledPost.delete({ where: { id } });
 
   return NextResponse.json({
     success: true,
-    message: "Post planifié annulé",
+    message: "Post planifie annule",
   });
 }

@@ -11,7 +11,7 @@ import {
   EVENT_LABELS,
   EVENT_CATEGORIES,
 } from "@/lib/webhooks/types";
-import { webhookEngine } from "@/lib/webhooks";
+// Engine calls are now async via API routes (BUG-H2: Prisma persistence)
 import {
   Plus,
   Play,
@@ -54,8 +54,7 @@ export default function IntegrationsView() {
       setWebhooks(data.webhooks ?? []);
       setDeliveries(data.deliveries ?? []);
     } catch {
-      setWebhooks(webhookEngine.getWebhooks());
-      setDeliveries(webhookEngine.getDeliveries());
+      // API error
     }
   }, []);
 
@@ -70,8 +69,7 @@ export default function IntegrationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newWebhook),
       });
-    } catch { /* fallback */ }
-    webhookEngine.registerWebhook(newWebhook);
+    } catch { /* API error */ }
     setShowCreateDialog(false);
     setNewWebhook({ name: "", provider: "custom", url: "", events: [] });
     fetchData();
@@ -84,16 +82,14 @@ export default function IntegrationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action: "toggle" }),
       });
-    } catch { /* fallback */ }
-    webhookEngine.toggleWebhook(id);
+    } catch { /* API error */ }
     fetchData();
   };
 
   const deleteWebhook = async (id: string) => {
     try {
       await fetch(`/api/data/webhooks?id=${id}`, { method: "DELETE" });
-    } catch { /* fallback */ }
-    webhookEngine.deleteWebhook(id);
+    } catch { /* API error */ }
     fetchData();
   };
 
@@ -107,8 +103,7 @@ export default function IntegrationsView() {
       const data = await res.json();
       setTestResult(data.delivery);
     } catch {
-      const delivery = await webhookEngine.testWebhook(id);
-      setTestResult(delivery);
+      // API error
     }
     fetchData();
   };

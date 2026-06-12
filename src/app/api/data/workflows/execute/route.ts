@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stats = workflowEngine.getWorkflowStats(workflowId);
-    const executions = workflowEngine.getExecutionHistory(workflowId, limit);
+    const stats = await workflowEngine.getWorkflowStats(workflowId);
+    const executions = await workflowEngine.getExecutionHistory(workflowId, limit);
 
     return NextResponse.json({ stats, executions });
   } catch (error) {

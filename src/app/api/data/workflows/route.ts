@@ -4,7 +4,7 @@ import { workflowEngine } from "@/lib/workflow";
 // GET /api/data/workflows — List all workflows
 export async function GET() {
   try {
-    const workflows = workflowEngine.getWorkflows();
+    const workflows = await workflowEngine.getWorkflows();
     return NextResponse.json({ workflows });
   } catch (error) {
     return NextResponse.json(
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const { name, description, nodes, edges, tags, fromTemplate } = body;
 
     if (fromTemplate) {
-      const workflow = workflowEngine.createFromTemplate(fromTemplate, name);
+      const workflow = await workflowEngine.createFromTemplate(fromTemplate, name);
       if (!workflow) {
         return NextResponse.json(
           { error: "Template not found" },
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const workflow = workflowEngine.createWorkflow({
+    const workflow = await workflowEngine.createWorkflow({
       name,
       description,
       nodes,
@@ -68,7 +68,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const workflow = workflowEngine.updateWorkflow(id, updates);
+    const workflow = await workflowEngine.updateWorkflow(id, updates);
     if (!workflow) {
       return NextResponse.json(
         { error: "Workflow not found" },
@@ -98,7 +98,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const deleted = workflowEngine.deleteWorkflow(id);
+    const deleted = await workflowEngine.deleteWorkflow(id);
     if (!deleted) {
       return NextResponse.json(
         { error: "Workflow not found" },

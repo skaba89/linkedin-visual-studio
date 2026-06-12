@@ -12,12 +12,12 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") as "pending" | "delivered" | "failed" | "retrying" | null;
     const limit = parseInt(searchParams.get("limit") ?? "50", 10);
 
-    const webhooks = webhookEngine.getWebhooks();
+    const webhooks = await webhookEngine.getWebhooks();
 
     const result: Record<string, unknown> = { webhooks };
 
     if (includeDeliveries) {
-      result.deliveries = webhookEngine.getDeliveries({
+      result.deliveries = await webhookEngine.getDeliveries({
         webhookId: webhookId ?? undefined,
         event: event ?? undefined,
         status: status ?? undefined,
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (webhookId) {
-      const stats = webhookEngine.getWebhookStats(webhookId);
+      const stats = await webhookEngine.getWebhookStats(webhookId);
       result.stats = stats;
     }
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const webhook = webhookEngine.registerWebhook({
+    const webhook = await webhookEngine.registerWebhook({
       name,
       provider: provider as WebhookProvider,
       url,
@@ -83,7 +83,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (action === "toggle") {
-      const webhook = webhookEngine.toggleWebhook(id);
+      const webhook = await webhookEngine.toggleWebhook(id);
       if (!webhook) {
         return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
       }
@@ -95,7 +95,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ delivery });
     }
 
-    const webhook = webhookEngine.updateWebhook(id, updates);
+    const webhook = await webhookEngine.updateWebhook(id, updates);
     if (!webhook) {
       return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
     }
@@ -119,7 +119,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const deleted = webhookEngine.deleteWebhook(id);
+    const deleted = await webhookEngine.deleteWebhook(id);
     if (!deleted) {
       return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
     }

@@ -13,7 +13,7 @@ import {
   TriggerType,
   ActionType,
 } from "@/lib/workflow/types";
-import { workflowEngine } from "@/lib/workflow";
+// Engine calls are now async and go through API routes (BUG-H2: Prisma persistence)
 import {
   Plus,
   Play,
@@ -50,8 +50,7 @@ export default function WorkflowView() {
       const data = await res.json();
       setWorkflows(data.workflows ?? []);
     } catch {
-      // Use local engine as fallback
-      setWorkflows(workflowEngine.getWorkflows());
+      setWorkflows([]);
     }
   }, []);
 
@@ -74,11 +73,7 @@ export default function WorkflowView() {
         fetchWorkflows();
       }
     } catch {
-      const workflow = workflowEngine.createFromTemplate(templateId);
-      if (workflow) {
-        setSelectedWorkflow(workflow);
-        setActiveTab("builder");
-      }
+      // API error
     }
   };
 
@@ -100,10 +95,7 @@ export default function WorkflowView() {
         setNewDesc("");
       }
     } catch {
-      const workflow = workflowEngine.createWorkflow({ name: newName || "Nouveau Workflow", description: newDesc });
-      setSelectedWorkflow(workflow);
-      setActiveTab("builder");
-      setShowCreateDialog(false);
+      // API error
     }
   };
 
@@ -116,18 +108,20 @@ export default function WorkflowView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: wf.id, status: newStatus }),
       });
-    } catch { /* fallback */ }
-    workflowEngine.setWorkflowStatus(wf.id, newStatus as never);
-    fetchWorkflows();
+      fetchWorkflows();
+    } catch {
+      // API error
+    }
   };
 
   // Delete workflow
   const deleteWorkflow = async (id: string) => {
     try {
       await fetch(`/api/data/workflows?id=${id}`, { method: "DELETE" });
-    } catch { /* fallback */ }
-    workflowEngine.deleteWorkflow(id);
-    fetchWorkflows();
+      fetchWorkflows();
+    } catch {
+      // API error
+    }
   };
 
   // Execute workflow
@@ -141,13 +135,12 @@ export default function WorkflowView() {
       const data = await res.json();
       setExecutionResult(data.execution);
     } catch {
-      const execution = await workflowEngine.executeWorkflow(wf.id, {});
-      setExecutionResult(execution);
+      // API error
     }
   };
 
   // Add node to builder
-  const addNodeToBuilder = (type: WorkflowNodeType) => {
+  const addNodeToBuilder = async (type: WorkflowNodeType) => {
     if (!selectedWorkflow) return;
     const id = `node_${Date.now()}`;
     const baseY = 200;
@@ -159,8 +152,15 @@ export default function WorkflowView() {
       config: {},
       position: { x, y: baseY },
     };
-    const updated = workflowEngine.addNode(selectedWorkflow.id, node);
-    if (updated) setSelectedWorkflow({ ...updated });
+    try {
+      const res = await fetch("/api/data/workflows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedWorkflow.id, nodes: [...selectedWorkflow.nodes, node] }),
+      });
+      const data = await res.json();
+      if (data.workflow) setSelectedWorkflow(data.workflow);
+    } catch { /* ignore */ }
   };
 
   const tabs: { id: TabType; label: string }[] = [
@@ -317,8 +317,12 @@ export default function WorkflowView() {
                   <input
                     value={selectedWorkflow.name}
                     onChange={(e) => {
-                      const updated = workflowEngine.updateWorkflow(selectedWorkflow.id, { name: e.target.value });
-                      if (updated) setSelectedWorkflow({ ...updated });
+                      setSelectedWorkflow({ ...selectedWorkflow, name: e.target.value });
+                      fetch("/api/data/workflows", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: selectedWorkflow.id, name: e.target.value }),
+                      }).catch(() => {});
                     }}
                     className="bg-transparent text-white text-sm font-semibold outline-none border-b border-transparent hover:border-white/20 focus:border-[#00D4FF] pb-0.5"
                   />
@@ -368,9 +372,19 @@ export default function WorkflowView() {
                           >
                             {/* Remove button */}
                             <button
-                              onClick={() => {
-                                const updated = workflowEngine.removeNode(selectedWorkflow.id, node.id);
-                                if (updated) setSelectedWorkflow({ ...updated });
+                              onClick={async () => {
+                                const newNodes = selectedWorkflow.nodes.filter((n) => n.id !== node.id);
+                                const newEdges = selectedWorkflow.edges.filter((e) => e.from !== node.id && e.to !== node.id);
+                                setSelectedWorkflow({ ...selectedWorkflow, nodes: newNodes, edges: newEdges });
+                                try {
+                                  const res = await fetch("/api/data/workflows", {
+                                    method: "PUT",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ id: selectedWorkflow.id, nodes: newNodes, edges: newEdges }),
+                                  });
+                                  const data = await res.json();
+                                  if (data.workflow) setSelectedWorkflow(data.workflow);
+                                } catch { /* ignore */ }
                               }}
                               className="absolute -top-2 -right-2 w-5 h-5 bg-[#E5263A] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                             >

@@ -1,5 +1,6 @@
-// ─── Workflow Execution Engine ───────────────────────────────────────
+// ─── Workflow Execution Engine — Prisma-persisted (BUG-H2 fix) ──────────
 
+import { db, DEFAULT_USER_ID, ensureDefaultUser } from "@/lib/db";
 import {
   Workflow,
   WorkflowNode,
@@ -15,6 +16,38 @@ import {
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
+// ─── DB ↔ Type Mappers ──────────────────────────────────────────────
+
+function dbToWorkflow(row: {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  nodes: string;
+  edges: string;
+  executions: string;
+  lastExecutionAt: string | null;
+  tags: string;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): Workflow {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    status: row.status as WorkflowStatus,
+    nodes: JSON.parse(row.nodes || "[]"),
+    edges: JSON.parse(row.edges || "[]"),
+    executions: JSON.parse(row.executions || "[]"),
+    lastExecutionAt: row.lastExecutionAt,
+    tags: JSON.parse(row.tags || "[]"),
+    version: row.version,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 // ─── Condition Evaluator ────────────────────────────────────────────
@@ -60,43 +93,41 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   }, obj);
 }
 
-// ─── Workflow Engine ────────────────────────────────────────────────
+// ─── Workflow Engine (Prisma-backed) ────────────────────────────────
 
 class WorkflowEngine {
-  private workflows: Map<string, Workflow> = new Map();
 
   /**
-   * Create a new workflow from scratch
+   * Create a new workflow from scratch — persisted to SQLite
    */
-  createWorkflow(input: {
+  async createWorkflow(input: {
     name: string;
     description?: string;
     nodes?: WorkflowNode[];
     edges?: WorkflowEdge[];
     tags?: string[];
-  }): Workflow {
-    const workflow: Workflow = {
-      id: generateId(),
-      name: input.name,
-      description: input.description ?? "",
-      status: "draft",
-      nodes: input.nodes ?? [],
-      edges: input.edges ?? [],
-      executions: [],
-      lastExecutionAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: input.tags ?? [],
-      version: 1,
-    };
-    this.workflows.set(workflow.id, workflow);
-    return workflow;
+  }): Promise<Workflow> {
+    await ensureDefaultUser();
+    const row = await db.workflowData.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        name: input.name,
+        description: input.description ?? "",
+        status: "draft",
+        nodes: JSON.stringify(input.nodes ?? []),
+        edges: JSON.stringify(input.edges ?? []),
+        executions: JSON.stringify([]),
+        tags: JSON.stringify(input.tags ?? []),
+        version: 1,
+      },
+    });
+    return dbToWorkflow(row);
   }
 
   /**
    * Create a workflow from a template
    */
-  createFromTemplate(templateId: string, name?: string): Workflow | null {
+  async createFromTemplate(templateId: string, name?: string): Promise<Workflow | null> {
     const { WORKFLOW_TEMPLATES } = require("./types");
     const template = WORKFLOW_TEMPLATES.find((t: { id: string }) => t.id === templateId);
     if (!template) return null;
@@ -124,106 +155,122 @@ class WorkflowEngine {
   /**
    * Get a workflow by ID
    */
-  getWorkflow(id: string): Workflow | undefined {
-    return this.workflows.get(id);
+  async getWorkflow(id: string): Promise<Workflow | null> {
+    const row = await db.workflowData.findUnique({ where: { id } });
+    if (!row) return null;
+    return dbToWorkflow(row);
   }
 
   /**
    * Get all workflows
    */
-  getWorkflows(): Workflow[] {
-    return Array.from(this.workflows.values());
+  async getWorkflows(): Promise<Workflow[]> {
+    const rows = await db.workflowData.findMany({
+      where: { userId: DEFAULT_USER_ID },
+      orderBy: { updatedAt: "desc" },
+    });
+    return rows.map(dbToWorkflow);
   }
 
   /**
    * Update a workflow
    */
-  updateWorkflow(id: string, updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>): Workflow | null {
-    const workflow = this.workflows.get(id);
-    if (!workflow) return null;
+  async updateWorkflow(id: string, updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>): Promise<Workflow | null> {
+    const existing = await db.workflowData.findUnique({ where: { id } });
+    if (!existing) return null;
 
-    Object.assign(workflow, updates, { updatedAt: new Date().toISOString() });
-    return workflow;
+    const data: Record<string, unknown> = {};
+    if (updates.name !== undefined) data.name = updates.name;
+    if (updates.description !== undefined) data.description = updates.description;
+    if (updates.nodes !== undefined) data.nodes = JSON.stringify(updates.nodes);
+    if (updates.edges !== undefined) data.edges = JSON.stringify(updates.edges);
+    if (updates.tags !== undefined) data.tags = JSON.stringify(updates.tags);
+
+    const row = await db.workflowData.update({ where: { id }, data });
+    return dbToWorkflow(row);
   }
 
   /**
    * Change workflow status
    */
-  setWorkflowStatus(id: string, status: WorkflowStatus): Workflow | null {
-    const workflow = this.workflows.get(id);
-    if (!workflow) return null;
+  async setWorkflowStatus(id: string, status: WorkflowStatus): Promise<Workflow | null> {
+    const existing = await db.workflowData.findUnique({ where: { id } });
+    if (!existing) return null;
 
-    workflow.status = status;
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    const row = await db.workflowData.update({
+      where: { id },
+      data: { status },
+    });
+    return dbToWorkflow(row);
   }
 
   /**
    * Delete a workflow
    */
-  deleteWorkflow(id: string): boolean {
-    return this.workflows.delete(id);
+  async deleteWorkflow(id: string): Promise<boolean> {
+    try {
+      await db.workflowData.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Add a node to a workflow
    */
-  addNode(workflowId: string, node: WorkflowNode): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
+  async addNode(workflowId: string, node: WorkflowNode): Promise<Workflow | null> {
+    const workflow = await this.getWorkflow(workflowId);
     if (!workflow) return null;
 
     workflow.nodes.push(node);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    return this.updateWorkflow(workflowId, { nodes: workflow.nodes });
   }
 
   /**
    * Remove a node from a workflow (and its edges)
    */
-  removeNode(workflowId: string, nodeId: string): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
+  async removeNode(workflowId: string, nodeId: string): Promise<Workflow | null> {
+    const workflow = await this.getWorkflow(workflowId);
     if (!workflow) return null;
 
     workflow.nodes = workflow.nodes.filter((n) => n.id !== nodeId);
     workflow.edges = workflow.edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    return this.updateWorkflow(workflowId, { nodes: workflow.nodes, edges: workflow.edges });
   }
 
   /**
    * Add an edge between two nodes
    */
-  addEdge(workflowId: string, edge: WorkflowEdge): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
+  async addEdge(workflowId: string, edge: WorkflowEdge): Promise<Workflow | null> {
+    const workflow = await this.getWorkflow(workflowId);
     if (!workflow) return null;
 
-    // Validate nodes exist
     const fromExists = workflow.nodes.some((n) => n.id === edge.from);
     const toExists = workflow.nodes.some((n) => n.id === edge.to);
     if (!fromExists || !toExists) return null;
 
     workflow.edges.push(edge);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    return this.updateWorkflow(workflowId, { edges: workflow.edges });
   }
 
   /**
    * Remove an edge
    */
-  removeEdge(workflowId: string, edgeId: string): Workflow | null {
-    const workflow = this.workflows.get(workflowId);
+  async removeEdge(workflowId: string, edgeId: string): Promise<Workflow | null> {
+    const workflow = await this.getWorkflow(workflowId);
     if (!workflow) return null;
 
     workflow.edges = workflow.edges.filter((e) => e.id !== edgeId);
-    workflow.updatedAt = new Date().toISOString();
-    return workflow;
+    return this.updateWorkflow(workflowId, { edges: workflow.edges });
   }
 
   /**
    * Find workflows that match a trigger type
    */
-  findWorkflowsByTrigger(triggerType: TriggerType): Workflow[] {
-    return Array.from(this.workflows.values()).filter(
+  async findWorkflowsByTrigger(triggerType: TriggerType): Promise<Workflow[]> {
+    const workflows = await this.getWorkflows();
+    return workflows.filter(
       (w) =>
         w.status === "active" &&
         w.nodes.some(
@@ -240,7 +287,7 @@ class WorkflowEngine {
     triggerData: Record<string, unknown> = {},
     triggerNodeOverride?: string
   ): Promise<WorkflowExecution> {
-    const workflow = this.workflows.get(workflowId);
+    const workflow = await this.getWorkflow(workflowId);
     if (!workflow) {
       return {
         id: generateId(),
@@ -317,10 +364,20 @@ class WorkflowEngine {
     execution.completedAt = new Date().toISOString();
     execution.currentNode = null;
 
-    // Store execution
-    workflow.executions.unshift(execution);
-    if (workflow.executions.length > 100) workflow.executions = workflow.executions.slice(0, 100);
-    workflow.lastExecutionAt = new Date().toISOString();
+    // Store execution in DB
+    const existing = await db.workflowData.findUnique({ where: { id: workflowId } });
+    if (existing) {
+      const executions: WorkflowExecution[] = JSON.parse(existing.executions || "[]");
+      executions.unshift(execution);
+      const trimmed = executions.slice(0, 100);
+      await db.workflowData.update({
+        where: { id: workflowId },
+        data: {
+          executions: JSON.stringify(trimmed),
+          lastExecutionAt: new Date().toISOString(),
+        },
+      });
+    }
 
     return execution;
   }
@@ -333,14 +390,12 @@ class WorkflowEngine {
     execution: WorkflowExecution,
     fromNodeId: string
   ): Promise<void> {
-    // Find all outgoing edges from the current node
     const outgoingEdges = workflow.edges.filter((e) => e.from === fromNodeId);
 
     for (const edge of outgoingEdges) {
       const targetNode = workflow.nodes.find((n) => n.id === edge.to);
       if (!targetNode) continue;
 
-      // Check edge condition
       if (edge.condition && !evaluateCondition(edge.condition, execution.data)) {
         const step = execution.steps.find((s) => s.nodeId === targetNode.id);
         if (step) {
@@ -350,7 +405,6 @@ class WorkflowEngine {
         continue;
       }
 
-      // Execute the target node
       const step = execution.steps.find((s) => s.nodeId === targetNode.id);
       if (!step || step.status === "completed") continue;
 
@@ -364,7 +418,6 @@ class WorkflowEngine {
         step.completedAt = new Date().toISOString();
         step.output = nodeOutput;
 
-        // Merge output into execution data
         if (nodeOutput && typeof nodeOutput === "object") {
           Object.assign(execution.data, nodeOutput);
         }
@@ -377,7 +430,6 @@ class WorkflowEngine {
         return;
       }
 
-      // Continue traversing
       await this.executeGraph(workflow, execution, targetNode.id);
     }
   }
@@ -402,8 +454,6 @@ class WorkflowEngine {
 
       case "delay": {
         const delayMs = node.delayMs ?? 1000;
-        // In production, this would schedule a future execution
-        // For now, we simulate the delay (capped at 2s for UX)
         const actualDelay = Math.min(delayMs, 2000);
         await new Promise((resolve) => setTimeout(resolve, actualDelay));
         return { delayed: true, delayMs: actualDelay };
@@ -436,7 +486,6 @@ class WorkflowEngine {
       case "transform": {
         if (node.transformExpr) {
           try {
-            // Simple transform using a sandboxed expression
             const fn = new Function("data", `with(data) { return ${node.transformExpr}; }`);
             const result = fn(data);
             return { transformResult: result };
@@ -465,8 +514,8 @@ class WorkflowEngine {
     switch (actionType) {
       case "send_email": {
         const recipient = String(data.lead_email ?? data.email ?? node.config.recipient ?? "");
-        const subject = String(node.config.subject ?? "Notification HERMÈS");
-        const body = String(node.config.body ?? "Action déclenchée par workflow HERMÈS");
+        const subject = String(node.config.subject ?? "Notification HERMES");
+        const body = String(node.config.body ?? "Action declenchée par workflow HERMES");
         return { emailSent: true, recipient, subject };
       }
 
@@ -531,13 +580,13 @@ class WorkflowEngine {
 
       case "notify_slack": {
         const channel = String(node.config.channel ?? "#hermes-alerts");
-        const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
+        const message = String(node.config.message ?? `Alerte HERMES: ${node.label}`);
         return { slackNotified: true, channel, message };
       }
 
       case "notify_discord": {
         const webhookUrl = String(node.config.webhookUrl ?? "");
-        const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
+        const message = String(node.config.message ?? `Alerte HERMES: ${node.label}`);
         return { discordNotified: true, webhookUrl: webhookUrl ? "***" : "not configured", message };
       }
 
@@ -564,46 +613,49 @@ class WorkflowEngine {
   /**
    * Get execution history for a workflow
    */
-  getExecutionHistory(workflowId: string, limit = 20): WorkflowExecution[] {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow) return [];
-    return workflow.executions.slice(0, limit);
+  async getExecutionHistory(workflowId: string, limit = 20): Promise<WorkflowExecution[]> {
+    const row = await db.workflowData.findUnique({ where: { id: workflowId } });
+    if (!row) return [];
+    const executions: WorkflowExecution[] = JSON.parse(row.executions || "[]");
+    return executions.slice(0, limit);
   }
 
   /**
    * Get workflow statistics
    */
-  getWorkflowStats(workflowId: string): {
+  async getWorkflowStats(workflowId: string): Promise<{
     totalExecutions: number;
     successRate: number;
     avgDurationMs: number;
     lastExecution: string | null;
-  } {
-    const workflow = this.workflows.get(workflowId);
-    if (!workflow || workflow.executions.length === 0) {
+  }> {
+    const row = await db.workflowData.findUnique({ where: { id: workflowId } });
+    if (!row) {
+      return { totalExecutions: 0, successRate: 0, avgDurationMs: 0, lastExecution: null };
+    }
+    const executions: WorkflowExecution[] = JSON.parse(row.executions || "[]");
+    if (executions.length === 0) {
       return { totalExecutions: 0, successRate: 0, avgDurationMs: 0, lastExecution: null };
     }
 
-    const completed = workflow.executions.filter((e) => e.status === "completed");
-    const durations = workflow.executions
+    const completed = executions.filter((e) => e.status === "completed");
+    const durations = executions
       .filter((e) => e.startedAt && e.completedAt)
       .map((e) => new Date(e.completedAt!).getTime() - new Date(e.startedAt).getTime());
 
     return {
-      totalExecutions: workflow.executions.length,
-      successRate: completed.length / workflow.executions.length,
+      totalExecutions: executions.length,
+      successRate: completed.length / executions.length,
       avgDurationMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
-      lastExecution: workflow.lastExecutionAt,
+      lastExecution: row.lastExecutionAt,
     };
   }
 
   /**
-   * Load workflows from external data (e.g., API response)
+   * Load workflows from external data — no-op, data comes from DB now
    */
-  loadWorkflows(workflows: Workflow[]): void {
-    for (const w of workflows) {
-      this.workflows.set(w.id, w);
-    }
+  loadWorkflows(_workflows: Workflow[]): void {
+    // Kept for backwards compatibility but does nothing — DB is the source of truth
   }
 }
 

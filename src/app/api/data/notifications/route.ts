@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const statsOnly = searchParams.get("stats") === "true";
 
     if (statsOnly) {
-      const stats = notificationEngine.getStats();
+      const stats = await notificationEngine.getStats();
       return NextResponse.json({ stats });
     }
 
@@ -23,14 +23,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ preferences: prefs });
     }
 
-    const notifications = notificationEngine.getNotifications({
+    const notifications = await notificationEngine.getNotifications({
       category: category ?? undefined,
       priority: priority ?? undefined,
       unreadOnly: unreadOnly || undefined,
       limit,
     });
 
-    const stats = notificationEngine.getStats();
+    const stats = await notificationEngine.getStats();
 
     return NextResponse.json({ notifications, stats });
   } catch (error) {
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const notification = notificationEngine.notify({
+    const notification = await notificationEngine.notify({
       title,
       message,
       category,
@@ -85,20 +85,20 @@ export async function PUT(request: NextRequest) {
     switch (action) {
       case "markRead": {
         if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-        const notif = notificationEngine.markAsRead(id);
+        const notif = await notificationEngine.markAsRead(id);
         return NextResponse.json({ notification: notif });
       }
       case "markAllRead": {
-        const count = notificationEngine.markAllAsRead();
+        const count = await notificationEngine.markAllAsRead();
         return NextResponse.json({ markedCount: count });
       }
       case "dismiss": {
         if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-        const dismissed = notificationEngine.dismiss(id);
+        const dismissed = await notificationEngine.dismiss(id);
         return NextResponse.json({ dismissed });
       }
       case "dismissAll": {
-        const count = notificationEngine.dismissAll();
+        const count = await notificationEngine.dismissAll();
         return NextResponse.json({ dismissedCount: count });
       }
       case "updatePreference": {

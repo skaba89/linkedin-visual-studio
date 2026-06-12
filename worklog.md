@@ -148,3 +148,30 @@ Stage Summary:
 - 2 UX improvements (delete confirmations, aria-labels)
 - New files created: /src/app/api/ai/test/route.ts, /src/lib/server-ai-client.ts
 - All changes build successfully with zero errors
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: BUG-H2 - Persist in-memory data to SQLite (workflows, notifications, webhooks, A/B, scheduled posts)
+
+Work Log:
+- Added 4 new Prisma models: WorkflowData, NotificationData, WebhookData, WebhookDeliveryData
+- Updated User model with new relations
+- Ran prisma db push and prisma generate successfully
+- Rewrote workflow-engine.ts: All methods now async, using Prisma for CRUD on WorkflowData table
+- Rewrote notification-engine.ts: All methods now async, using Prisma for CRUD on NotificationData table
+- Rewrote webhook-engine.ts: All methods now async, using Prisma for CRUD on WebhookData + WebhookDeliveryData tables
+- Rewrote ab-engine.ts: All methods now async, using existing Experiment + ExperimentResult Prisma models
+- Rewrote schedule/route.ts: Uses existing ScheduledPost Prisma model instead of in-memory array
+- Updated 3 API routes to use await on async engine methods: workflows, notifications, webhooks
+- Updated 3 frontend components to use fetch() to API routes instead of direct engine imports: WorkflowView, NotificationsView, IntegrationsView
+- All engine loadXxx() methods kept as no-ops for backward compatibility
+- Build verified: `next build` succeeds with zero errors
+- Persistence verified: Created workflow before server restart, data survived 2 consecutive restarts
+
+Stage Summary:
+- BUG-H2 FIXED: All 5 in-memory data stores now persist to SQLite via Prisma
+- Workflows, notifications, webhooks, webhook deliveries, A/B experiments, scheduled posts all survive server restarts
+- Frontend components properly use API routes instead of direct server-side imports
+- New Prisma models: WorkflowData, NotificationData, WebhookData, WebhookDeliveryData
+- Existing models leveraged: Experiment, ExperimentResult, ScheduledPost
