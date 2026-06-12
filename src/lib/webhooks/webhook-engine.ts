@@ -24,9 +24,9 @@ function toWebhookConfig(row: {
   provider: string;
   url: string;
   secret: string | null;
-  events: string;
+  events: unknown;
   status: string;
-  headers: string | null;
+  headers: unknown;
   retryCount: number;
   retryDelayMs: number;
   timeoutMs: number;
@@ -44,9 +44,9 @@ function toWebhookConfig(row: {
     provider: row.provider as WebhookProvider,
     url: row.url,
     secret: row.secret ?? undefined,
-    events: JSON.parse(row.events) as WebhookEvent[],
+    events: (row.events as WebhookEvent[]) ?? [],
     status: row.status as WebhookStatus,
-    headers: row.headers ? JSON.parse(row.headers) : undefined,
+    headers: row.headers ?? undefined,
     retryCount: row.retryCount,
     retryDelayMs: row.retryDelayMs,
     timeoutMs: row.timeoutMs,
@@ -67,8 +67,8 @@ function toWebhookDelivery(row: {
   event: string;
   status: string;
   attempts: number;
-  request: string;
-  response: string | null;
+  request: unknown;
+  response: unknown;
   deliveredAt: Date | null;
   nextRetryAt: Date | null;
   error: string | null;
@@ -80,8 +80,8 @@ function toWebhookDelivery(row: {
     event: row.event as WebhookEvent,
     status: row.status as WebhookDelivery["status"],
     attempts: row.attempts,
-    request: JSON.parse(row.request),
-    response: row.response ? JSON.parse(row.response) : null,
+    request: row.request,
+    response: row.response ?? null,
     deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
     nextRetryAt: row.nextRetryAt ? row.nextRetryAt.toISOString() : null,
     error: row.error,
@@ -112,9 +112,9 @@ class WebhookEngine {
         provider: input.provider,
         url: input.url,
         secret: input.secret ?? null,
-        events: JSON.stringify(input.events),
+        events: input.events,
         status: "active",
-        headers: input.headers ? JSON.stringify(input.headers) : null,
+        headers: input.headers ?? undefined,
         retryCount: input.retryCount ?? 3,
         retryDelayMs: 5000,
         timeoutMs: input.timeoutMs ?? 10000,
@@ -156,9 +156,9 @@ class WebhookEngine {
     const data: Record<string, unknown> = {};
     if (updates.name !== undefined) data.name = updates.name;
     if (updates.url !== undefined) data.url = updates.url;
-    if (updates.events !== undefined) data.events = JSON.stringify(updates.events);
+    if (updates.events !== undefined) data.events = updates.events;
     if (updates.status !== undefined) data.status = updates.status;
-    if (updates.headers !== undefined) data.headers = updates.headers ? JSON.stringify(updates.headers) : null;
+    if (updates.headers !== undefined) data.headers = updates.headers ?? undefined;
     if (updates.retryCount !== undefined) data.retryCount = updates.retryCount;
     if (updates.timeoutMs !== undefined) data.timeoutMs = updates.timeoutMs;
 
@@ -212,7 +212,7 @@ class WebhookEngine {
     // Extra filter to ensure exact match (not partial substring)
     return rows
       .filter((row) => {
-        const events: string[] = JSON.parse(row.events);
+        const events = (row.events as string[]) ?? [];
         return events.includes(event);
       })
       .map(toWebhookConfig);
@@ -268,7 +268,7 @@ class WebhookEngine {
         event,
         status: "pending",
         attempts: 0,
-        request: JSON.stringify(requestObj),
+        request: requestObj,
       },
     });
 
@@ -353,7 +353,7 @@ class WebhookEngine {
       data: {
         status: deliveryStatus,
         attempts,
-        response: responseObj ? JSON.stringify(responseObj) : null,
+        response: responseObj ?? undefined,
         deliveredAt,
         nextRetryAt,
         error: lastError,
@@ -495,7 +495,7 @@ class WebhookEngine {
           event: "notification.created",
           status: "failed",
           attempts: 0,
-          request: JSON.stringify({ url: "", method: "POST", headers: {}, body: "{}" }),
+          request: { url: "", method: "POST", headers: {}, body: "{}" },
           error: "Webhook not found",
         },
       });

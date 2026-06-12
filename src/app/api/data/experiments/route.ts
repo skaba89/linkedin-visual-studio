@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       type: body.type || "ab",
       status: body.status || "draft",
       targetAgentId: body.targetAgentId,
-      variants: JSON.stringify(body.variants || []),
+      variants: body.variants || [],
       trafficSplit: body.trafficSplit || "50/50",
       startDate: body.startDate ? new Date(body.startDate) : undefined,
       endDate: body.endDate ? new Date(body.endDate) : undefined,
@@ -41,8 +41,8 @@ export async function PUT(req: NextRequest) {
   }
 
   const data: Record<string, unknown> = { ...updates };
-  if (updates.variants) data.variants = JSON.stringify(updates.variants);
-  if (updates.results) data.results = JSON.stringify(updates.results);
+  if (updates.variants) data.variants = updates.variants;
+  if (updates.results) data.results = updates.results;
   if (updates.startDate) data.startDate = new Date(updates.startDate);
   if (updates.endDate) data.endDate = new Date(updates.endDate);
 

@@ -15,8 +15,8 @@ import {
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
 
 /**
- * Convert a Prisma Experiment record to an ExperimentConfig by parsing
- * the JSON `variants` field into a Variant[] array.
+ * Convert a Prisma Experiment record to an ExperimentConfig by casting
+ * the Json `variants` field into a Variant[] array.
  */
 function experimentToConfig(exp: {
   id: string;
@@ -25,7 +25,7 @@ function experimentToConfig(exp: {
   type: string;
   status: string;
   targetAgentId: string | null;
-  variants: string;
+  variants: unknown;
   trafficSplit: string;
   startDate: Date | null;
   endDate: Date | null;
@@ -39,7 +39,7 @@ function experimentToConfig(exp: {
     type: exp.type as ExperimentType,
     status: exp.status as ExperimentStatus,
     targetAgentId: exp.targetAgentId ?? undefined,
-    variants: JSON.parse(exp.variants) as Variant[],
+    variants: (exp.variants as Variant[]) ?? [],
     trafficSplit: exp.trafficSplit,
     startDate: exp.startDate ?? undefined,
     endDate: exp.endDate ?? undefined,
@@ -65,7 +65,7 @@ export class ABTestingEngine {
         type: config.type || "ab",
         status: "draft",
         targetAgentId: config.targetAgentId ?? null,
-        variants: JSON.stringify(config.variants),
+        variants: config.variants as object,
         trafficSplit: config.trafficSplit || "50/50",
         startDate: config.startDate ?? null,
         endDate: config.endDate ?? null,
@@ -95,7 +95,7 @@ export class ABTestingEngine {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing || existing.status !== "running") return null;
 
-    const variants = JSON.parse(existing.variants) as Variant[];
+    const variants = (existing.variants as Variant[]) ?? [];
 
     // Check session cache for existing assignment
     const key = `${experimentId}:${userId}`;
@@ -130,7 +130,7 @@ export class ABTestingEngine {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing) return null;
 
-    const variants = JSON.parse(existing.variants) as Variant[];
+    const variants = (existing.variants as Variant[]) ?? [];
     const variant = variants.find((v) => v.id === variantId);
     if (!variant) return null;
 
@@ -145,7 +145,7 @@ export class ABTestingEngine {
         impressionId: `imp-${Math.random().toString(36).slice(2, 8)}`,
         outcome,
         metricValue,
-        metadata: metadata ? JSON.stringify(metadata) : null,
+        metadata: metadata ?? undefined,
       },
     });
 
@@ -160,7 +160,7 @@ export class ABTestingEngine {
       impressionId: created.impressionId ?? undefined,
       outcome: created.outcome as OutcomeType,
       metricValue: created.metricValue,
-      metadata: created.metadata ? JSON.parse(created.metadata) : undefined,
+      metadata: created.metadata ?? undefined,
       timestamp: created.createdAt,
     };
   }
@@ -259,7 +259,7 @@ export class ABTestingEngine {
       impressionId: r.impressionId ?? undefined,
       outcome: r.outcome as OutcomeType,
       metricValue: r.metricValue,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata ?? undefined,
       timestamp: r.createdAt,
     }));
 

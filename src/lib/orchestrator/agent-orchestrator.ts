@@ -46,13 +46,13 @@ export class AgentOrchestrator {
 
     if (row) {
       this.state = row.state as OrchestratorState;
-      this.rules = JSON.parse(row.rules) as HeartbeatRule[];
+      this.rules = (row.rules as HeartbeatRule[]) ?? [];
       this.startTime = row.startedAt ?? undefined;
 
       // Restore metrics if they were persisted
       if (row.metrics && row.metrics !== "{}") {
         try {
-          const saved = JSON.parse(row.metrics) as Partial<OrchestratorMetrics>;
+          const saved = (row.metrics as Partial<OrchestratorMetrics>) ?? {};
           this.metrics = {
             totalEventsProcessed: saved.totalEventsProcessed ?? 0,
             totalRulesFired: saved.totalRulesFired ?? 0,
@@ -87,16 +87,16 @@ export class AgentOrchestrator {
       where: { userId: this.userId },
       update: {
         state: this.state,
-        rules: JSON.stringify(this.rules),
+        rules: this.rules,
         startedAt: this.startTime ?? null,
-        metrics: JSON.stringify(this.metrics),
+        metrics: this.metrics,
       },
       create: {
         userId: this.userId,
         state: this.state,
-        rules: JSON.stringify(this.rules),
+        rules: this.rules,
         startedAt: this.startTime ?? null,
-        metrics: JSON.stringify(this.metrics),
+        metrics: this.metrics,
       },
     });
   }

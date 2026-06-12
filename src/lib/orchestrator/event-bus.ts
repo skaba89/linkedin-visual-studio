@@ -56,7 +56,7 @@ export class HermesEventBus {
           eventType,
           agentId: event.agentId,
           agentName: event.agentName,
-          data: event.data ? JSON.stringify(event.data) : null,
+          data: event.data ?? undefined,
         },
       });
     } catch (err) {
@@ -109,7 +109,7 @@ export class HermesEventBus {
       agentId: row.agentId,
       agentName: row.agentName,
       timestamp: row.createdAt,
-      data: row.data ? JSON.parse(row.data) : undefined,
+      data: row.data ?? undefined,
     }));
   }
 

@@ -111,9 +111,9 @@ export async function POST(req: NextRequest) {
           userId: DEFAULT_USER_ID,
           title: body.title || "",
           summary: body.summary || "",
-          trends: JSON.stringify(body.trends || []),
-          opportunities: JSON.stringify(body.opportunities || []),
-          competitors: JSON.stringify(body.competitors || []),
+          trends: body.trends || [],
+          opportunities: body.opportunities || [],
+          competitors: body.competitors || [],
           model: body.model || "",
         },
       });

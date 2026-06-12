@@ -56,14 +56,12 @@ export class LinkedInComplianceManager {
       this.limits = { ...DEFAULT_LIMITS[this.level] };
       this.warmupActive = row.warmupActive;
       this.warmupStartDate = row.warmupStartDate ?? undefined;
-      this.usage = JSON.parse(row.usage) as Record<LinkedInAction, number>;
+      this.usage = (row.usage as Record<LinkedInAction, number>) ?? {};
       this.weeklyInvitations = row.weeklyInvitations;
       this.lastResetDate = row.lastResetDate;
       this.lastWeeklyReset = row.lastWeeklyReset;
-      this.violations = JSON.parse(row.violations) as ComplianceViolation[];
-      if (row.mimicryConfig && row.mimicryConfig !== "{}") {
-        this.mimicryConfig = JSON.parse(row.mimicryConfig) as MimicryConfig;
-      }
+      this.violations = (row.violations as ComplianceViolation[]) ?? [];
+      this.mimicryConfig = (row.mimicryConfig as MimicryConfig) ?? {};
     }
 
     this.initialized = true;
@@ -83,24 +81,24 @@ export class LinkedInComplianceManager {
         level: this.level,
         warmupActive: this.warmupActive,
         warmupStartDate: this.warmupStartDate ?? null,
-        usage: JSON.stringify(this.usage),
+        usage: this.usage,
         weeklyInvitations: this.weeklyInvitations,
         lastResetDate: this.lastResetDate,
         lastWeeklyReset: this.lastWeeklyReset,
-        violations: JSON.stringify(this.violations),
-        mimicryConfig: JSON.stringify(this.mimicryConfig),
+        violations: this.violations,
+        mimicryConfig: this.mimicryConfig,
       },
       create: {
         userId: this.userId,
         level: this.level,
         warmupActive: this.warmupActive,
         warmupStartDate: this.warmupStartDate ?? null,
-        usage: JSON.stringify(this.usage),
+        usage: this.usage,
         weeklyInvitations: this.weeklyInvitations,
         lastResetDate: this.lastResetDate,
         lastWeeklyReset: this.lastWeeklyReset,
-        violations: JSON.stringify(this.violations),
-        mimicryConfig: JSON.stringify(this.mimicryConfig),
+        violations: this.violations,
+        mimicryConfig: this.mimicryConfig,
       },
     });
   }

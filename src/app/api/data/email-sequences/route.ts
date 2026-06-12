@@ -7,12 +7,7 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  const mapped = sequences.map((s) => ({
-    ...s,
-    steps: typeof s.steps === "string" ? JSON.parse(s.steps) : s.steps,
-  }));
-
-  return NextResponse.json(mapped);
+  return NextResponse.json(sequences);
 }
 
 export async function POST(req: NextRequest) {
@@ -26,7 +21,7 @@ export async function POST(req: NextRequest) {
       description: body.description || "",
       triggerEvent: body.triggerEvent || "manual",
       status: body.status || "draft",
-      steps: JSON.stringify(body.steps || []),
+      steps: body.steps || [],
     },
   });
 
@@ -43,7 +38,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const data: Record<string, unknown> = { ...updates };
-  if (updates.steps) data.steps = JSON.stringify(updates.steps);
+  if (updates.steps) data.steps = updates.steps;
 
   const sequence = await db.emailSequence.update({
     where: { id },

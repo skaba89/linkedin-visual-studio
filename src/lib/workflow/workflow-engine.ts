@@ -16,16 +16,16 @@ import { db, DEFAULT_USER_ID } from "@/lib/db";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-/** Convert a Prisma Workflow row to our Workflow type (parse JSON fields) */
+/** Convert a Prisma Workflow row to our Workflow type */
 function prismaToWorkflow(
   row: {
     id: string;
     name: string;
     description: string;
     status: string;
-    nodes: string;
-    edges: string;
-    tags: string;
+    nodes: unknown;
+    edges: unknown;
+    tags: unknown;
     version: number;
     lastExecutionAt: Date | null;
     createdAt: Date;
@@ -38,9 +38,9 @@ function prismaToWorkflow(
     name: row.name,
     description: row.description,
     status: row.status as WorkflowStatus,
-    nodes: safeParseJson<WorkflowNode[]>(row.nodes, []),
-    edges: safeParseJson<WorkflowEdge[]>(row.edges, []),
-    tags: safeParseJson<string[]>(row.tags, []),
+    nodes: (row.nodes as WorkflowNode[]) ?? [],
+    edges: (row.edges as WorkflowEdge[]) ?? [],
+    tags: (row.tags as string[]) ?? [],
     version: row.version,
     lastExecutionAt: row.lastExecutionAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -57,8 +57,8 @@ function prismaToExecution(row: {
   triggerNode: string;
   currentNode: string | null;
   error: string | null;
-  data: string;
-  steps: string;
+  data: unknown;
+  steps: unknown;
   startedAt: Date;
   completedAt: Date | null;
 }): WorkflowExecution {
@@ -71,18 +71,11 @@ function prismaToExecution(row: {
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     error: row.error,
-    data: safeParseJson<Record<string, unknown>>(row.data, {}),
-    steps: safeParseJson<WorkflowExecutionStep[]>(row.steps, []),
+    data: (row.data as Record<string, unknown>) ?? {},
+    steps: (row.steps as WorkflowExecutionStep[]) ?? [],
   };
 }
 
-function safeParseJson<T>(value: string, fallback: T): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 // ─── Condition Evaluator ────────────────────────────────────────────
 
@@ -146,9 +139,9 @@ class WorkflowEngine {
         name: input.name,
         description: input.description ?? "",
         status: "draft",
-        nodes: JSON.stringify(input.nodes ?? []),
-        edges: JSON.stringify(input.edges ?? []),
-        tags: JSON.stringify(input.tags ?? []),
+        nodes: input.nodes ?? [],
+        edges: input.edges ?? [],
+        tags: input.tags ?? [],
         version: 1,
       },
     });
@@ -237,9 +230,9 @@ class WorkflowEngine {
     const data: Record<string, unknown> = {};
     if (updates.name !== undefined) data.name = updates.name;
     if (updates.description !== undefined) data.description = updates.description;
-    if (updates.nodes !== undefined) data.nodes = JSON.stringify(updates.nodes);
-    if (updates.edges !== undefined) data.edges = JSON.stringify(updates.edges);
-    if (updates.tags !== undefined) data.tags = JSON.stringify(updates.tags);
+    if (updates.nodes !== undefined) data.nodes = updates.nodes;
+    if (updates.edges !== undefined) data.edges = updates.edges;
+    if (updates.tags !== undefined) data.tags = updates.tags;
 
     const row = await db.workflow.update({
       where: { id },
@@ -283,12 +276,12 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
     nodes.push(node);
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { nodes: JSON.stringify(nodes) },
+      data: { nodes },
     });
 
     return prismaToWorkflow(row);
@@ -301,8 +294,8 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
-    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
 
     const filteredNodes = nodes.filter((n) => n.id !== nodeId);
     const filteredEdges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
@@ -310,8 +303,8 @@ class WorkflowEngine {
     const row = await db.workflow.update({
       where: { id: workflowId },
       data: {
-        nodes: JSON.stringify(filteredNodes),
-        edges: JSON.stringify(filteredEdges),
+        nodes: filteredNodes,
+        edges: filteredEdges,
       },
     });
 
@@ -325,8 +318,8 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = safeParseJson<WorkflowNode[]>(existing.nodes, []);
-    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
 
     // Validate nodes exist
     const fromExists = nodes.some((n) => n.id === edge.from);
@@ -337,7 +330,7 @@ class WorkflowEngine {
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { edges: JSON.stringify(edges) },
+      data: { edges },
     });
 
     return prismaToWorkflow(row);
@@ -350,12 +343,12 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const edges: WorkflowEdge[] = safeParseJson<WorkflowEdge[]>(existing.edges, []);
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
     const filteredEdges = edges.filter((e) => e.id !== edgeId);
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { edges: JSON.stringify(filteredEdges) },
+      data: { edges: filteredEdges },
     });
 
     return prismaToWorkflow(row);
@@ -454,8 +447,8 @@ class WorkflowEngine {
         status: "running",
         triggerNode: triggerNode.id,
         currentNode: triggerNode.id,
-        data: JSON.stringify({ ...triggerData }),
-        steps: JSON.stringify(steps),
+        data: { ...triggerData },
+        steps,
       },
     });
 
@@ -499,8 +492,8 @@ class WorkflowEngine {
         status: execution.status,
         currentNode: null,
         error: execution.error,
-        data: JSON.stringify(execution.data),
-        steps: JSON.stringify(execution.steps),
+        data: execution.data,
+        steps: execution.steps,
         completedAt: new Date(),
       },
     });
