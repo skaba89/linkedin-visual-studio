@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -59,11 +59,11 @@ model UserSettings {
   userId            String   @id
   provider          String   @default("groq")
   model             String   @default("llama-3.3-70b-versatile")
-  providerApiKeys   Json     @default("{}")
-  channels          Json     @default("[]")
+  providerApiKeys   String     @default("{}")
+  channels          String     @default("[]")
   allowShell        Boolean  @default(true)
   allowBrowser      Boolean  @default(true)
-  forbiddenCommands Json     @default("[]")
+  forbiddenCommands String     @default("[]")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -94,9 +94,9 @@ model AgentConfig {
 model ICPConfig {
   id           String  @id @default(cuid())
   userId       String  @unique
-  titles       Json    @default("[]")
-  sectors      Json    @default("[]")
-  companySizes Json    @default("[]")
+  titles       String    @default("[]")
+  sectors      String    @default("[]")
+  companySizes String    @default("[]")
   minScore     Int     @default(60)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -175,9 +175,9 @@ model MarketBriefing {
   userId        String
   title         String
   summary       String   @default("")
-  trends        Json     @default("[]")
-  opportunities Json     @default("[]")
-  competitors   Json     @default("[]")
+  trends        String     @default("[]")
+  opportunities String     @default("[]")
+  competitors   String     @default("[]")
   model         String   @default("")
   createdAt     DateTime @default(now())
 
@@ -337,7 +337,7 @@ model MessageTemplate {
   name      String
   timing    String   @default("")
   content   String
-  notes     Json     @default("[]")
+  notes     String     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -352,17 +352,18 @@ model Experiment {
   type          String    @default("ab")
   status        String    @default("draft")
   targetAgentId String?
-  variants      Json      @default("[]")
+  variants      String      @default("[]")
   trafficSplit  String    @default("50/50")
   startDate     DateTime?
   endDate       DateTime?
-  results       Json?
+  results       String?
   winnerId      String?
   confidence    Float     @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  experimentResults ExperimentResult[]  @relation("ExperimentResults")
 
   @@index([userId, status])
   @@index([userId, targetAgentId])
@@ -377,10 +378,11 @@ model ExperimentResult {
   impressionId String?
   outcome      String   @default("")
   metricValue  Float    @default(0)
-  metadata     Json?
+  metadata     String?
   createdAt    DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  experiment  Experiment  @relation(fields: [experimentId], references: [id], onDelete: Cascade, name: "ExperimentResults")
 
   @@index([userId, experimentId])
   @@index([userId, variantId])
@@ -449,12 +451,14 @@ model Contact {
   linkedinUrl String?
   source      String    @default("manual")
   notes       String?
-  tags        Json      @default("[]")
+  tags        String      @default("[]")
   score       Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deals          Deal[]
+  emailMessages  EmailMessage[]
 
   @@index([userId, email])
   @@index([userId, entreprise])
@@ -463,7 +467,7 @@ model Contact {
 model Deal {
   id                String    @id @default(cuid())
   userId            String
-  contactId         String
+  contactId         String?
   titre             String
   valeur            Float     @default(0)
   devise            String    @default("EUR")
@@ -475,7 +479,8 @@ model Deal {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@index([userId, stage])
   @@index([userId, contactId])
@@ -488,11 +493,12 @@ model EmailSequence {
   description  String    @default("")
   triggerEvent String    @default("manual")
   status       String    @default("draft")
-  steps        Json      @default("[]")
+  steps        String      @default("[]")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages EmailMessage[]
 
   @@index([userId, status])
 }
@@ -511,7 +517,9 @@ model EmailMessage {
   repliedAt  DateTime?
   createdAt  DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact  Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  sequence EmailSequence? @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
 
   @@index([userId, contactId])
   @@index([userId, sequenceId])
@@ -539,9 +547,9 @@ model Workflow {
   name            String
   description     String    @default("")
   status          String    @default("draft")  // draft | active | paused | archived
-  nodes           Json      @default("[]")
-  edges           Json      @default("[]")
-  tags            Json      @default("[]")
+  nodes           String      @default("[]")
+  edges           String      @default("[]")
+  tags            String      @default("[]")
   version         Int       @default(1)
   lastExecutionAt DateTime?
   createdAt       DateTime  @default(now())
@@ -561,8 +569,8 @@ model WorkflowExecution {
   triggerNode  String   @default("")
   currentNode  String?
   error        String?
-  data         Json     @default("{}")
-  steps        Json     @default("[]")
+  data         String     @default("{}")
+  steps        String     @default("[]")
   startedAt    DateTime @default(now())
   completedAt  DateTime?
 
@@ -586,7 +594,7 @@ model Notification {
   actionLabel    String?
   sourceAgent    String?
   sourceWorkflow String?
-  metadata       Json?
+  metadata       String?
   read           Boolean   @default(false)
   readAt         DateTime?
   dismissed      Boolean   @default(false)
@@ -603,7 +611,7 @@ model Notification {
 model NotificationPreference {
   id                String   @id @default(cuid())
   userId            String
-  category          String   @unique  // one preference row per category per user
+  category          String   // one preference row per category per user
   enabled           Boolean  @default(true)
   minPriority       String   @default("low")  // low | medium | high | critical
   quietHoursEnabled Boolean  @default(false)
@@ -613,6 +621,8 @@ model NotificationPreference {
   updatedAt         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
 }
 
 // ─── Webhook persistence ─────────────────────────────────────────────
@@ -624,9 +634,9 @@ model Webhook {
   provider          String    @default("custom")  // slack | discord | zapier | make | custom
   url               String
   secret            String?
-  events            Json      @default("[]")
+  events            String      @default("[]")
   status            String    @default("active")   // active | paused | error
-  headers           Json?
+  headers           String?
   retryCount        Int       @default(3)
   retryDelayMs      Int       @default(5000)
   timeoutMs         Int       @default(10000)
@@ -651,8 +661,8 @@ model WebhookDelivery {
   event       String
   status      String    @default("pending")  // pending | delivered | failed | retrying
   attempts    Int       @default(0)
-  request     Json      @default("{}")
-  response    Json?
+  request     String      @default("{}")
+  response    String?
   deliveredAt DateTime?
   nextRetryAt DateTime?
   error       String?
@@ -671,9 +681,9 @@ model OrchestratorState {
   id        String   @id @default(cuid())
   userId    String   @unique
   state     String   @default("stopped")  // running | stopped | paused
-  rules     Json     @default("[]")
+  rules     String     @default("[]")
   startedAt DateTime?
-  metrics   Json     @default("{}")
+  metrics   String     @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -685,15 +695,15 @@ model OrchestratorState {
 model ComplianceState {
   id                String   @id @default(cuid())
   userId            String   @unique
-  level             String   @default("moderate")  // conservative | moderate | aggressive
+  level             String   @default("moderate")  // strict | moderate | aggressive
   warmupActive      Boolean  @default(false)
   warmupStartDate   DateTime?
-  usage             Json     @default("{}")
+  usage             String     @default("{}")
   weeklyInvitations Int      @default(0)
   lastResetDate     String   @default("")
   lastWeeklyReset   String   @default("")
-  violations        Json     @default("[]")
-  mimicryConfig     Json     @default("{}")
+  violations        String     @default("[]")
+  mimicryConfig     String     @default("{}")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -729,7 +739,7 @@ model EventHistory {
   eventType String
   agentId   String   @default("")
   agentName String   @default("")
-  data      Json?
+  data      String?
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

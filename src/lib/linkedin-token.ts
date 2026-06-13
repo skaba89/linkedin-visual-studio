@@ -1,5 +1,8 @@
 import { cookies } from "next/headers";
 import type { RequestCookie } from "next/dist/compiled/@edge-runtime/cookies";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("linkedin-token");
 
 const TOKEN_COOKIE_NAME = "li_token";
 const STATE_COOKIE_NAME = "li_oauth_state";
@@ -27,7 +30,10 @@ export async function getTokenFromCookies(): Promise<string | null> {
 
   try {
     return decode(tokenCookie.value);
-  } catch {
+  } catch (err) {
+    log.warn("Failed to decode LinkedIn token from cookie", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

@@ -6,6 +6,9 @@
  */
 
 import { useAppStore } from "@/store/appStore";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("ai-client");
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -72,9 +75,9 @@ export async function chatCompletion(
 
     if (fallbackProvider) {
       const fallbackKey = state.hermesConfig.providerApiKeys[fallbackProvider];
-      console.warn(
-        `[HERMÈS] Clé API non configurée pour "${providerId}". ` +
-        `Fallback automatique vers "${fallbackProvider}".`
+      log.warn(
+        `Clé API non configurée pour "${providerId}". Fallback automatique vers "${fallbackProvider}".`,
+        { provider: providerId, fallback: fallbackProvider }
       );
       providerId = fallbackProvider;
       apiKey = fallbackKey;
@@ -85,8 +88,8 @@ export async function chatCompletion(
     } else {
       // No user API key at all — call the server without an x-api-key header.
       // The server will automatically fall back to z-ai-web-dev-sdk (built-in AI).
-      console.log(
-        `[HERMÈS] Aucune clé API configurée. Utilisation de l'IA intégrée (z-ai-web-dev-sdk).`
+      log.info(
+        "Aucune clé API configurée. Utilisation de l'IA intégrée (z-ai-web-dev-sdk)."
       );
       apiKey = "";
     }

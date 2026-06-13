@@ -7,6 +7,10 @@
  * IMPORTANT: This module is server-side only. Never import it from client components.
  */
 
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("server-ai-client");
+
 export interface ServerChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -34,21 +38,39 @@ export async function serverChatCompletion(
     maxTokens?: number;
   }
 ): Promise<ServerChatResponse> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
+  const requestedModel = options?.model && options.model !== "default" ? options.model : "default";
+  log.info("AI request started", { model: requestedModel, temperature: options?.temperature ?? 0.7 });
 
-  const completion = await zai.chat.completions.create({
-    messages,
-    model: options?.model && options.model !== "default" ? options.model : undefined,
-    temperature: options?.temperature ?? 0.7,
-    max_tokens: options?.maxTokens ?? 1024,
-  });
+  try {
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zai = await ZAI.create();
 
-  const content = completion.choices?.[0]?.message?.content || "";
-  
-  return {
-    content,
-    model: completion.model || options?.model || "zai",
-    usage: completion.usage || undefined,
-  };
+    const completion = await zai.chat.completions.create({
+      messages,
+      model: requestedModel !== "default" ? requestedModel : undefined,
+      temperature: options?.temperature ?? 0.7,
+      max_tokens: options?.maxTokens ?? 1024,
+    });
+
+    const content = completion.choices?.[0]?.message?.content || "";
+    const model = completion.model || options?.model || "zai";
+
+    log.info("AI request completed", {
+      model,
+      tokens: completion.usage?.total_tokens,
+      contentLength: content.length,
+    });
+
+    return {
+      content,
+      model,
+      usage: completion.usage || undefined,
+    };
+  } catch (err) {
+    log.error("AI request failed", {
+      model: requestedModel,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }

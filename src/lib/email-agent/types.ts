@@ -1,13 +1,7 @@
 // HERMÈS Email Agent Types
+// Re-exports shared types from ../email/types and adds agent-specific definitions
 
-export interface EmailSequenceStep {
-  order: number;
-  subject: string;
-  body: string;
-  delayDays: number;
-  trackOpens: boolean;
-  trackClicks: boolean;
-}
+export type { EmailSequenceStep, EmailMessageStatus } from "../email/types";
 
 export interface EmailSequenceConfig {
   id: string;
@@ -15,12 +9,10 @@ export interface EmailSequenceConfig {
   description: string;
   triggerEvent: string;
   status: "draft" | "active" | "paused" | "completed";
-  steps: EmailSequenceStep[];
+  steps: import("../email/types").EmailSequenceStep[];
 }
 
-export type EmailMessageStatus = "draft" | "queued" | "sent" | "delivered" | "opened" | "clicked" | "replied" | "bounced" | "failed";
-
-export interface EmailTemplate {
+export interface AgentEmailTemplate {
   id: string;
   name: string;
   subject: string;

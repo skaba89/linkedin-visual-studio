@@ -26,7 +26,7 @@ export type EmailTriggerEvent =
 export type EmailSequenceStatus = "draft" | "active" | "paused" | "completed";
 
 export interface EmailSequenceStep {
-  id: string;
+  id?: string;
   order: number;
   subject: string;
   body: string;
@@ -54,6 +54,7 @@ export type EmailMessageStatus =
   | "draft"
   | "queued"
   | "sent"
+  | "delivered"
   | "opened"
   | "clicked"
   | "replied"
@@ -206,6 +207,7 @@ export const EMAIL_STATUS_COLORS: Record<EmailMessageStatus, string> = {
   draft: "#7B8A9A",
   queued: "#60A5FA",
   sent: "#00D4FF",
+  delivered: "#34D399",
   opened: "#A78BFA",
   clicked: "#F4A100",
   replied: "#00C48C",
@@ -217,6 +219,7 @@ export const EMAIL_STATUS_LABELS: Record<EmailMessageStatus, string> = {
   draft: "Brouillon",
   queued: "En attente",
   sent: "Envoye",
+  delivered: "Delivre",
   opened: "Ouvert",
   clicked: "Clique",
   replied: "Repondu",

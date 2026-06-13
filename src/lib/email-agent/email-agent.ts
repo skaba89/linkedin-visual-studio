@@ -1,10 +1,11 @@
 // HERMÈS Email Agent — Automated email sequences and tracking
 
-import { EmailSequenceStep, EmailTemplate, EmailMessageStatus } from "./types";
+import type { EmailSequenceStep, EmailMessageStatus } from "../email/types";
+import type { AgentEmailTemplate } from "./types";
 import { db, ensureDefaultUser } from "@/lib/db";
 
 // Default email templates
-const DEFAULT_TEMPLATES: EmailTemplate[] = [
+const DEFAULT_TEMPLATES: AgentEmailTemplate[] = [
   {
     id: "initial-outreach",
     name: "Premier contact — Référence au post",
@@ -76,7 +77,7 @@ Cordialement`,
 ];
 
 export class EmailAgent {
-  private templates: EmailTemplate[] = [...DEFAULT_TEMPLATES];
+  private templates: AgentEmailTemplate[] = [...DEFAULT_TEMPLATES];
 
   async generateEmail(
     contact: { prenom: string; nom?: string; poste?: string; entreprise?: string; email?: string },
@@ -193,7 +194,7 @@ export class EmailAgent {
     };
   }
 
-  getTemplates(): EmailTemplate[] {
+  getTemplates(): AgentEmailTemplate[] {
     return [...this.templates];
   }
 }

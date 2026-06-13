@@ -11,9 +11,7 @@
  * - minimal:     Ultra-clean, lots of whitespace, typography-focused
  */
 
-import sharp from "sharp";
 import { PDFDocument } from "pdf-lib";
-import fs from "fs";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -428,7 +426,7 @@ export async function generateCarouselPDF(data: CarouselData): Promise<Buffer> {
   // Step 1: Render each slide SVG → PNG
   for (let i = 0; i < totalSlides; i++) {
     const svgContent = renderSlideSVG(data.slides[i], data, i + 1, totalSlides);
-    const pngBuffer = await sharp(Buffer.from(svgContent))
+    const pngBuffer = await (await import("sharp")).default(Buffer.from(svgContent))
       .png({ quality: 95 })
       .toBuffer();
     pngBuffers.push(pngBuffer);
@@ -462,7 +460,7 @@ export async function generateSlidePNG(
   totalSlides: number = 1
 ): Promise<Buffer> {
   const svgContent = renderSlideSVG(slide, data, slideNum, totalSlides);
-  return sharp(Buffer.from(svgContent))
+  return (await import("sharp")).default(Buffer.from(svgContent))
     .png({ quality: 95 })
     .toBuffer();
 }
