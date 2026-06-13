@@ -83,19 +83,26 @@ export async function chatCompletion(
         model = state.hermesConfig.model;
       }
     } else {
-      throw new Error(
-        `Clé API non configurée pour le provider "${providerId}". ` +
-        `Aucun provider alternatif disponible. Allez dans Paramètres pour configurer une clé API.`
+      // No user API key at all — call the server without an x-api-key header.
+      // The server will automatically fall back to z-ai-web-dev-sdk (built-in AI).
+      console.log(
+        `[HERMÈS] Aucune clé API configurée. Utilisation de l'IA intégrée (z-ai-web-dev-sdk).`
       );
+      apiKey = "";
     }
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  // Only send x-api-key if we have one; server falls back to z-ai-web-dev-sdk otherwise
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
   }
 
   const response = await fetch("/api/ai/chat", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-    },
+    headers,
     body: JSON.stringify({
       providerId,
       model,

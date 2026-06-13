@@ -770,3 +770,111 @@ Règles :
   console.warn("[HERMÈS] generateExpertPosts: AI unavailable, returning empty array");
   return [];
 }
+
+// ─── Carousel Content Generation ──────────────────────────────────
+
+export interface CarouselSlideData {
+  type: "cover" | "content" | "stat" | "list" | "quote" | "cta";
+  headline: string;
+  body: string;
+  accent?: string;
+  bullets?: string[];
+  stat?: {
+    value: string;
+    label: string;
+    context: string;
+  };
+}
+
+/**
+ * Generate carousel slide data from a LinkedIn post text.
+ * Uses AI to split the post into structured slides for a professional carousel.
+ */
+export async function generateCarouselContent(
+  postText: string,
+  topicTitle?: string
+): Promise<CarouselSlideData[]> {
+  const context = getProjectContext();
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Tu es un expert en création de carrousels LinkedIn. Tu transformes un post textuel en une structure de carrousel professionnel.
+${context}
+
+À partir du texte du post, génère un carrousel de 5 à 8 slides. Réponds en JSON strict :
+[
+  {
+    "type": "cover|content|stat|list|quote|cta",
+    "headline": "titre de la slide (court, percutant)",
+    "body": "texte principal de la slide",
+    "accent": "emoji ou texte court d'accentuation (optionnel)",
+    "bullets": ["point 1", "point 2"] (uniquement pour type "list"),
+    "stat": { "value": "chiffre", "label": "label", "context": "contexte" } (uniquement pour type "stat")
+  }
+]
+
+Règles de structure :
+- Slide 1 : type "cover" — titre accrocheur + sous-titre
+- Slides intermédiaires : alterne entre "content", "stat", "list", "quote" pour varier
+- Dernière slide : type "cta" — appel à l'action clair
+- Chaque slide doit être autonome et compréhensible
+- Titres courts (max 8 mots)
+- Corps de texte concis (max 60 mots par slide)
+- Statistiques chiffrées quand pertinent
+- Langue : français`,
+    },
+    {
+      role: "user",
+      content: topicTitle
+        ? `Transforme ce post en carrousel LinkedIn. Titre du sujet : "${topicTitle}"\n\nPost :\n${postText}`
+        : `Transforme ce post en carrousel LinkedIn professionnel :\n\n${postText}`,
+    },
+  ];
+
+  try {
+    const response = await chatCompletion(messages, {
+      temperature: 0.7,
+      maxTokens: 2500,
+    });
+
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed) && parsed.length >= 3) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error("AI carousel content generation error:", error);
+  }
+
+  // Fallback: create a simple carousel structure from the post text
+  console.warn("[HERMÈS] generateCarouselContent: AI unavailable, creating basic structure from text");
+  const words = postText.split(/\s+/);
+  const midPoint = Math.floor(words.length / 2);
+  return [
+    {
+      type: "cover",
+      headline: topicTitle || "Impact & Données",
+      body: words.slice(0, 20).join(" ") + "...",
+      accent: "📌 CARROUSEL",
+    },
+    {
+      type: "content",
+      headline: "Le constat",
+      body: words.slice(0, midPoint).join(" "),
+    },
+    {
+      type: "content",
+      headline: "L'opportunité",
+      body: words.slice(midPoint).join(" "),
+    },
+    {
+      type: "cta",
+      headline: "Et vous ?",
+      body: "Commentez ci-dessous pour partager votre expérience",
+      accent: "💬 Commentez",
+    },
+  ];
+}

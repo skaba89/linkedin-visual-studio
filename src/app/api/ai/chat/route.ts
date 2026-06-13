@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProviderBaseUrl, isOpenAICompatible } from "@/lib/providers";
+import { serverChatCompletion } from "@/lib/server-ai-client";
 
 /**
  * POST /api/ai/chat
@@ -31,11 +32,35 @@ export async function POST(req: NextRequest) {
 
     // Get API key from request header (client sends it from localStorage)
     const apiKey = req.headers.get("x-api-key");
+
+    // If no API key is configured, fall back to z-ai-web-dev-sdk (built-in AI)
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "Missing API key. Please configure your API key in Settings." },
-        { status: 401 }
-      );
+      try {
+        console.log("[/api/ai/chat] No user API key — falling back to z-ai-web-dev-sdk");
+        const result = await serverChatCompletion(
+          messages.map((m: { role: string; content: string }) => ({
+            role: m.role as "system" | "user" | "assistant",
+            content: m.content,
+          })),
+          {
+            model: model !== "default" ? model : undefined,
+            temperature,
+            maxTokens: max_tokens,
+          }
+        );
+        return NextResponse.json({
+          choices: [{ message: { role: "assistant", content: result.content } }],
+          model: result.model,
+          usage: result.usage,
+        });
+      } catch (sdkError: unknown) {
+        console.error("[/api/ai/chat] z-ai-web-dev-sdk fallback error:", sdkError);
+        const msg = sdkError instanceof Error ? sdkError.message : "AI service unavailable";
+        return NextResponse.json(
+          { error: `IA non disponible : ${msg}. Configurez une clé API dans les Paramètres.` },
+          { status: 503 }
+        );
+      }
     }
 
     // Route to the correct provider
