@@ -7,14 +7,14 @@ export async function GET(req: NextRequest) {
   const entreprise = searchParams.get("entreprise");
 
   const where: Record<string, unknown> = { userId: DEFAULT_USER_ID };
-  if (entreprise) where.entreprise = { contains: entreprise };
+  if (entreprise) where.entreprise = { contains: entreprise, mode: "insensitive" };
 
   if (search) {
     where.OR = [
-      { prenom: { contains: search } },
-      { nom: { contains: search } },
-      { email: { contains: search } },
-      { entreprise: { contains: search } },
+      { prenom: { contains: search, mode: "insensitive" } },
+      { nom: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+      { entreprise: { contains: search, mode: "insensitive" } },
     ];
   }
 

@@ -1,5 +1,5 @@
 // HERMÈS LinkedIn Compliance Manager — Rate limiting, warmup, mimicry
-// Persisted to SQLite via Prisma
+// Persisted to PostgreSQL via Prisma
 
 import {
   ComplianceLevel,

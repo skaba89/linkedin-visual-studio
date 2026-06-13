@@ -23,6 +23,7 @@ function isRateLimited(ip: string): boolean {
 // ─── Routes that skip auth entirely ────────────────────────────────────────────
 const AUTH_SKIP_ROUTES = [
   "/api/auth",           // NextAuth endpoints (sign-in, sign-out, callbacks)
+  "/api/health",         // Health check for Render/monitoring
   "/api/ai/chat",        // Uses its own API key auth
   "/api/ai/web-search",  // Uses its own API key auth
 ];

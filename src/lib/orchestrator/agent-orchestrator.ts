@@ -1,5 +1,5 @@
 // HERMÈS Agent Orchestrator — Coordinates agent execution and dependencies
-// State persisted to SQLite via Prisma
+// State persisted to PostgreSQL via Prisma
 
 import {
   AgentEvent,

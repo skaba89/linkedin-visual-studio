@@ -1,5 +1,5 @@
 // HERMÈS Event Bus — Central event system for agent orchestration
-// Event history persisted to SQLite via Prisma
+// Event history persisted to PostgreSQL via Prisma
 
 import { AgentEvent, AgentEventType } from "./types";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";

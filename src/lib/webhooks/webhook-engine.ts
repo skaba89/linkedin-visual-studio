@@ -200,8 +200,8 @@ class WebhookEngine {
    * Find webhooks that listen to a specific event
    */
   async findWebhooksByEvent(event: WebhookEvent): Promise<WebhookConfig[]> {
-    // SQLite: use LIKE to check if the event string is contained in the JSON array
     // The events column stores JSON like ["agent.completed","deal.won"]
+    // Use contains as a pre-filter, then exact-match in memory
     const rows = await db.webhook.findMany({
       where: {
         userId: DEFAULT_USER_ID,
