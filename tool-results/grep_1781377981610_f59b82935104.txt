@@ -1,0 +1,252 @@
+/home/z/my-project/src/lib/feedback/feedback-engine.ts:244:    const updated = await db.feedbackRule.update({
+/home/z/my-project/src/lib/email/email-engine.ts:53:export function computeNextStepDate(
+/home/z/my-project/src/lib/email/email-engine.ts:57:  const next = new Date(previousStepDate);
+/home/z/my-project/src/lib/email/email-engine.ts:58:  next.setDate(next.getDate() + step.delayDays);
+/home/z/my-project/src/lib/email/email-engine.ts:63:    next.setDate(next.getDate() + 1);
+/home/z/my-project/src/lib/email/email-engine.ts:75:  const now = new Date();
+/home/z/my-project/src/lib/email/email-engine.ts:76:  const nextStepAt = computeNextStepDate(firstStep, now);
+/home/z/my-project/src/lib/email/email-engine.ts:178:      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+/home/z/my-project/src/lib/email/email-engine.ts:180:    const lastDate = sorted[0]?.createdAt ?? new Date().toISOString();
+/home/z/my-project/src/lib/email/email-engine.ts:194:    (a, b) => new Date(b.lastMessageDate).getTime() - new Date(a.lastMessageDate).getTime()
+/home/z/my-project/src/lib/email-agent/email-agent.ts:118:        sentAt: new Date(),
+/home/z/my-project/src/lib/email-agent/email-agent.ts:154:    await db.emailMessage.update({
+/home/z/my-project/src/lib/email-agent/email-agent.ts:156:      data: { openedAt: new Date(), status: "opened" },
+/home/z/my-project/src/lib/email-agent/email-agent.ts:161:    await db.emailMessage.update({
+/home/z/my-project/src/lib/email-agent/email-agent.ts:163:      data: { clickedAt: new Date(), status: "clicked" },
+/home/z/my-project/src/lib/email-agent/email-agent.ts:168:    await db.emailMessage.update({
+/home/z/my-project/src/lib/email-agent/email-agent.ts:170:      data: { repliedAt: new Date(), status: "replied" },
+/home/z/my-project/src/lib/agent-runner.ts:294:      createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:539:          if (typeof parsed.score === "number") score = Math.min(100, Math.max(0, parsed.score));
+/home/z/my-project/src/lib/agent-runner.ts:555:        dateCollected: new Date().toISOString().split("T")[0],
+/home/z/my-project/src/lib/agent-runner.ts:571:        dateCollected: new Date().toISOString().split("T")[0],
+/home/z/my-project/src/lib/agent-runner.ts:688:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:850:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:916:  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+/home/z/my-project/src/lib/agent-runner.ts:989:          createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:1003:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:1110:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:1203:            createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:1217:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/agent-runner.ts:1420:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:83:    const updated = await db.experiment.update({
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:87:        startDate: new Date(),
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:116:        timestamp: new Date(),
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:179:      await db.experiment.update({
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:187:    const variantResults = new Map<string, typeof results>();
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:195:      await db.experiment.update({
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:220:      await db.experiment.update({
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:236:    await db.experiment.update({
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:292:      const end = experiment.endDate || new Date();
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:294:        (end.getTime() - experiment.startDate.getTime()) / (24 * 60 * 60 * 1000)
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:321:      updateData.endDate = new Date();
+/home/z/my-project/src/lib/ab-testing/ab-engine.ts:324:    const updated = await db.experiment.update({
+/home/z/my-project/src/lib/crm/crm-engine.ts:292:  activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+/home/z/my-project/src/lib/notifications/notification-engine.ts:30:type DbNotification = Awaited<ReturnType<typeof db.notification.findFirst>> & {};
+/home/z/my-project/src/lib/notifications/notification-engine.ts:52:type DbNotificationPreference = Awaited<ReturnType<typeof db.notificationPreference.findFirst>> & {};
+/home/z/my-project/src/lib/notifications/notification-engine.ts:111:          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+/home/z/my-project/src/lib/notifications/notification-engine.ts:119:      const now = new Date();
+/home/z/my-project/src/lib/notifications/notification-engine.ts:146:            expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+/home/z/my-project/src/lib/notifications/notification-engine.ts:167:        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+/home/z/my-project/src/lib/notifications/notification-engine.ts:226:    const now = new Date().toISOString();
+/home/z/my-project/src/lib/notifications/notification-engine.ts:246:      const row = await db.notification.update({
+/home/z/my-project/src/lib/notifications/notification-engine.ts:248:        data: { read: true, readAt: new Date() },
+/home/z/my-project/src/lib/notifications/notification-engine.ts:266:      data: { read: true, readAt: new Date() },
+/home/z/my-project/src/lib/notifications/notification-engine.ts:276:      await db.notification.update({
+/home/z/my-project/src/lib/notifications/notification-engine.ts:319:    const today = new Date().toISOString().split("T")[0];
+/home/z/my-project/src/lib/logger.ts:38:const isBrowser = typeof window !== "undefined";
+/home/z/my-project/src/lib/logger.ts:66:  return new Date().toISOString();
+/home/z/my-project/src/lib/linkedin-ai.ts:106:      `best times to post on LinkedIn B2B ${new Date().getFullYear()} engagement research`,
+/home/z/my-project/src/lib/linkedin-ai.ts:199:export function getNextBestTime(): { day: string; time: string; reason: string } {
+/home/z/my-project/src/lib/linkedin-ai.ts:200:  const now = new Date();
+/home/z/my-project/src/lib/linkedin-ai.ts:247:  const nextBest = getNextBestTime();
+/home/z/my-project/src/lib/linkedin-ai.ts:449:      `LinkedIn trending topics ${sectors} ${new Date().getFullYear()}`,
+/home/z/my-project/src/lib/linkedin-ai.ts:633:    const date = new Date(p.createdAt).toLocaleDateString("fr-FR");
+/home/z/my-project/src/lib/linkedin-ai.ts:694:  const nextBest = getNextBestTime();
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:34:  private intervalId?: ReturnType<typeof setInterval>;
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:62:            lastEventAt: saved.lastEventAt ? new Date(saved.lastEventAt) : undefined,
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:115:    this.startTime = new Date();
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:173:    const uptimeMs = this.startTime ? Date.now() - this.startTime.getTime() : 0;
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:219:    this.metrics.lastEventAt = new Date();
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:251:    rule.lastFiredAt = new Date();
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:262:    const now = new Date();
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:269:        const lastFired = new Date(rule.lastFiredAt);
+/home/z/my-project/src/lib/orchestrator/agent-orchestrator.ts:273:          lastFired.getDate() === now.getDate()
+/home/z/my-project/src/lib/orchestrator/event-bus.ts:47:      timestamp: new Date(),
+/home/z/my-project/src/lib/orchestrator/types.ts:122:export type AgentId = (typeof AGENT_IDS)[number];
+/home/z/my-project/src/store/appStore.ts:690:  const now = new Date();
+/home/z/my-project/src/store/appStore.ts:874:              timestamp: new Date().toISOString(),
+/home/z/my-project/src/store/appStore.ts:914:            (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+/home/z/my-project/src/store/appStore.ts:929:          (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+/home/z/my-project/src/store/appStore.ts:1013:              timestamp: new Date().toISOString(),
+/home/z/my-project/src/store/appStore.ts:1036:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1060:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1085:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1113:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1132:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1151:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1170:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1189:                  { ...log, id: generateId(), timestamp: new Date().toISOString() },
+/home/z/my-project/src/store/appStore.ts:1207:                timestamp: new Date().toISOString(),
+/home/z/my-project/src/lib/webhooks/types.ts:161:            text: `HERMÈS | ${new Date().toISOString()}`,
+/home/z/my-project/src/lib/webhooks/types.ts:186:        timestamp: new Date().toISOString(),
+/home/z/my-project/src/app/api/data/content-metrics/route.ts:59:      recordedAt: new Date(),
+/home/z/my-project/src/app/api/data/content-metrics/route.ts:77:      recordedAt: new Date(),
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:35:  private lastResetDate = new Date().toDateString();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:36:  private lastWeeklyReset = new Date().toDateString();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:156:        timestamp: new Date(),
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:190:    this.warmupStartDate = new Date();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:244:    const diff = Date.now() - this.warmupStartDate.getTime();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:249:    const today = new Date().toDateString();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:257:    const now = new Date();
+/home/z/my-project/src/lib/compliance/linkedin-compliance.ts:258:    const lastReset = new Date(this.lastWeeklyReset);
+/home/z/my-project/src/hooks/useAgentSimulation.ts:62:    const now = new Date();
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:165:    const row = await db.webhook.update({
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:192:    const row = await db.webhook.update({
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:287:    let newLastTriggeredAt: Date = new Date();
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:316:          deliveredAt = new Date();
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:326:            nextRetryAt = new Date(Date.now() + webhook.retryDelayMs * attempt);
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:334:          nextRetryAt = new Date(Date.now() + webhook.retryDelayMs * attempt);
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:351:    dbDelivery = await db.webhookDelivery.update({
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:383:    await db.webhook.update({
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:401:      timestamp: new Date().toISOString(),
+/home/z/my-project/src/lib/webhooks/webhook-engine.ts:508:      timestamp: new Date().toISOString(),
+/home/z/my-project/src/hooks/use-toast.ts:35:type ActionType = typeof actionTypes
+/home/z/my-project/src/hooks/use-toast.ts:59:const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+/home/z/my-project/src/app/api/data/email-send/route.ts:29:      sentAt: new Date(),
+/home/z/my-project/src/app/api/data/deals/route.ts:34:      dateCloturePrevue: body.dateCloturePrevue ? new Date(body.dateCloturePrevue) : undefined,
+/home/z/my-project/src/app/api/data/deals/route.ts:53:  if (updates.dateCloturePrevue) data.dateCloturePrevue = new Date(updates.dateCloturePrevue);
+/home/z/my-project/src/app/api/data/deals/route.ts:55:  const deal = await db.deal.update({
+/home/z/my-project/src/app/api/data/contacts/route.ts:67:  const contact = await db.contact.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:116:    if (acc && typeof acc === "object") {
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:237:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:252:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:282:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:303:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:331:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:349:    const row = await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:400:        startedAt: new Date().toISOString(),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:401:        completedAt: new Date().toISOString(),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:424:        startedAt: new Date().toISOString(),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:425:        completedAt: new Date().toISOString(),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:473:      triggerStep.startedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:474:      triggerStep.completedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:485:    execution.completedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:489:    await db.workflowExecution.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:497:        completedAt: new Date(),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:502:    await db.workflow.update({
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:504:      data: { lastExecutionAt: new Date() },
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:530:          step.completedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:541:      step.startedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:546:        step.completedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:550:        if (nodeOutput && typeof nodeOutput === "object") {
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:555:        step.completedAt = new Date().toISOString();
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:689:              body: JSON.stringify({ event: actionType, data, timestamp: new Date().toISOString() }),
+/home/z/my-project/src/lib/workflow/workflow-engine.ts:786:      .map((e) => new Date(e.completedAt!).getTime() - new Date(e.startedAt).getTime());
+/home/z/my-project/src/app/api/data/leads/route.ts:27:      dateCollected: body.dateCollected || new Date().toISOString().split("T")[0],
+/home/z/my-project/src/app/api/data/leads/route.ts:43:  const lead = await db.lead.update({
+/home/z/my-project/src/components/app/SettingsView.tsx:691:              value={linkedInConfig.redirectUri || `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/linkedin/callback`}
+/home/z/my-project/src/app/api/data/import/route.ts:12:    if (!data || typeof data !== "object") {
+/home/z/my-project/src/app/api/ai/web-search/route.ts:20:    if (!query || typeof query !== "string") {
+/home/z/my-project/src/components/app/EmailView.tsx:473:                        Declencheur: {TRIGGER_EVENT_LABELS[seq.triggerEvent as keyof typeof TRIGGER_EVENT_LABELS] ?? seq.triggerEvent} · {parsedSteps.length} etapes
+/home/z/my-project/src/components/app/EmailView.tsx:587:                      {msg.sentAt && <span>Envoye: {new Date(msg.sentAt).toLocaleDateString("fr-FR")}</span>}
+/home/z/my-project/src/components/app/EmailView.tsx:588:                      {msg.openedAt && <span className="text-[#A78BFA]">Ouvert: {new Date(msg.openedAt).toLocaleDateString("fr-FR")}</span>}
+/home/z/my-project/src/components/app/EmailView.tsx:589:                      {msg.repliedAt && <span className="text-[#00C48C]">Repondu: {new Date(msg.repliedAt).toLocaleDateString("fr-FR")}</span>}
+/home/z/my-project/src/components/app/IntegrationsView.tsx:286:                  <span>Dernier: {new Date(wh.lastTriggeredAt).toLocaleString("fr-FR")}</span>
+/home/z/my-project/src/components/app/IntegrationsView.tsx:318:                  {del.attempts} tentative(s) · {new Date(del.createdAt).toLocaleString("fr-FR")}
+/home/z/my-project/src/components/app/MonitoringView.tsx:257:                const time = new Date(log.timestamp);
+/home/z/my-project/src/components/app/MonitoringView.tsx:259:                const dateStr = `${time.getDate().toString().padStart(2, "0")}/${(time.getMonth() + 1).toString().padStart(2, "0")}/${time.getFullYear()}`;
+/home/z/my-project/src/components/app/NotificationsView.tsx:151:    const diff = Date.now() - new Date(dateStr).getTime();
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:17:      scheduledAt: { lte: new Date(now) },
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:22:    await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:30:        await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:42:        await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:75:        await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:83:        await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:87:            publishedAt: new Date(),
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:92:      await db.scheduledPost.update({
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:167:    const scheduledDate = new Date(scheduledAt);
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:168:    if (isNaN(scheduledDate.getTime())) {
+/home/z/my-project/src/app/api/linkedin/schedule/route.ts:175:    if (scheduledDate.getTime() <= Date.now()) {
+/home/z/my-project/src/app/api/data/experiments/route.ts:26:      startDate: body.startDate ? new Date(body.startDate) : undefined,
+/home/z/my-project/src/app/api/data/experiments/route.ts:27:      endDate: body.endDate ? new Date(body.endDate) : undefined,
+/home/z/my-project/src/app/api/data/experiments/route.ts:46:  if (updates.startDate) data.startDate = new Date(updates.startDate);
+/home/z/my-project/src/app/api/data/experiments/route.ts:47:  if (updates.endDate) data.endDate = new Date(updates.endDate);
+/home/z/my-project/src/app/api/data/experiments/route.ts:49:  const experiment = await db.experiment.update({
+/home/z/my-project/src/app/api/data/email-sequences/route.ts:43:  const sequence = await db.emailSequence.update({
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:52:      createdAt: share.created?.time || new Date().toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:91:      createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:116:      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:135:      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:160:      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:182:      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+/home/z/my-project/src/app/api/linkedin/feed/route.ts:208:      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 36).toISOString(),
+/home/z/my-project/src/components/app/AgentDetailView.tsx:90:    const now = new Date();
+/home/z/my-project/src/components/app/AgentDetailView.tsx:356:                  const time = new Date(log.timestamp);
+/home/z/my-project/src/components/app/AgentDetailView.tsx:429:                        <span>{new Date(post.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+/home/z/my-project/src/app/api/data/email-messages/route.ts:36:      sentAt: body.status === "sent" ? new Date() : undefined,
+/home/z/my-project/src/app/api/data/email-messages/route.ts:53:  if (updates.status === "sent" && !updates.sentAt) data.sentAt = new Date();
+/home/z/my-project/src/app/api/data/email-messages/route.ts:54:  if (updates.status === "opened" && !updates.openedAt) data.openedAt = new Date();
+/home/z/my-project/src/app/api/data/email-messages/route.ts:55:  if (updates.status === "clicked" && !updates.clickedAt) data.clickedAt = new Date();
+/home/z/my-project/src/app/api/data/email-messages/route.ts:56:  if (updates.status === "replied" && !updates.repliedAt) data.repliedAt = new Date();
+/home/z/my-project/src/app/api/data/email-messages/route.ts:58:  const message = await db.emailMessage.update({
+/home/z/my-project/src/components/app/OrchestratorView.tsx:212:              <div className="text-xl font-semibold text-[#F0F4F8] mt-1">{formatUptime(orchData.metrics.uptimeMs)}</div>
+/home/z/my-project/src/components/app/OrchestratorView.tsx:263:                      {new Date(rule.lastFiredAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+/home/z/my-project/src/components/app/OrchestratorView.tsx:399:                        {event.agentName} · {new Date(event.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+/home/z/my-project/src/components/app/LeadsView.tsx:92:      dateCollected: new Date().toISOString().split("T")[0],
+/home/z/my-project/src/components/app/WorkflowView.tsx:506:                    <div className="text-[10px] text-[#7B8A9A]">{new Date(exec.startedAt).toLocaleString("fr-FR")}</div>
+/home/z/my-project/src/components/app/DashboardView.tsx:397:              const time = new Date(log.timestamp);
+/home/z/my-project/src/components/sections/ScriptsSection.tsx:83:  const script = scripts[activeTab as keyof typeof scripts];
+/home/z/my-project/src/components/sections/Footer.tsx:38:            © {new Date().getFullYear()} A.R.C Système — Tous droits réservés
+/home/z/my-project/src/components/ui/collapsible.tsx:7:}: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
+/home/z/my-project/src/components/ui/collapsible.tsx:13:}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger>) {
+/home/z/my-project/src/components/ui/collapsible.tsx:24:}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent>) {
+/home/z/my-project/src/components/ui/alert.tsx:26:}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+/home/z/my-project/src/components/ui/toggle-group.tsx:11:  VariantProps<typeof toggleVariants>
+/home/z/my-project/src/components/ui/toggle-group.tsx:23:}: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
+/home/z/my-project/src/components/ui/toggle-group.tsx:24:  VariantProps<typeof toggleVariants>) {
+/home/z/my-project/src/components/ui/toggle-group.tsx:49:}: React.ComponentProps<typeof ToggleGroupPrimitive.Item> &
+/home/z/my-project/src/components/ui/toggle-group.tsx:50:  VariantProps<typeof toggleVariants>) {
+/home/z/my-project/src/components/ui/drawer.tsx:10:}: React.ComponentProps<typeof DrawerPrimitive.Root>) {
+/home/z/my-project/src/components/ui/drawer.tsx:16:}: React.ComponentProps<typeof DrawerPrimitive.Trigger>) {
+/home/z/my-project/src/components/ui/drawer.tsx:22:}: React.ComponentProps<typeof DrawerPrimitive.Portal>) {
+/home/z/my-project/src/components/ui/drawer.tsx:28:}: React.ComponentProps<typeof DrawerPrimitive.Close>) {
+/home/z/my-project/src/components/ui/drawer.tsx:35:}: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
+/home/z/my-project/src/components/ui/drawer.tsx:52:}: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+/home/z/my-project/src/components/ui/drawer.tsx:101:}: React.ComponentProps<typeof DrawerPrimitive.Title>) {
+/home/z/my-project/src/components/ui/drawer.tsx:114:}: React.ComponentProps<typeof DrawerPrimitive.Description>) {
+/home/z/my-project/src/components/ui/select.tsx:11:}: React.ComponentProps<typeof SelectPrimitive.Root>) {
+/home/z/my-project/src/components/ui/select.tsx:17:}: React.ComponentProps<typeof SelectPrimitive.Group>) {
+/home/z/my-project/src/components/ui/select.tsx:23:}: React.ComponentProps<typeof SelectPrimitive.Value>) {
+/home/z/my-project/src/components/ui/select.tsx:32:}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
+/home/z/my-project/src/components/ui/select.tsx:58:}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+/home/z/my-project/src/components/ui/select.tsx:91:}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+/home/z/my-project/src/components/ui/select.tsx:105:}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+/home/z/my-project/src/components/ui/select.tsx:128:}: React.ComponentProps<typeof SelectPrimitive.Separator>) {
+/home/z/my-project/src/components/ui/select.tsx:141:}: React.ComponentProps<typeof SelectPrimitive.ScrollUpButton>) {
+/home/z/my-project/src/components/ui/select.tsx:159:}: React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
+/home/z/my-project/src/components/ui/form.tsx:93:}: React.ComponentProps<typeof LabelPrimitive.Root>) {
+/home/z/my-project/src/components/ui/form.tsx:107:function FormControl({ ...props }: React.ComponentProps<typeof Slot>) {
+/home/z/my-project/src/components/ui/button.tsx:45:  VariantProps<typeof buttonVariants> & {
+/home/z/my-project/src/components/ui/accordion.tsx:11:}: React.ComponentProps<typeof AccordionPrimitive.Root>) {
+/home/z/my-project/src/components/ui/accordion.tsx:18:}: React.ComponentProps<typeof AccordionPrimitive.Item>) {
+/home/z/my-project/src/components/ui/accordion.tsx:32:}: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
+/home/z/my-project/src/components/ui/accordion.tsx:54:}: React.ComponentProps<typeof AccordionPrimitive.Content>) {
+/home/z/my-project/src/components/app/LinkedInView.tsx:270:                  <input type="text" readOnly value={linkedInConfig.redirectUri || `${typeof window !== "undefined" ? window.location.origin : ""}/api/linkedin/callback`}
+/home/z/my-project/src/components/app/LinkedInView.tsx:449:      addLinkedInPost({ id: data.postId || `post-${Date.now()}`, text: postText, createdAt: new Date().toISOString(), likes: 0, comments: 0, visibility });
+/home/z/my-project/src/components/app/LinkedInView.tsx:477:        createdAt: new Date().toISOString(),
+/home/z/my-project/src/components/app/LinkedInView.tsx:493:  const nextBest = getNextBestTime();
+/home/z/my-project/src/components/app/LinkedInView.tsx:631:        {/* Schedule datetime + best time suggestion */}
+/home/z/my-project/src/components/app/LinkedInView.tsx:635:              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+/home/z/my-project/src/components/app/LinkedInView.tsx:689:                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(post.createdAt).toLocaleDateString("fr-FR")}</span>
+/home/z/my-project/src/components/app/LinkedInView.tsx:708:  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+/home/z/my-project/src/components/app/LinkedInView.tsx:742:  const nextBest = getNextBestTime();
+/home/z/my-project/src/components/app/LinkedInView.tsx:813:                    <Clock className="w-3 h-3" />{new Date(post.scheduledAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+/home/z/my-project/src/components/app/LinkedInView.tsx:1038:    { id: "eng-1", text: "L'IA générative transforme la façon dont les équipes B2B abordent la prospection. Qui a déjà testé des agents autonomes pour la génération de leads ?", author: "Marie Dupont", authorRole: "CEO @ AI Ventures", createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(), likes: 45, comments: 8, visibility: "PUBLIC", liked: false },
+/home/z/my-project/src/components/app/LinkedInView.tsx:1039:    { id: "eng-2", text: "Notre équipe a doublé son taux de réponse en automatisant les séquences de prospection LinkedIn. Le secret : personnalisation IA + timing optimal. Thread 🧵", author: "Lucas Bernard", authorRole: "Head of Growth @ SaaSify", createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(), likes: 89, comments: 15, visibility: "PUBLIC", liked: false },
+/home/z/my-project/src/components/app/LinkedInView.tsx:1040:    { id: "eng-3", text: "Le scoring ICP automatisé permet de passer de 200 à 50 leads qualifiés. Moins de volume, plus de qualité. C'est ça la vraie prospection B2B moderne.", author: "Julie Moreau", authorRole: "Directrice Commerciale @ GrowthCo", createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(), likes: 67, comments: 11, visibility: "PUBLIC", liked: false },
+/home/z/my-project/src/components/app/LinkedInView.tsx:1041:    { id: "eng-4", text: "J'ai testé 5 outils d'automation LinkedIn ce mois-ci. Le meilleur ? Celui qui s'intègre à votre CRM et qui apprend de vos réponses.", author: "Antoine Petit", authorRole: "CMO @ DigitalFirst", createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(), likes: 134, comments: 22, visibility: "PUBLIC", liked: false },
+/home/z/my-project/src/components/app/LinkedInView.tsx:1050:      if (!p.liked) newLogs.push({ id: `log-${Date.now()}-${p.id}`, type: "like", postAuthor: p.author, postPreview: p.text.slice(0, 50) + "...", timestamp: new Date().toISOString(), keyword: keywords.find((k) => p.text.toLowerCase().includes(k.toLowerCase())) });
+/home/z/my-project/src/components/app/LinkedInView.tsx:1062:      if (!p.liked) newLogs.push({ id: `log-${Date.now()}-${p.id}`, type: "comment", postAuthor: p.author, postPreview: p.text.slice(0, 50) + "...", timestamp: new Date().toISOString(), keyword: keywords.find((k) => p.text.toLowerCase().includes(k.toLowerCase())) });
+/home/z/my-project/src/components/app/LinkedInView.tsx:1077:          return [{ id: `log-${Date.now()}`, type: isLike ? "like" : "comment", postAuthor: rp.author, postPreview: rp.text.slice(0, 50) + "...", timestamp: new Date().toISOString(), keyword: keywords.find((k) => rp.text.toLowerCase().includes(k.toLowerCase())) }, ...prev];
+
+[Showing results with pagination = limit: 250]
