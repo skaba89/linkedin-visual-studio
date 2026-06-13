@@ -1,15 +1,14 @@
 # ─── Render Blueprint for HERMES ─────────────────────────────────────
 # Deploy: https://dashboard.render.com → New → Blueprint → Connect repo
-# Or use: render blueprint apply
+# Docs: https://render.com/docs/blueprint-spec
 
-services:
+databases:
   # ─── PostgreSQL Database ──────────────────────────────────────────
-  - type: pserv
-    name: hermes-db
+  - name: hermes-db
     plan: starter          # $7/mo — 1 GB RAM, 1 vCPU, 10 GB storage
-    runtime: postgres
     ipAllowList: []        # Allow all (Render internal networking)
 
+services:
   # ─── Web Service (Next.js) ────────────────────────────────────────
   - type: web
     name: hermes-app
@@ -42,8 +41,3 @@ services:
       - key: OPENAI_API_KEY
         sync: false
     healthCheckPath: /api/health
-
-databases:
-  - name: hermes-db
-    plan: starter
-    ipAllowList: []
