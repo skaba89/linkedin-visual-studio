@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build",
-    "start": "HOSTNAME=0.0.0.0 NODE_ENV=production node .next/standalone/server.js",
+    "start": "next start -p ${PORT:-10000} --hostname 0.0.0.0",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

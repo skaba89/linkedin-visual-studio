@@ -1,34 +1,30 @@
 # ─── Render Blueprint for HERMES ─────────────────────────────────────
-# Deploy: https://dashboard.render.com → New → Blueprint → Connect repo
-# Docs: https://render.com/docs/blueprint-spec
 # Database: Neon (serverless PostgreSQL) — DATABASE_URL set manually
+# Docs: https://render.com/docs/blueprint-spec
 
 services:
   # ─── Web Service (Next.js) ────────────────────────────────────────
   - type: web
     name: hermes-app
     runtime: node
-    plan: starter          # $7/mo — 512 MB RAM, 0.5 vCPU
-    region: frankfurt      # Closest to EU users
+    plan: starter
+    region: frankfurt
     branch: main
     buildCommand: bash build.sh
-    startCommand: node .next/standalone/server.js
+    startCommand: npm run start
     envVars:
-      # ─── Core (set manually in Render dashboard) ──────────────────
       - key: DATABASE_URL
         sync: false         # Neon PostgreSQL connection string
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      # ─── Secrets (set manually in Render dashboard) ──────────────
       - key: ENCRYPTION_KEY
         sync: false         # openssl rand -hex 32
       - key: NEXTAUTH_SECRET
         sync: false         # openssl rand -base64 32
       - key: NEXTAUTH_URL
         sync: false         # https://linkedin-visual-studio.onrender.com
-      # ─── Optional API keys ───────────────────────────────────────
       - key: GROQ_API_KEY
         sync: false
       - key: OPENAI_API_KEY
