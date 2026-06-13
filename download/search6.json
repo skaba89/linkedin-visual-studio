@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-tiers?view=li-lms-2026-05",
+    "name": "LinkedIn Marketing API Program Access Tiers - Microsoft Learn",
+    "snippet": "Development. Read: No limits on reading data related to Ad Accounts you administer; Create : Access to create 1 test Ad Account through the API.",
+    "host_name": "learn.microsoft.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/legal/l/marketing-api-terms",
+    "name": "Additional Terms for the LinkedIn Marketing API Program",
+    "snippet": "As a developer using the LinkedIn Marketing APIs, you'll be able to build applications that integrate with LinkedIn's advertising and community management ...",
+    "host_name": "www.linkedin.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://connectsafely.ai/articles/linkedin-api-complete-guide-2026",
+    "name": "LinkedIn API 2026: Access, Endpoints, Limits & Alternatives",
+    "snippet": "Access requires Marketing Developer Platform approval, which is generally reserved for enterprise partners. Companies report spending ...",
+    "host_name": "connectsafely.ai",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://developer.linkedin.com/product-catalog/marketing",
+    "name": "LinkedIn API | Marketing - LinkedIn Developer",
+    "snippet": "Grow your business by building scalable solutions that drive workflow efficiency, streamline marketing activities, deliver unique insights, and maximize results ...",
+    "host_name": "developer.linkedin.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://stackoverflow.com/questions/79865495/is-linkedin-member-post-analytics-api-still-available-for-creator-tools-in-2026",
+    "name": "Is LinkedIn Member Post Analytics API still available for creator tools",
+    "snippet": "Page/organization analytics are available via different APIs, but member (creator) analytics are intentionally restricted. If Community ...",
+    "host_name": "stackoverflow.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/legal/l/api-terms-of-use",
+    "name": "API Terms of Use - LinkedIn",
+    "snippet": "4. your Application DOES NOT attempt to exceed any applicable API call limits, set by LinkedIn in its sole discretion (or 100,000 daily calls ...",
+    "host_name": "www.linkedin.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.unipile.com/linkedin-api-a-comprehensive-guide-to-integration",
+    "name": "LinkedIn API for Developers: Full Integration Guide - Unipile",
+    "snippet": "LinkedIn no longer provides public access to its APIs. Since 2015, all LinkedIn API access requires joining the LinkedIn Partner Program. This ...",
+    "host_name": "www.unipile.com",
+    "rank": 6,
+    "date": "Jun 6, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://sociavault.com/blog/linkedin-api-free-2026",
+    "name": "Is the LinkedIn API Free? (The Honest Answer for Developers in 2026)",
+    "snippet": "LinkedIn's API is heavily restricted, approval takes months, and commercial use is denied for most developers. Here's what it actually costs ...",
+    "host_name": "sociavault.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://gramfunnels.com/blog/understanding-linkedin-api-pricing-comprehensive-guide",
+    "name": "LinkedIn API Pricing Guide: Costs, Tiers & Alternatives 2024 - Funnel",
+    "snippet": "Navigating LinkedIn API pricing can be complex. This comprehensive guide breaks down access tiers, actual costs, limitations, and practical ...",
+    "host_name": "gramfunnels.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://learn.microsoft.com/en-us/linkedin/marketing/restricted-use-cases?view=li-lms-2026-05",
+    "name": "Restricted Uses of LinkedIn Marketing APIs and Data - Microsoft Learn",
+    "snippet": "Restrictions on Member Data. You'll have access to member data, such as: (1) Portions of members' profiles and identifiers for members, and ( ...",
+    "host_name": "learn.microsoft.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

@@ -3,9 +3,10 @@ import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
 import { feedbackEngine } from "@/lib/feedback";
 
 export async function GET() {
-  const dashboardData = feedbackEngine.getDashboardData();
-  const rules = feedbackEngine.getRules();
-  const insights = feedbackEngine.getInsights(20);
+  await ensureDefaultUser();
+  const dashboardData = await feedbackEngine.getDashboardData();
+  const rules = await feedbackEngine.getRules();
+  const insights = await feedbackEngine.getInsights(20);
 
   const dbEvents = await db.feedbackEvent.findMany({
     where: { userId: DEFAULT_USER_ID },
@@ -27,30 +28,13 @@ export async function POST(req: NextRequest) {
 
   const baselineValue = body.baselineValue ?? 0;
 
-  const insight = feedbackEngine.recordFeedback({
+  const insight = await feedbackEngine.recordFeedback({
     sourceAgentId: body.sourceAgentId,
     contentType: body.contentType,
     contentId: body.contentId || "",
     metricType: body.metricType,
     metricValue: body.metricValue,
     baselineValue,
-  });
-
-  // Also save to DB
-  const improvement = body.metricValue - baselineValue;
-  await db.feedbackEvent.create({
-    data: {
-      userId: DEFAULT_USER_ID,
-      sourceAgentId: body.sourceAgentId,
-      contentType: body.contentType,
-      contentId: body.contentId || "",
-      metricType: body.metricType,
-      metricValue: body.metricValue,
-      baselineValue,
-      improvement,
-      actionTaken: insight.action,
-      lesson: insight.recommendation,
-    },
   });
 
   return NextResponse.json(insight, { status: 201 });

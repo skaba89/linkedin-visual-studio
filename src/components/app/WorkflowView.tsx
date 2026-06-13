@@ -13,7 +13,6 @@ import {
   TriggerType,
   ActionType,
 } from "@/lib/workflow/types";
-// Engine calls are now async and go through API routes (BUG-H2: Prisma persistence)
 import {
   Plus,
   Play,
@@ -50,7 +49,7 @@ export default function WorkflowView() {
       const data = await res.json();
       setWorkflows(data.workflows ?? []);
     } catch {
-      setWorkflows([]);
+      // Fallback unavailable — engine is server-only
     }
   }, []);
 
@@ -73,7 +72,7 @@ export default function WorkflowView() {
         fetchWorkflows();
       }
     } catch {
-      // API error
+      // API unavailable
     }
   };
 
@@ -95,7 +94,7 @@ export default function WorkflowView() {
         setNewDesc("");
       }
     } catch {
-      // API error
+      // API unavailable
     }
   };
 
@@ -108,20 +107,16 @@ export default function WorkflowView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: wf.id, status: newStatus }),
       });
-      fetchWorkflows();
-    } catch {
-      // API error
-    }
+    } catch { /* fallback */ }
+    fetchWorkflows();
   };
 
   // Delete workflow
   const deleteWorkflow = async (id: string) => {
     try {
       await fetch(`/api/data/workflows?id=${id}`, { method: "DELETE" });
-      fetchWorkflows();
-    } catch {
-      // API error
-    }
+    } catch { /* fallback */ }
+    fetchWorkflows();
   };
 
   // Execute workflow
@@ -135,7 +130,7 @@ export default function WorkflowView() {
       const data = await res.json();
       setExecutionResult(data.execution);
     } catch {
-      // API error
+      // API unavailable
     }
   };
 
@@ -152,15 +147,18 @@ export default function WorkflowView() {
       config: {},
       position: { x, y: baseY },
     };
+    // Optimistic update + persist via API
+    const optimistic = { ...selectedWorkflow, nodes: [...selectedWorkflow.nodes, node] };
+    setSelectedWorkflow(optimistic);
     try {
       const res = await fetch("/api/data/workflows", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selectedWorkflow.id, nodes: [...selectedWorkflow.nodes, node] }),
+        body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes }),
       });
       const data = await res.json();
       if (data.workflow) setSelectedWorkflow(data.workflow);
-    } catch { /* ignore */ }
+    } catch { /* keep optimistic */ }
   };
 
   const tabs: { id: TabType; label: string }[] = [
@@ -317,11 +315,15 @@ export default function WorkflowView() {
                   <input
                     value={selectedWorkflow.name}
                     onChange={(e) => {
-                      setSelectedWorkflow({ ...selectedWorkflow, name: e.target.value });
+                      const newNameVal = e.target.value;
+                      setSelectedWorkflow({ ...selectedWorkflow, name: newNameVal });
                       fetch("/api/data/workflows", {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ id: selectedWorkflow.id, name: e.target.value }),
+                        body: JSON.stringify({ id: selectedWorkflow.id, name: newNameVal }),
+                      }).then(async (res) => {
+                        const data = await res.json();
+                        if (data.workflow) setSelectedWorkflow(data.workflow);
                       }).catch(() => {});
                     }}
                     className="bg-transparent text-white text-sm font-semibold outline-none border-b border-transparent hover:border-white/20 focus:border-[#00D4FF] pb-0.5"
@@ -373,18 +375,21 @@ export default function WorkflowView() {
                             {/* Remove button */}
                             <button
                               onClick={async () => {
-                                const newNodes = selectedWorkflow.nodes.filter((n) => n.id !== node.id);
-                                const newEdges = selectedWorkflow.edges.filter((e) => e.from !== node.id && e.to !== node.id);
-                                setSelectedWorkflow({ ...selectedWorkflow, nodes: newNodes, edges: newEdges });
+                                const optimistic = {
+                                  ...selectedWorkflow,
+                                  nodes: selectedWorkflow.nodes.filter((n) => n.id !== node.id),
+                                  edges: selectedWorkflow.edges.filter((e) => e.from !== node.id && e.to !== node.id),
+                                };
+                                setSelectedWorkflow(optimistic);
                                 try {
                                   const res = await fetch("/api/data/workflows", {
                                     method: "PUT",
                                     headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ id: selectedWorkflow.id, nodes: newNodes, edges: newEdges }),
+                                    body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes, edges: optimistic.edges }),
                                   });
                                   const data = await res.json();
                                   if (data.workflow) setSelectedWorkflow(data.workflow);
-                                } catch { /* ignore */ }
+                                } catch { /* keep optimistic */ }
                               }}
                               className="absolute -top-2 -right-2 w-5 h-5 bg-[#E5263A] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                             >

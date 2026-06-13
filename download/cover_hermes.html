@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HERMES - Couverture</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  @page { size: 794px 1123px; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; width: 794px; height: 1123px; overflow: hidden; }
+  .cover {
+    width: 794px; height: 1123px;
+    background: #fafaf9;
+    position: relative;
+    font-family: 'DM Sans', -apple-system, system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  .accent-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 6px;
+    background: linear-gradient(90deg, #5b32d4 0%, #7a7258 50%, #3db579 100%);
+  }
+  .left-line {
+    position: absolute; left: 72px; top: 120px; bottom: 120px; width: 1px;
+    background: rgba(111, 103, 79, 0.15);
+  }
+  .content {
+    flex: 1;
+    padding: 120px 80px 80px 100px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  .kicker {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 3px; text-transform: uppercase;
+    color: #a18943; margin-bottom: 32px;
+  }
+  .hero-title {
+    font-size: 48px; font-weight: 300;
+    line-height: 1.1; letter-spacing: -1.5px;
+    color: #171615; margin-bottom: 24px;
+  }
+  .hero-title .highlight {
+    color: #5b32d4; font-weight: 500;
+  }
+  .subtitle {
+    font-size: 18px; font-weight: 400;
+    color: #7a7871; line-height: 1.6;
+    max-width: 500px; margin-bottom: 48px;
+  }
+  .meta {
+    display: flex; gap: 40px;
+    margin-top: auto;
+    padding-top: 32px;
+    border-top: 1px solid rgba(111, 103, 79, 0.12);
+  }
+  .meta-item {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .meta-label {
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: #a18943;
+  }
+  .meta-value {
+    font-size: 14px; font-weight: 500;
+    color: #171615;
+  }
+  .summary-box {
+    background: rgba(91, 50, 212, 0.04);
+    border: 1px solid rgba(91, 50, 212, 0.12);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 48px;
+    max-width: 520px;
+  }
+  .summary-box p {
+    font-size: 14px; color: #4a4a47; line-height: 1.7;
+  }
+  .corner-mark {
+    position: absolute; bottom: 80px; right: 80px;
+    font-family: 'DM Mono', monospace;
+    font-size: 72px; font-weight: 500;
+    color: rgba(91, 50, 212, 0.06);
+    letter-spacing: -4px;
+    line-height: 1;
+  }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="accent-bar"></div>
+  <div class="left-line"></div>
+  <div class="content">
+    <div class="kicker">Strategie et analyse competitive</div>
+    <h1 class="hero-title">HERMES<br><span class="highlight">8 agents IA</span> pour<br>l'acquisition B2B</h1>
+    <div class="summary-box">
+      <p>Analyse concurrentielle du marche 2026, diagnostic technique du codebase, recommandations strategiques prioritarites et feuille de route d'implementation en quatre phases pour transformer HERMES en plateforme leader de l'acquisition B2B autonome.</p>
+    </div>
+    <div class="subtitle">Analyse concurrentielle, recommandations strategiques et feuille de route d'implementation 2026-2027</div>
+    <div class="meta">
+      <div class="meta-item">
+        <span class="meta-label">Version</span>
+        <span class="meta-value">2.0</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Date</span>
+        <span class="meta-value">Juin 2026</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Classification</span>
+        <span class="meta-value">Confidentiel</span>
+      </div>
+    </div>
+  </div>
+  <div class="corner-mark">2026</div>
+</div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
-import { db, DEFAULT_USER_ID, ensureDefaultUser } from "@/lib/db";
+import { db, DEFAULT_USER_ID } from "@/lib/db";
 
 // Check and publish due posts
 let lastCheck = 0;
@@ -14,7 +14,7 @@ async function checkAndPublishDuePosts() {
     where: {
       userId: DEFAULT_USER_ID,
       status: "scheduled",
-      scheduledAt: { lte: new Date() },
+      scheduledAt: { lte: new Date(now) },
     },
   });
 
@@ -29,13 +29,25 @@ async function checkAndPublishDuePosts() {
       if (!token) {
         await db.scheduledPost.update({
           where: { id: post.id },
-          data: { status: "failed", error: "Token LinkedIn expire" },
+          data: { status: "failed", error: "Token LinkedIn expiré" },
+        });
+        continue;
+      }
+
+      const linkedInAuth = await db.linkedInAuth.findUnique({
+        where: { userId: DEFAULT_USER_ID },
+      });
+
+      if (!linkedInAuth || !linkedInAuth.linkedInUserId) {
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: { status: "failed", error: "ID LinkedIn introuvable" },
         });
         continue;
       }
 
       const postBody = {
-        author: `urn:li:person:${post.id}`, // Using post.id as placeholder; linkedinId stored elsewhere
+        author: `urn:li:person:${linkedInAuth.linkedInUserId}`,
         lifecycleState: "PUBLISHED",
         specificContent: {
           "com.linkedin.ugc.ShareContent": {
@@ -70,7 +82,10 @@ async function checkAndPublishDuePosts() {
       } else {
         await db.scheduledPost.update({
           where: { id: post.id },
-          data: { status: "published", publishedAt: new Date() },
+          data: {
+            status: "published",
+            publishedAt: new Date(),
+          },
         });
       }
     } catch (error) {
@@ -87,7 +102,7 @@ async function checkAndPublishDuePosts() {
 
 /**
  * GET /api/linkedin/schedule
- * List all scheduled posts — now from SQLite
+ * List all scheduled posts
  */
 export async function GET() {
   await checkAndPublishDuePosts();
@@ -113,24 +128,31 @@ export async function GET() {
 
 /**
  * POST /api/linkedin/schedule
- * Schedule a new post for later publication — persisted to SQLite
+ * Schedule a new post for later publication
  */
 export async function POST(request: NextRequest) {
   try {
     const token = await getTokenFromCookies();
     if (!token) {
       return NextResponse.json(
-        { error: "Non authentifie. Connectez votre compte LinkedIn." },
+        { error: "Non authentifié. Connectez votre compte LinkedIn." },
         { status: 401 }
       );
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", scheduledAt } = body;
+    const { text, visibility = "PUBLIC", linkedinId, scheduledAt } = body;
 
     if (!text || !text.trim()) {
       return NextResponse.json(
         { error: "Le texte du post est requis" },
+        { status: 400 }
+      );
+    }
+
+    if (!linkedinId) {
+      return NextResponse.json(
+        { error: "L'ID LinkedIn est requis" },
         { status: 400 }
       );
     }
@@ -152,12 +174,10 @@ export async function POST(request: NextRequest) {
 
     if (scheduledDate.getTime() <= Date.now()) {
       return NextResponse.json(
-        { error: "La date de publication doit etre dans le futur" },
+        { error: "La date de publication doit être dans le futur" },
         { status: 400 }
       );
     }
-
-    await ensureDefaultUser();
 
     const post = await db.scheduledPost.create({
       data: {
@@ -173,7 +193,7 @@ export async function POST(request: NextRequest) {
       success: true,
       postId: post.id,
       scheduledAt: post.scheduledAt.toISOString(),
-      message: `Post planifie pour le ${scheduledDate.toLocaleDateString("fr-FR", {
+      message: `Post planifié pour le ${scheduledDate.toLocaleDateString("fr-FR", {
         weekday: "long",
         day: "numeric",
         month: "long",
@@ -202,13 +222,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "ID du post manquant" }, { status: 400 });
   }
 
-  const post = await db.scheduledPost.findFirst({
-    where: { id, userId: DEFAULT_USER_ID, status: "scheduled" },
-  });
+  const post = await db.scheduledPost.findUnique({ where: { id } });
 
-  if (!post) {
+  if (!post || post.status !== "scheduled") {
     return NextResponse.json(
-      { error: "Post planifie introuvable ou deja publie" },
+      { error: "Post planifié introuvable ou déjà publié" },
       { status: 404 }
     );
   }
@@ -217,6 +235,6 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    message: "Post planifie annule",
+    message: "Post planifié annulé",
   });
 }

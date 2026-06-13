@@ -14,7 +14,7 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NotificationPreference,
 } from "@/lib/notifications/types";
-// Engine calls are now async via API routes (BUG-H2: Prisma persistence)
+import { notificationEngine } from "@/lib/notifications";
 import {
   Bell,
   BellOff,
@@ -55,7 +55,12 @@ export default function NotificationsView() {
       setNotifications(data.notifications ?? []);
       setStats(data.stats ?? { total: 0, unread: 0, byCategory: {}, byPriority: {}, todayCount: 0 });
     } catch {
-      // API error
+      const notifs = notificationEngine.getNotifications({
+        category: filterCategory !== "all" ? filterCategory : undefined,
+        unreadOnly: filterUnread || undefined,
+      });
+      setNotifications(notifs);
+      setStats(notificationEngine.getStats());
     }
   }, [filterCategory, filterUnread]);
 
@@ -65,7 +70,7 @@ export default function NotificationsView() {
       const data = await res.json();
       setPreferences(data.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES);
     } catch {
-      // API error
+      setPreferences(notificationEngine.getPreferences());
     }
   }, []);
 
@@ -81,7 +86,8 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "markRead", id }),
       });
-    } catch { /* API error */ }
+    } catch { /* fallback */ }
+    notificationEngine.markAsRead(id);
     fetchData();
   };
 
@@ -92,7 +98,8 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "markAllRead" }),
       });
-    } catch { /* API error */ }
+    } catch { /* fallback */ }
+    notificationEngine.markAllAsRead();
     fetchData();
   };
 
@@ -103,7 +110,8 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "dismiss", id }),
       });
-    } catch { /* API error */ }
+    } catch { /* fallback */ }
+    notificationEngine.dismiss(id);
     fetchData();
   };
 
@@ -114,7 +122,8 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "dismissAll" }),
       });
-    } catch { /* API error */ }
+    } catch { /* fallback */ }
+    notificationEngine.dismissAll();
     fetchData();
   };
 
@@ -125,7 +134,8 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "updatePreference", category, updates }),
       });
-    } catch { /* API error */ }
+    } catch { /* fallback */ }
+    notificationEngine.updatePreference(category, updates);
     fetchPreferences();
   };
 

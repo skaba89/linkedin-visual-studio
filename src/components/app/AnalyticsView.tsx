@@ -48,7 +48,7 @@ interface Experiment {
   type: string;
   status: string;
   targetAgentId?: string;
-  variants: string;
+  variants: any[];
   trafficSplit: string;
   startDate?: string;
   endDate?: string;
@@ -384,7 +384,7 @@ export default function AnalyticsView() {
           ) : (
             <div className="space-y-3">
               {experiments.map((exp) => {
-                const variants: Array<{ id: string; name: string; trafficPercent: number }> = JSON.parse(exp.variants || "[]");
+                const variants: Array<{ id: string; name: string; trafficPercent: number }> = exp.variants || [];
                 return (
                   <div key={exp.id} className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
                     <div className="flex items-start justify-between mb-3">

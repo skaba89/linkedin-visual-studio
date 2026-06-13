@@ -1,5 +1,6 @@
 // HERMÈS Feedback Engine — Continuous improvement and agent optimization
 
+import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
 import {
   FeedbackMetricType,
   FeedbackAction,
@@ -11,7 +12,7 @@ import {
   FeedbackDashboardData,
 } from "./types";
 
-// Default feedback rules
+// Default feedback rules (used for seeding)
 const DEFAULT_RULES: FeedbackRule[] = [
   {
     id: "low-engagement",
@@ -66,13 +67,28 @@ const AGENT_NAMES: Record<string, string> = {
   reseau: "Réseau",
 };
 
-export class FeedbackEngine {
-  private rules: FeedbackRule[] = [...DEFAULT_RULES];
-  private feedbackHistory: Array<FeedbackEventData & { timestamp: Date; actionTaken: FeedbackAction; lesson?: string }> = [];
+/** Map a Prisma FeedbackRule row to the FeedbackRule interface */
+function mapDbRuleToFeedbackRule(
+  row: { ruleId: string; name: string; metricType: string; condition: string; threshold: number; action: string; message: string; enabled: boolean }
+): FeedbackRule {
+  return {
+    id: row.ruleId,
+    name: row.name,
+    metricType: row.metricType as FeedbackMetricType,
+    condition: row.condition as "above" | "below" | "equals",
+    threshold: row.threshold,
+    action: row.action as FeedbackAction,
+    message: row.message,
+    enabled: row.enabled,
+  };
+}
 
-  recordFeedback(data: FeedbackEventData): FeedbackInsight {
+export class FeedbackEngine {
+  async recordFeedback(data: FeedbackEventData): Promise<FeedbackInsight> {
+    await ensureDefaultUser();
     const improvement = data.metricValue - data.baselineValue;
-    const rule = this.evaluateRules(data.metricType, data.metricValue);
+    const rules = await this.getRules();
+    const rule = this.evaluateRules(data.metricType, data.metricValue, rules);
     const action = rule?.action || "none";
     const recommendation = rule?.message || this.generateRecommendation(data.metricType, improvement);
 
@@ -88,11 +104,19 @@ export class FeedbackEngine {
       priority: this.calculatePriority(improvement, data.metricType),
     };
 
-    this.feedbackHistory.push({
-      ...data,
-      timestamp: new Date(),
-      actionTaken: action,
-      lesson: recommendation,
+    await db.feedbackEvent.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        sourceAgentId: data.sourceAgentId,
+        contentType: data.contentType,
+        contentId: data.contentId,
+        metricType: data.metricType,
+        metricValue: data.metricValue,
+        baselineValue: data.baselineValue,
+        improvement,
+        actionTaken: action,
+        lesson: recommendation,
+      },
     });
 
     return insight;
@@ -114,8 +138,8 @@ export class FeedbackEngine {
     return baselines[metricType] || 0.05;
   }
 
-  evaluateRules(metricType: FeedbackMetricType, value: number): FeedbackRule | null {
-    for (const rule of this.rules) {
+  evaluateRules(metricType: FeedbackMetricType, value: number, rules: FeedbackRule[]): FeedbackRule | null {
+    for (const rule of rules) {
       if (!rule.enabled || rule.metricType !== metricType) continue;
 
       switch (rule.condition) {
@@ -157,35 +181,79 @@ export class FeedbackEngine {
     }
   }
 
-  getInsights(limit: number = 10): FeedbackInsight[] {
-    const recentFeedback = this.feedbackHistory.slice(-limit).reverse();
+  async getInsights(limit: number = 10): Promise<FeedbackInsight[]> {
+    await ensureDefaultUser();
+    const events = await db.feedbackEvent.findMany({
+      where: { userId: DEFAULT_USER_ID },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
 
-    return recentFeedback.map((fb) => ({
+    return events.map((fb) => ({
       agentId: fb.sourceAgentId,
       agentName: AGENT_NAMES[fb.sourceAgentId] || fb.sourceAgentId,
-      metric: fb.metricType,
+      metric: fb.metricType as FeedbackMetricType,
       currentValue: fb.metricValue,
       baselineValue: fb.baselineValue,
-      improvement: fb.metricValue - fb.baselineValue,
-      recommendation: fb.lesson || this.generateRecommendation(fb.metricType, fb.metricValue - fb.baselineValue),
-      action: fb.actionTaken,
-      priority: this.calculatePriority(fb.metricValue - fb.baselineValue, fb.metricType),
+      improvement: fb.improvement,
+      recommendation: fb.lesson || this.generateRecommendation(fb.metricType as FeedbackMetricType, fb.improvement),
+      action: (fb.actionTaken || "none") as FeedbackAction,
+      priority: this.calculatePriority(fb.improvement, fb.metricType as FeedbackMetricType),
     }));
   }
 
-  getRules(): FeedbackRule[] {
-    return [...this.rules];
+  async getRules(): Promise<FeedbackRule[]> {
+    await ensureDefaultUser();
+    const dbRules = await db.feedbackRule.findMany({
+      where: { userId: DEFAULT_USER_ID },
+    });
+
+    if (dbRules.length === 0) {
+      // Seed from DEFAULT_RULES
+      await db.feedbackRule.createMany({
+        data: DEFAULT_RULES.map((r) => ({
+          userId: DEFAULT_USER_ID,
+          ruleId: r.id,
+          name: r.name,
+          metricType: r.metricType,
+          condition: r.condition,
+          threshold: r.threshold,
+          action: r.action,
+          message: r.message,
+          enabled: r.enabled,
+        })),
+      });
+
+      const seeded = await db.feedbackRule.findMany({
+        where: { userId: DEFAULT_USER_ID },
+      });
+      return seeded.map(mapDbRuleToFeedbackRule);
+    }
+
+    return dbRules.map(mapDbRuleToFeedbackRule);
   }
 
-  toggleRule(ruleId: string, enabled?: boolean): FeedbackRule | null {
-    const rule = this.rules.find((r) => r.id === ruleId);
-    if (!rule) return null;
-    rule.enabled = enabled ?? !rule.enabled;
-    return rule;
+  async toggleRule(ruleId: string, enabled?: boolean): Promise<FeedbackRule | null> {
+    await ensureDefaultUser();
+    const existing = await db.feedbackRule.findUnique({
+      where: { userId_ruleId: { userId: DEFAULT_USER_ID, ruleId } },
+    });
+    if (!existing) return null;
+
+    const newEnabled = enabled ?? !existing.enabled;
+    const updated = await db.feedbackRule.update({
+      where: { userId_ruleId: { userId: DEFAULT_USER_ID, ruleId } },
+      data: { enabled: newEnabled },
+    });
+
+    return mapDbRuleToFeedbackRule(updated);
   }
 
-  getAgentPerformance(agentId: string): AgentPerformanceSummary {
-    const agentFeedback = this.feedbackHistory.filter((fb) => fb.sourceAgentId === agentId);
+  async getAgentPerformance(agentId: string): Promise<AgentPerformanceSummary> {
+    await ensureDefaultUser();
+    const agentFeedback = await db.feedbackEvent.findMany({
+      where: { userId: DEFAULT_USER_ID, sourceAgentId: agentId },
+    });
 
     const metrics: Record<string, { values: number[]; baselines: number[] }> = {};
     for (const fb of agentFeedback) {
@@ -232,21 +300,30 @@ export class FeedbackEngine {
     };
   }
 
-  getDashboardData(): FeedbackDashboardData {
+  async getDashboardData(): Promise<FeedbackDashboardData> {
+    await ensureDefaultUser();
     const agentIds = ["contenu", "qualif", "prospection", "engagement", "veille", "nurturing", "analyse", "reseau"];
-    const agentPerformances = agentIds.map((id) => this.getAgentPerformance(id));
+    const agentPerformances = await Promise.all(
+      agentIds.map((id) => this.getAgentPerformance(id))
+    );
 
     // Calculate overall health (0-100)
     const avgImprovement = agentPerformances.reduce((sum, a) => sum + a.avgImprovement, 0) / agentPerformances.length;
     const overallHealth = Math.max(0, Math.min(100, 50 + avgImprovement * 500));
 
-    const topInsights = this.getInsights(5);
+    const topInsights = await this.getInsights(5);
 
-    const recentActions = this.feedbackHistory.slice(-10).reverse().map((fb) => ({
+    const recentEvents = await db.feedbackEvent.findMany({
+      where: { userId: DEFAULT_USER_ID },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+
+    const recentActions = recentEvents.map((fb) => ({
       agentId: fb.sourceAgentId,
-      action: fb.actionTaken,
+      action: (fb.actionTaken || "none") as FeedbackAction,
       reason: fb.lesson || "",
-      timestamp: fb.timestamp,
+      timestamp: fb.createdAt,
     }));
 
     return {
@@ -255,10 +332,6 @@ export class FeedbackEngine {
       topInsights,
       recentActions,
     };
-  }
-
-  loadFeedbackData(data: Array<FeedbackEventData & { timestamp: Date; actionTaken: FeedbackAction; lesson?: string }>): void {
-    this.feedbackHistory = data;
   }
 
   private calculatePriority(improvement: number, metricType: FeedbackMetricType): "high" | "medium" | "low" {

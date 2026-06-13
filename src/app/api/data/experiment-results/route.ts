@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       impressionId: body.impressionId,
       outcome: body.outcome || "",
       metricValue: body.metricValue || 0,
-      metadata: body.metadata ? JSON.stringify(body.metadata) : undefined,
+      metadata: body.metadata ?? undefined,
     },
   });
 

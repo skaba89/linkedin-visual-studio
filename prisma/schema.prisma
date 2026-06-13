@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -43,21 +43,27 @@ model User {
   emailSequences       EmailSequence[]
   emailMessages        EmailMessage[]
   pipelineStages       PipelineStage[]
-  workflowData         WorkflowData[]
-  notificationData     NotificationData[]
-  webhookData          WebhookData[]
-  webhookDeliveries    WebhookDeliveryData[]
+  workflows            Workflow[]
+  workflowExecutions   WorkflowExecution[]
+  notifications        Notification[]
+  notificationPreferences NotificationPreference[]
+  webhooks             Webhook[]
+  webhookDeliveries    WebhookDelivery[]
+  orchestratorState    OrchestratorState?
+  complianceState      ComplianceState?
+  feedbackRules        FeedbackRule[]
+  eventHistory         EventHistory[]
 }
 
 model UserSettings {
   userId            String   @id
   provider          String   @default("groq")
   model             String   @default("llama-3.3-70b-versatile")
-  providerApiKeys   String   @default("{}")
-  channels          String   @default("[]")
+  providerApiKeys   Json     @default("{}")
+  channels          Json     @default("[]")
   allowShell        Boolean  @default(true)
   allowBrowser      Boolean  @default(true)
-  forbiddenCommands String   @default("[]")
+  forbiddenCommands Json     @default("[]")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -88,9 +94,9 @@ model AgentConfig {
 model ICPConfig {
   id           String  @id @default(cuid())
   userId       String  @unique
-  titles       String  @default("[]")
-  sectors      String  @default("[]")
-  companySizes String  @default("[]")
+  titles       Json    @default("[]")
+  sectors      Json    @default("[]")
+  companySizes Json    @default("[]")
   minScore     Int     @default(60)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -169,9 +175,9 @@ model MarketBriefing {
   userId        String
   title         String
   summary       String   @default("")
-  trends        String   @default("[]")
-  opportunities String   @default("[]")
-  competitors   String   @default("[]")
+  trends        Json     @default("[]")
+  opportunities Json     @default("[]")
+  competitors   Json     @default("[]")
   model         String   @default("")
   createdAt     DateTime @default(now())
 
@@ -331,7 +337,7 @@ model MessageTemplate {
   name      String
   timing    String   @default("")
   content   String
-  notes     String   @default("[]")
+  notes     Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -346,11 +352,11 @@ model Experiment {
   type          String    @default("ab")
   status        String    @default("draft")
   targetAgentId String?
-  variants      String    @default("[]")
+  variants      Json      @default("[]")
   trafficSplit  String    @default("50/50")
   startDate     DateTime?
   endDate       DateTime?
-  results       String?
+  results       Json?
   winnerId      String?
   confidence    Float     @default(0)
   createdAt     DateTime  @default(now())
@@ -371,7 +377,7 @@ model ExperimentResult {
   impressionId String?
   outcome      String   @default("")
   metricValue  Float    @default(0)
-  metadata     String?
+  metadata     Json?
   createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -443,7 +449,7 @@ model Contact {
   linkedinUrl String?
   source      String    @default("manual")
   notes       String?
-  tags        String    @default("[]")
+  tags        Json      @default("[]")
   score       Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -482,7 +488,7 @@ model EmailSequence {
   description  String    @default("")
   triggerEvent String    @default("manual")
   status       String    @default("draft")
-  steps        String    @default("[]")
+  steps        Json      @default("[]")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -525,95 +531,209 @@ model PipelineStage {
   @@index([userId, order])
 }
 
-// ─── Persisted Engine Data (BUG-H2 fix: data survives server restart) ───
+// ─── Workflow persistence ────────────────────────────────────────────
 
-model WorkflowData {
+model Workflow {
   id              String    @id @default(cuid())
   userId          String
   name            String
   description     String    @default("")
-  status          String    @default("draft")
-  nodes           String    @default("[]")
-  edges           String    @default("[]")
-  executions      String    @default("[]")
-  lastExecutionAt String?
-  tags            String    @default("[]")
+  status          String    @default("draft")  // draft | active | paused | archived
+  nodes           Json      @default("[]")
+  edges           Json      @default("[]")
+  tags            Json      @default("[]")
   version         Int       @default(1)
+  lastExecutionAt DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executions  WorkflowExecution[]
 
   @@index([userId, status])
 }
 
-model NotificationData {
-  id              String    @id @default(cuid())
-  userId          String
-  title           String
-  message         String
-  category        String    @default("system")
-  priority        String    @default("medium")
-  read            Boolean   @default(false)
-  dismissed       Boolean   @default(false)
-  actionUrl       String?
-  actionLabel     String?
-  sourceAgent     String?
-  sourceWorkflow  String?
-  metadata        String?   @default("{}")
-  readAt          String?
-  expiresAt       String?
-  createdAt       DateTime  @default(now())
+model WorkflowExecution {
+  id           String   @id @default(cuid())
+  userId       String
+  workflowId   String
+  status       String   @default("running")  // running | completed | failed
+  triggerNode  String   @default("")
+  currentNode  String?
+  error        String?
+  data         Json     @default("{}")
+  steps        Json     @default("[]")
+  startedAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, workflowId])
+  @@index([userId, startedAt])
+}
+
+// ─── Notification persistence ────────────────────────────────────────
+
+model Notification {
+  id             String    @id @default(cuid())
+  userId         String
+  title          String
+  message        String
+  category       String    @default("system")  // agent | lead | deal | email | linkedin | compliance | workflow | system
+  priority       String    @default("medium")  // low | medium | high | critical
+  actionUrl      String?
+  actionLabel    String?
+  sourceAgent    String?
+  sourceWorkflow String?
+  metadata       Json?
+  read           Boolean   @default(false)
+  readAt         DateTime?
+  dismissed      Boolean   @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, category])
-  @@index([userId, read])
+  @@index([userId, dismissed])
   @@index([userId, createdAt])
 }
 
-model WebhookData {
-  id               String    @id @default(cuid())
-  userId           String
-  name             String
-  provider         String    @default("custom")
-  url              String
-  secret           String?
-  events           String    @default("[]")
-  status           String    @default("active")
-  headers          String?   @default("{}")
-  retryCount       Int       @default(3)
-  retryDelayMs     Int       @default(5000)
-  timeoutMs        Int       @default(10000)
-  lastTriggeredAt  String?
-  lastStatus       Int?
-  errorCount       Int       @default(0)
-  totalDeliveries  Int       @default(0)
-  successDeliveries Int      @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+model NotificationPreference {
+  id                String   @id @default(cuid())
+  userId            String
+  category          String   @unique  // one preference row per category per user
+  enabled           Boolean  @default(true)
+  minPriority       String   @default("low")  // low | medium | high | critical
+  quietHoursEnabled Boolean  @default(false)
+  quietHoursStart   String   @default("")  // "22:00"
+  quietHoursEnd     String   @default("")  // "08:00"
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Webhook persistence ─────────────────────────────────────────────
+
+model Webhook {
+  id                String    @id @default(cuid())
+  userId            String
+  name              String
+  provider          String    @default("custom")  // slack | discord | zapier | make | custom
+  url               String
+  secret            String?
+  events            Json      @default("[]")
+  status            String    @default("active")   // active | paused | error
+  headers           Json?
+  retryCount        Int       @default(3)
+  retryDelayMs      Int       @default(5000)
+  timeoutMs         Int       @default(10000)
+  lastTriggeredAt   DateTime?
+  lastStatus        Int?
+  errorCount        Int       @default(0)
+  totalDeliveries   Int       @default(0)
+  successDeliveries Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
 
   @@index([userId, status])
 }
 
-model WebhookDeliveryData {
-  id          String   @id @default(cuid())
+model WebhookDelivery {
+  id          String    @id @default(cuid())
   userId      String
   webhookId   String
   event       String
-  status      String   @default("pending")
-  attempts    Int      @default(0)
-  request     String   @default("{}")
-  response    String?
-  deliveredAt String?
-  nextRetryAt String?
+  status      String    @default("pending")  // pending | delivered | failed | retrying
+  attempts    Int       @default(0)
+  request     Json      @default("{}")
+  response    Json?
+  deliveredAt DateTime?
+  nextRetryAt DateTime?
   error       String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, webhookId])
+  @@index([userId, createdAt])
+}
+
+// ─── Orchestrator state persistence ──────────────────────────────────
+
+model OrchestratorState {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  state     String   @default("stopped")  // running | stopped | paused
+  rules     Json     @default("[]")
+  startedAt DateTime?
+  metrics   Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Compliance state persistence ────────────────────────────────────
+
+model ComplianceState {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  level             String   @default("moderate")  // conservative | moderate | aggressive
+  warmupActive      Boolean  @default(false)
+  warmupStartDate   DateTime?
+  usage             Json     @default("{}")
+  weeklyInvitations Int      @default(0)
+  lastResetDate     String   @default("")
+  lastWeeklyReset   String   @default("")
+  violations        Json     @default("[]")
+  mimicryConfig     Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Feedback rule persistence ───────────────────────────────────────
+
+model FeedbackRule {
+  id         String   @id @default(cuid())
+  userId     String
+  ruleId     String   // logical ID like "low-engagement"
+  name       String
+  metricType String
+  condition  String   // below | above | equals
+  threshold  Float    @default(0)
+  action     String   @default("none")
+  message    String   @default("")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, webhookId])
+  @@unique([userId, ruleId])
+}
+
+// ─── Event history persistence ───────────────────────────────────────
+
+model EventHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  eventType String
+  agentId   String   @default("")
+  agentName String   @default("")
+  data      Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType])
   @@index([userId, createdAt])
 }

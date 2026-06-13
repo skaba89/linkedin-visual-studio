@@ -6,43 +6,13 @@
  * - Current trends and news on LinkedIn
  * - ICP (Ideal Customer Profile) configuration
  * - Best posting times analysis
+ * 
+ * NOTE: No hardcoded fallback content. All data comes from AI or web search.
+ * If AI/web search is unavailable, functions return empty arrays or null.
  */
 
 import { chatCompletion, type ChatMessage } from "./ai-client";
-
-// Safely import useAppStore only on client side
-let useAppStore: typeof import("@/store/appStore").useAppStore | null = null;
-try {
-  if (typeof window !== "undefined") {
-    const storeModule = require("@/store/appStore");
-    useAppStore = storeModule.useAppStore;
-  }
-} catch {
-  // Server-side: store not available
-}
-
-/**
- * Unified chat completion that works both client-side and server-side.
- * - Client-side: uses chatCompletion (fetch to /api/ai/chat)
- * - Server-side: uses dynamic import of server-ai-client (direct z-ai-web-dev-sdk)
- */
-async function unifiedChatCompletion(
-  messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number; model?: string; providerId?: string }
-): Promise<{ content: string; model: string }> {
-  if (typeof window === "undefined") {
-    // Server-side: use direct SDK call via dynamic import
-    // Dynamic require avoids bundling z-ai-web-dev-sdk in client
-    const { serverChatCompletion } = require("./server-ai-client") as typeof import("./server-ai-client");
-    return serverChatCompletion(messages, {
-      model: options?.model,
-      temperature: options?.temperature,
-      maxTokens: options?.maxTokens,
-    });
-  }
-  // Client-side: use fetch to API endpoint
-  return chatCompletion(messages, options);
-}
+import { useAppStore } from "@/store/appStore";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -56,24 +26,6 @@ export interface LinkedInPostSuggestion {
   format: "story" | "list" | "contrarian" | "tutorial" | "data" | "question";
 }
 
-export interface LinkedInPostFromTopic {
-  id: string;
-  text: string;
-  topic: string;
-  hook: string;
-  score: number;
-  scoreBreakdown: {
-    hook: number;
-    structure: number;
-    cta: number;
-    readability: number;
-    engagement: number;
-  };
-  bestTime: string;
-  format: string;
-  tips: string[];
-}
-
 export interface LinkedInCommentSuggestion {
   id: string;
   text: string;
@@ -84,8 +36,18 @@ export interface LinkedInCommentSuggestion {
 export interface TrendingTopic {
   topic: string;
   angle: string;
- 热度: "hot" | "warm" | "rising";
+  热度: "hot" | "warm" | "rising";
   suggestedHook: string;
+}
+
+export interface PostAnalysis {
+  styleProfile: string;
+  topTopics: string[];
+  topFormats: string[];
+  avgEngagement: string;
+  recommendations: string[];
+  strengths: string[];
+  weaknesses: string[];
 }
 
 export interface BestTimeSlot {
@@ -95,51 +57,140 @@ export interface BestTimeSlot {
   reason: string;
 }
 
+// ─── Web Search Helper ──────────────────────────────────────────
+
+/**
+ * Calls the server-side web search API route (backed by z-ai-web-dev-sdk).
+ * Must go through the API route because the SDK is backend-only.
+ */
+async function webSearch(query: string, num: number = 10): Promise<unknown[]> {
+  try {
+    const res = await fetch("/api/ai/web-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, num }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  } catch (error) {
+    console.error("Web search error:", error);
+    return [];
+  }
+}
+
 // ─── Context Builder ────────────────────────────────────────────
 
 function getProjectContext(): string {
-  // Server-side safe: use default context when store is unavailable
-  if (!useAppStore) {
-    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
-8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
-ICP cible : CEO, CMO, fondateurs de startups B2B dans les secteurs SaaS, Tech, Consulting.
-Sujets récents abordés : IA, prospection B2B, automation LinkedIn, scoring ICP`;
-  }
-
-  try {
-    const state = useAppStore.getState();
-    const icpTitles = state.icpConfig.titles.join(", ");
-    const icpSectors = state.icpConfig.sectors.join(", ");
-    const recentPosts = state.generatedPosts.slice(0, 5).map(p => p.topic);
-    
-    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
+  const state = useAppStore.getState();
+  const icpTitles = state.icpConfig.titles.join(", ");
+  const icpSectors = state.icpConfig.sectors.join(", ");
+  const recentPosts = state.generatedPosts.slice(0, 5).map(p => p.topic);
+  
+  return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
 8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
 ICP cible : ${icpTitles} dans les secteurs ${icpSectors}.
 Sujets récents abordés : ${recentPosts.length > 0 ? recentPosts.join(", ") : "IA, prospection B2B, automation LinkedIn, scoring ICP"}`;
-  } catch {
-    return `Projet HERMÈS : Gateway d'agents IA pour l'acquisition B2B sur LinkedIn.
-8 agents autonomes : Contenu, Qualification, Prospection, Engagement, Veille, Nurturing, Analyse, Réseau.
-ICP cible : CEO, CMO, fondateurs de startups B2B.
-Sujets récents abordés : IA, prospection B2B, automation LinkedIn, scoring ICP`;
-  }
 }
 
 // ─── Best Time Analysis ─────────────────────────────────────────
 
 /**
  * Returns optimal posting times for LinkedIn B2B content.
- * Based on LinkedIn engagement research for French/European B2B audiences.
+ * Tries web search first, then LLM, then falls back to a simple default.
  */
-export function getBestPostingTimes(): BestTimeSlot[] {
+export async function getBestPostingTimes(): Promise<BestTimeSlot[]> {
+  // Strategy 1: Web search for current best posting times
+  try {
+    const results = await webSearch(
+      `best times to post on LinkedIn B2B ${new Date().getFullYear()} engagement research`,
+      5
+    );
+
+    if (results.length > 0) {
+      // Extract useful info from search results and ask LLM to structure it
+      const searchContext = JSON.stringify(results).slice(0, 3000);
+
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un analyste de données LinkedIn. À partir des résultats de recherche web ci-dessous, identifie les meilleurs créneaux de publication LinkedIn pour une audience B2B française/européenne.
+
+Réponds en JSON strict (tableau) :
+[
+  { "day": "jour en français", "time": "HH:MM", "score": 0-100, "reason": "raison courte en français" }
+]
+
+Données de recherche web :
+${searchContext}`,
+        },
+        {
+          role: "user",
+          content: "Quels sont les meilleurs créneaux de publication LinkedIn B2B d'après ces données ?",
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.4,
+        maxTokens: 800,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Web search best times error:", error);
+  }
+
+  // Strategy 2: Ask LLM directly
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un expert en stratégie de contenu LinkedIn B2B pour une audience française/européenne.
+Recommande les meilleurs créneaux de publication pour maximiser l'engagement B2B.
+
+Réponds en JSON strict (tableau de 5-7 entrées) :
+[
+  { "day": "jour en français", "time": "HH:MM", "score": 0-100, "reason": "raison courte en français" }
+]
+
+Langue : français`,
+      },
+      {
+        role: "user",
+        content: "Quels sont les meilleurs créneaux de publication LinkedIn pour une audience B2B en 2025 ?",
+      },
+    ];
+
+    const response = await chatCompletion(messages, {
+      temperature: 0.4,
+      maxTokens: 800,
+    });
+
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+      }
+    }
+  } catch (error) {
+    console.error("LLM best times error:", error);
+  }
+
+  // Strategy 3: Simple default fallback
+  console.warn("[HERMÈS] getBestPostingTimes: AI and web search unavailable, using simple default times");
   return [
-    { day: "Lundi", time: "08:00", score: 92, reason: "Début de semaine, haute attention professionnelle" },
-    { day: "Mardi", time: "07:45", score: 95, reason: "Meilleur jour B2B, audience proactive" },
-    { day: "Mercredi", time: "08:15", score: 88, reason: "Mi-semaine, bonne rétention" },
-    { day: "Mercredi", time: "12:00", score: 82, reason: "Pause déjeuner, scroll LinkedIn" },
-    { day: "Jeudi", time: "08:00", score: 85, reason: "Toujours bon pour le contenu pro" },
-    { day: "Vendredi", time: "09:00", score: 70, reason: "Attention en baisse, bon pour le contenu léger" },
-    { day: "Dimanche", time: "18:00", score: 65, reason: "Préparation de la semaine, audience ciblée" },
-  ].sort((a, b) => b.score - a.score);
+    { day: "Lundi", time: "09:00", score: 80, reason: "Créneau matinal par défaut" },
+    { day: "Mercredi", time: "12:00", score: 75, reason: "Pause déjeuner par défaut" },
+    { day: "Jeudi", time: "18:00", score: 70, reason: "Créneau en soirée par défaut" },
+  ];
 }
 
 /**
@@ -188,18 +239,23 @@ export function getNextBestTime(): { day: string; time: string; reason: string }
  */
 export async function generatePostSuggestions(
   count: number = 3,
-  format?: LinkedInPostSuggestion["format"]
+  format?: LinkedInPostSuggestion["format"],
+  topic?: string
 ): Promise<LinkedInPostSuggestion[]> {
   const context = getProjectContext();
   const formats = format ? [format] : ["story", "list", "contrarian", "tutorial", "data", "question"];
   const nextBest = getNextBestTime();
   
+  const topicInstruction = topic
+    ? `\nSUJET IMPOSÉ : "${topic}". Tu dois générer des posts spécifiquement sur ce sujet avec un angle d'expert data. Le sujet doit être développé en profondeur avec des données, des insights et une perspective d'expert.\n`
+    : "";
+
   const messages: ChatMessage[] = [
     {
       role: "system",
       content: `Tu es un expert en contenu LinkedIn B2B spécialisé IA et acquisition.
 ${context}
-
+${topicInstruction}
 Génère ${count} suggestions de posts LinkedIn. Pour chaque suggestion, réponds en JSON strict :
 [
   {
@@ -217,16 +273,19 @@ Règles :
 - CTA : question ouverte ou "commentez X"
 - Varie les formats : ${formats.join(", ")}
 - Adapte au contexte HERMÈS et à l'actualité IA/B2B
+${topic ? `- Le sujet demandé doit être au cœur de chaque suggestion avec un angle expert data` : ""}
 - Langue : français`,
     },
     {
       role: "user",
-      content: `Génère ${count} suggestions de posts LinkedIn pour cette semaine. Varie les angles et les formats. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`,
+      content: topic
+        ? `Génère ${count} suggestions de posts LinkedIn sur le sujet : "${topic}". Adopte un angle d'expert data. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`
+        : `Génère ${count} suggestions de posts LinkedIn pour cette semaine. Varie les angles et les formats. Le meilleur créneau cette semaine est ${nextBest.day} à ${nextBest.time}.`,
     },
   ];
 
   try {
-    const response = await unifiedChatCompletion(messages, {
+    const response = await chatCompletion(messages, {
       temperature: 0.85,
       maxTokens: 2000,
     });
@@ -248,212 +307,60 @@ Règles :
     console.error("AI post suggestion error:", error);
   }
 
-  // Fallback suggestions
-  return generateFallbackSuggestions(count);
+  // Fallback: try a simpler AI prompt before giving up
+  return generateFallbackSuggestions(count, formats, nextBest);
 }
-
-function generateFallbackSuggestions(count: number): LinkedInPostSuggestion[] {
-  const nextBest = getNextBestTime();
-  const templates = [
-    {
-      text: `Le saviez-vous ? 78% des décideurs B2B préfèrent être contactés par un pair plutôt que par un commercial.
-
-C'est exactement pourquoi les agents IA changent la donne en matière de prospection :
-
-→ Ils identifient les signaux d'achat en temps réel
-→ Ils personnalisent chaque premier message à partir du contexte
-→ Ils maintiennent le suivi sans que vous n'ayez à y penser
-
-Le résultat ? Un taux de réponse 3x supérieur aux séquences traditionnelles.
-
-Qui utilise déjà l'IA dans sa prospection ? 👇`,
-      topic: "IA & prospection B2B",
-      hook: "Le saviez-vous ? 78% des décideurs B2B préfèrent être contactés par un pair",
-      estimatedEngagement: "high" as const,
-      format: "data" as const,
-    },
-    {
-      text: `J'ai automatisé 100% de ma prospection LinkedIn en 30 jours.
-
-Voici ce qui a changé :
-
-📊 156 profils qualifiés / semaine (vs 12 avant)
-📧 28 messages personnalisés / jour (vs 5)
-🎯 8 RDV générés / semaine (vs 2)
-
-Le secret ? 3 agents IA qui travaillent 24/7 :
-1️⃣ Agent Contenu → publie chaque matin
-2️⃣ Agent Qualification → collecte et score les leads
-3️⃣ Agent Prospection → envoie les messages et gère les relances
-
-Le tout sans un seul cold call.
-
-Détail du setup en commentaire 👇`,
-      topic: "Automation prospection",
-      hook: "J'ai automatisé 100% de ma prospection LinkedIn en 30 jours.",
-      estimatedEngagement: "high" as const,
-      format: "story" as const,
-    },
-    {
-      text: `5 erreurs qui tuent vos messages de prospection LinkedIn :
-
-1️⃣ Commencer par "Bonjour, je me permets de vous contacter car..."
-2️⃣ Envoyer un lien Calendly dans le 1er message
-3️⃣ Copier-coller le même message à 50 personnes
-4️⃣ Parler de vous au lieu de parler du prospect
-5️⃣ Oublier de faire un suivi après J+3
-
-La bonne approche ?
-✅ Référencez une action précise du prospect
-✅ Ajoutez UNE valeur spécifique à son secteur
-✅ Posez UNE question ouverte
-
-80 mots max. Pas de pitch. Pas de lien.
-
-Le but du 1er message ? Obtenir une réponse. Pas un RDV.
-
-Quelle erreur avez-vous déjà faite ? 🤝`,
-      topic: "Erreurs prospection",
-      hook: "5 erreurs qui tuent vos messages de prospection LinkedIn :",
-      estimatedEngagement: "high" as const,
-      format: "list" as const,
-    },
-  ];
-
-  return templates.slice(0, count).map((t, i) => ({
-    id: `sug-fallback-${Date.now()}-${i}`,
-    ...t,
-    bestTime: `${nextBest.day} ${nextBest.time}`,
-  }));
-}
-
-// ─── AI Post Generation from Topic ──────────────────────────────
 
 /**
- * Generate an optimized LinkedIn post from a given topic/title.
- * Returns the post text plus a LinkedIn score with breakdown and tips.
+ * Fallback for post generation: tries AI with a simpler prompt.
+ * Returns empty array if AI is also unavailable.
  */
-export async function generatePostFromTopic(
-  topicTitle: string,
-  format?: LinkedInPostSuggestion["format"]
-): Promise<LinkedInPostFromTopic> {
-  const context = getProjectContext();
-  const nextBest = getNextBestTime();
-  const chosenFormat = format || "story";
-
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `Tu es un expert en contenu LinkedIn B2B spécialisé IA et acquisition de données.
-${context}
-
-Génère UN post LinkedIn optimisé pour un score maximal basé sur le sujet fourni.
-
-Réponds en JSON strict :
-{
-  "text": "texte complet du post (150-220 mots, avec hook percutant, corps court, CTA)",
-  "hook": "la première ligne seule",
-  "format": "${chosenFormat}",
-  "score": 85,
-  "scoreBreakdown": {
-    "hook": 18,
-    "structure": 17,
-    "cta": 16,
-    "readability": 17,
-    "engagement": 17
-  },
-  "tips": [" conseil 1", "conseil 2", "conseil 3"]
-}
-
-Score breakdown (chaque critère sur 20, total sur 100) :
-- hook : le hook force-t-il le "voir plus" ? (chiffre, question, contre-intuition)
-- structure : hook → corps → CTA bien défini ? Paragraphes courts ?
-- cta : appelle-t-il à l'action clairement ? (question ouverte, "commentez X")
-- readability : phrases courtes, émojis parcimonieux, blancs entre paragraphes ?
-- engagement : le post suscite-t-il débat, partage ou commentaire ?
-
-Règles de rédaction :
-- Hook qui force le "voir plus" (chiffre, question, contre-intuition)
-- Paragraphes de 2-3 lignes max, avec des blancs entre chaque
-- CTA : question ouverte ou "commentez X"
-- Ton direct, factuel, sans jargon
-- 150 à 220 mots
-- Langue : français
-- Adapte le contenu au sujet fourni de manière experte`,
-    },
-    {
-      role: "user",
-      content: `Rédige un post LinkedIn optimisé sur le sujet suivant : "${topicTitle}"
-
-Format souhaité : ${chosenFormat}
-Meilleur créneau de publication : ${nextBest.day} à ${nextBest.time}
-
-Donne-moi le post avec le meilleur score possible.`,
-    },
-  ];
-
+async function generateFallbackSuggestions(
+  count: number,
+  formats: string[],
+  nextBest: { day: string; time: string }
+): Promise<LinkedInPostSuggestion[]> {
   try {
-    const response = await unifiedChatCompletion(messages, {
-      temperature: 0.8,
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Génère ${count} posts LinkedIn B2B en français. Réponds en JSON :
+[
+  { "text": "post complet", "topic": "sujet", "hook": "première ligne", "estimatedEngagement": "high|medium|low", "format": "${formats.join("|")}" }
+]`,
+      },
+      {
+        role: "user",
+        content: `Génère ${count} posts LinkedIn sur l'IA et la prospection B2B.`,
+      },
+    ];
+
+    const response = await chatCompletion(messages, {
+      temperature: 0.9,
       maxTokens: 1500,
     });
 
-    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        id: `topic-${Date.now()}`,
-        text: parsed.text || "",
-        topic: topicTitle,
-        hook: parsed.hook || "",
-        score: parsed.score || 75,
-        scoreBreakdown: parsed.scoreBreakdown || {
-          hook: 15, structure: 15, cta: 15, readability: 15, engagement: 15,
-        },
-        bestTime: `${nextBest.day} ${nextBest.time}`,
-        format: parsed.format || chosenFormat,
-        tips: parsed.tips || [],
-      };
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p: Record<string, string>, i: number) => ({
+          id: `sug-fallback-${Date.now()}-${i}`,
+          text: p.text || "",
+          topic: p.topic || "",
+          hook: p.hook || "",
+          estimatedEngagement: p.estimatedEngagement || "medium",
+          bestTime: `${nextBest.day} ${nextBest.time}`,
+          format: p.format || formats[i % formats.length],
+        }));
+      }
     }
   } catch (error) {
-    console.error("AI post from topic error:", error);
+    console.error("Fallback AI post suggestion error:", error);
   }
 
-  // Fallback: generate a basic post from topic
-  return generateFallbackPostFromTopic(topicTitle);
-}
-
-function generateFallbackPostFromTopic(topicTitle: string): LinkedInPostFromTopic {
-  const nextBest = getNextBestTime();
-  const fallbackText = `${topicTitle} — voici ce que la plupart des professionnels ignorent.
-
-Après avoir analysé des dizaines de cas, un pattern clair se dégage :
-→ Les entreprises qui automatisent leur approche B2B génèrent 3x plus d'opportunités.
-→ Celles qui personalisent chaque interaction ont un taux de réponse 2.5x supérieur.
-→ Le combo des deux ? Inarrêtable.
-
-La clé n'est pas de choisir entre automatisation et personnalisation.
-C'est de faire travailler l'IA sur la répétitif, pour que vous vous concentriez sur l'humain.
-
-Qu'en pensez-vous ? Comment abordez-vous ce sujet dans votre quotidien ?`;
-
-  return {
-    id: `topic-fallback-${Date.now()}`,
-    text: fallbackText,
-    topic: topicTitle,
-    hook: `${topicTitle} — voici ce que la plupart des professionnels ignorent.`,
-    score: 72,
-    scoreBreakdown: {
-      hook: 14, structure: 15, cta: 14, readability: 15, engagement: 14,
-    },
-    bestTime: `${nextBest.day} ${nextBest.time}`,
-    format: "story",
-    tips: [
-      "Ajoutez un chiffre ou une statistique concrète dans le hook",
-      "Structurez en 3 points clés avec des flèches",
-      "Terminez par une question ouverte liée au sujet",
-    ],
-  };
+  console.warn("[HERMÈS] generateFallbackSuggestions: AI unavailable, returning empty array");
+  return [];
 }
 
 // ─── AI Comment Generation ──────────────────────────────────────
@@ -501,7 +408,7 @@ Post : "${postText.slice(0, 500)}"`,
   ];
 
   try {
-    const response = await unifiedChatCompletion(messages, {
+    const response = await chatCompletion(messages, {
       temperature: 0.75,
       maxTokens: 800,
     });
@@ -520,26 +427,93 @@ Post : "${postText.slice(0, 500)}"`,
     console.error("AI comment suggestion error:", error);
   }
 
-  // Fallback comments
-  return [
-    { id: `comment-fb-${Date.now()}-1`, text: "Très pertinent ! L'approche que vous décrivez rejoint ce qu'on observe chez nos clients : la personnalisation IA fait la différence. Quel outil utilisez-vous pour automatiser ?", postExcerpt: postText.slice(0, 80) + "...", tone: "value-add" as const },
-    { id: `comment-fb-${Date.now()}-2`, text: "Je suis 100% d'accord. La clé c'est le bon dosage entre automatisation et personnalisation. Vous avez testé des séquences multi-canal ?", postExcerpt: postText.slice(0, 80) + "...", tone: "question" as const },
-    { id: `comment-fb-${Date.now()}-3`, text: "Intéressant ! J'ajouterai que le timing du premier message est tout aussi crucial que son contenu. Un post comme celui-ci mériterait un thread 👏", postExcerpt: postText.slice(0, 80) + "...", tone: "agreement" as const },
-  ].slice(0, count);
+  // No hardcoded fallback — return empty array if AI fails
+  console.warn("[HERMÈS] generateCommentSuggestions: AI unavailable, returning empty array");
+  return [];
 }
 
 // ─── Trending Topics Detection ──────────────────────────────────
 
 /**
  * Generate trending topic suggestions for LinkedIn content based on current context.
+ * Uses web search first, then LLM, then returns empty array.
  */
 export async function generateTrendingTopics(): Promise<TrendingTopic[]> {
   const context = getProjectContext();
-  
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
+  const state = useAppStore.getState();
+  const sectors = state.icpConfig.sectors.join(", ");
+
+  // Strategy 1: Web search for current trending topics
+  try {
+    const results = await webSearch(
+      `LinkedIn trending topics ${sectors} ${new Date().getFullYear()}`,
+      10
+    );
+
+    if (results.length > 0) {
+      // Extract and deduplicate topics from search results, then ask LLM to structure them
+      const searchContext = JSON.stringify(results).slice(0, 4000);
+
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
+${context}
+
+À partir des résultats de recherche web ci-dessous, identifie 5 sujets tendance pour du contenu LinkedIn B2B dans la niche IA/prospection.
+Pour chaque sujet, propose un angle et un hook.
+
+Réponds en JSON strict :
+[
+  {
+    "topic": "sujet en 3-5 mots",
+    "angle": "angle spécifique à aborder",
+    "热度": "hot|warm|rising",
+    "suggestedHook": "première ligne du post"
+  }
+]
+
+Données de recherche web :
+${searchContext}
+
+Langue : français`,
+        },
+        {
+          role: "user",
+          content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection, d'après ces données de recherche ?",
+        },
+      ];
+
+      const response = await chatCompletion(messages, {
+        temperature: 0.7,
+        maxTokens: 1000,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Deduplicate by topic
+          const seen = new Set<string>();
+          return parsed.filter((t: TrendingTopic) => {
+            const key = t.topic?.toLowerCase().trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Web search trending topics error:", error);
+  }
+
+  // Strategy 2: Ask LLM directly (without web search context)
+  try {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Tu es un analyste de tendances LinkedIn B2B spécialisé IA et acquisition.
 ${context}
 
 Identifie 5 sujets tendance cette semaine pour du contenu LinkedIn B2B dans la niche IA/prospection.
@@ -556,15 +530,14 @@ Réponds en JSON strict :
 ]
 
 Langue : français`,
-    },
-    {
-      role: "user",
-      content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection ?",
-    },
-  ];
+      },
+      {
+        role: "user",
+        content: "Quels sujets sont tendance cette semaine pour du contenu LinkedIn B2B dans l'IA et la prospection ?",
+      },
+    ];
 
-  try {
-    const response = await unifiedChatCompletion(messages, {
+    const response = await chatCompletion(messages, {
       temperature: 0.7,
       maxTokens: 1000,
     });
@@ -574,17 +547,12 @@ Langue : français`,
       return JSON.parse(jsonMatch[0]);
     }
   } catch (error) {
-    console.error("AI trending topics error:", error);
+    console.error("LLM trending topics error:", error);
   }
 
-  // Fallback trends
-  return [
-    { topic: "Agents IA autonomes", angle: "Comment les agents IA remplacent les workflows manuels en prospection B2B", 热度: "hot", suggestedHook: "En 2026, 60% des équipes B2B utilisent des agents IA autonomes. Pas des chatbots. Des AGENTS." },
-    { topic: "Scoring ICP temps réel", angle: "L'ICP dynamique qui s'adapte aux signaux d'achat en temps réel", 热度: "hot", suggestedHook: "Votre ICP est statique ? C'est comme naviguer sans GPS en 2026." },
-    { topic: "Prospection sans cold call", angle: "Les alternatives au cold call qui génèrent plus de RDV", 热度: "warm", suggestedHook: "Dernier cold call que j'ai passé : mars 2024. Depuis ? 3x plus de RDV." },
-    { topic: "OpenAI vs open-source", angle: "Pourquoi les modèles open-source gagnent en B2B", 热度: "rising", suggestedHook: "GPT-4o ou Llama 3 ? Le vrai choix n'est pas celui que vous croyez." },
-    { topic: "Nurturing automatisé", angle: "Comment automatiser le nurturing sans perdre l'humain", 热度: "warm", suggestedHook: "80% de vos leads qualifiés ne sont pas prêts à acheter. Qu'est-ce que vous en faites ?" },
-  ];
+  // No hardcoded fallback — return empty array if both web search and LLM fail
+  console.warn("[HERMÈS] generateTrendingTopics: AI and web search unavailable, returning empty array");
+  return [];
 }
 
 // ─── Post Improvement ───────────────────────────────────────────
@@ -623,7 +591,7 @@ Règles d'amélioration :
   ];
 
   try {
-    const response = await unifiedChatCompletion(messages, {
+    const response = await chatCompletion(messages, {
       temperature: 0.6,
       maxTokens: 1000,
     });
@@ -636,340 +604,169 @@ Règles d'amélioration :
     console.error("AI improve post error:", error);
   }
 
-  return { improved: draftText, suggestions: ["L'IA n'a pas pu améliorer le post. Veuillez réessayer."] };
+  return { improved: draftText, suggestions: ["Configurez une clé API pour activer l'amélioration IA"] };
 }
 
-// ─── Image Prompt Generation ─────────────────────────────────────
+// ─── Expert Data Mode ──────────────────────────────────────────
 
 /**
- * Generate an image prompt optimized for LinkedIn post illustrations.
- * Takes the post topic/content and returns a detailed prompt for image generation.
+ * Analyze the user's existing LinkedIn posts to identify patterns,
+ * top-performing content, and writing style.
+ * Returns null if AI is unavailable.
  */
-export async function generateImagePrompt(
-  topicOrText: string
-): Promise<string> {
-  const context = getProjectContext();
+export async function analyzeMyPosts(
+  posts: { text: string; likes: number; comments: number; createdAt: string }[]
+): Promise<PostAnalysis | null> {
+  if (posts.length === 0) {
+    return {
+      styleProfile: "Aucun post à analyser. Publiez du contenu pour obtenir une analyse.",
+      topTopics: [],
+      topFormats: [],
+      avgEngagement: "Aucune donnée",
+      recommendations: ["Publiez régulièrement pour accumuler des données d'analyse", "Variez les formats (story, list, data, question)", "Utilisez des hooks percutants avec des chiffres"],
+      strengths: [],
+      weaknesses: ["Pas assez de données pour identifier des faiblesses"],
+    };
+  }
+
+  const postsSummary = posts.slice(0, 20).map((p, i) => {
+    const date = new Date(p.createdAt).toLocaleDateString("fr-FR");
+    return `Post ${i + 1} (${date}) — ${p.likes} likes, ${p.comments} commentaires :\n"${p.text.slice(0, 300)}"`;
+  }).join("\n\n");
 
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Tu es un expert en design visuel pour les réseaux sociaux B2B, spécialisé dans la création d'images LinkedIn percutantes.
-${context}
+      content: `Tu es un analyste expert en contenu LinkedIn B2B, spécialisé dans l'analyse de performances et l'optimisation de stratégie de contenu.
+Tu analyses les posts d'un utilisateur pour identifier ses forces, faiblesses, et opportunités d'amélioration.
+Tu as une expertise approfondie en data, analytics et stratégie de contenu LinkedIn.
 
-Génère UN prompt détaillé pour la création d'une image d'illustration LinkedIn à partir du sujet fourni.
+Réponds en JSON strict :
+{
+  "styleProfile": "description du style d'écriture en 2-3 phrases",
+  "topTopics": ["sujet 1", "sujet 2", "sujet 3"],
+  "topFormats": ["format qui performe le mieux", "format 2"],
+  "avgEngagement": "description de l'engagement moyen",
+  "recommendations": ["recommandation actionnable 1", "recommandation 2", "recommandation 3", "recommandation 4", "recommandation 5"],
+  "strengths": ["force 1", "force 2", "force 3"],
+  "weaknesses": ["faiblesse 1", "faiblesse 2", "faiblesse 3"]
+}
 
-Règles pour le prompt d'image :
-- L'image doit être professionnelle et moderne, adaptée au B2B
-- Style : minimaliste, épuré, avec des couleurs cohérentes (bleu, blanc, gris, ou accents de couleur)
-- Éviter le texte dans l'image (sauf titres très courts)
-- Privilégier : abstractions géométriques, data visualisation stylisée, métaphores visuelles du sujet
-- Format adapté pour LinkedIn (format paysage ou carré)
-- Pas de personnes réalistes, préférer les illustrations flat design ou 3D isométrique
-
-Réponds UNIQUEMENT par le prompt en anglais (pour une meilleure qualité de génération), sans guillemets ni explication. Maximum 200 mots.`,
+Langue : français`,
     },
     {
       role: "user",
-      content: `Génère un prompt d'image pour illustrer un post LinkedIn sur le sujet : "${topicOrText}"`,
+      content: `Analyse mes ${posts.length} posts LinkedIn et identifie mes patterns de contenu, mon style, et mes opportunités d'amélioration :
+
+${postsSummary}`,
     },
   ];
 
   try {
-    const response = await unifiedChatCompletion(messages, {
-      temperature: 0.7,
-      maxTokens: 300,
+    const response = await chatCompletion(messages, {
+      temperature: 0.5,
+      maxTokens: 1500,
     });
 
-    return response.content.trim().replace(/^["']|["']$/g, "");
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
   } catch (error) {
-    console.error("Image prompt generation error:", error);
-    return `Professional LinkedIn B2B illustration: modern minimalist design representing ${topicOrText.slice(0, 80)}, clean geometric shapes, blue and white color palette, data visualization elements, flat design style, corporate social media post image`;
+    console.error("AI post analysis error:", error);
   }
-}
 
-// ─── Carousel Content Generation ────────────────────────────────
-
-export interface CarouselSlideData {
-  type: "cover" | "content" | "stat" | "list" | "quote" | "cta";
-  headline: string;
-  body: string;
-  accent?: string;
-  bullets?: string[];
-  stat?: { value: string; label: string; context: string };
+  // No hardcoded fallback — return null if AI fails
+  console.warn("[HERMÈS] analyzeMyPosts: AI unavailable, returning null");
+  return null;
 }
 
 /**
- * AI-powered carousel content structuring.
- * Takes a post text and breaks it into professional LinkedIn carousel slides.
- * This is the #1 format for LinkedIn engagement — carousels get 3-5x more engagement than text posts.
+ * Generate new post suggestions based on post analysis, acting as a "data expert" persona.
+ * Posts are optimized based on what performed well historically.
+ * Returns empty array if AI fails.
  */
-export async function generateCarouselContent(
-  postText: string,
-  topicTitle?: string
-): Promise<CarouselSlideData[]> {
+export async function generateExpertPosts(
+  analysis: PostAnalysis,
+  topic?: string
+): Promise<LinkedInPostSuggestion[]> {
   const context = getProjectContext();
+  const nextBest = getNextBestTime();
+  const count = 3;
+
+  const topicInstruction = topic
+    ? `\nSUJET IMPOSÉ : "${topic}". Tu dois générer des posts spécifiquement sur ce sujet avec un angle d'expert data.`
+    : "";
 
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Tu es un expert en création de carrousels LinkedIn viraux B2B. Tu transformes un post texte en un carrousel multi-slides percutant.
-
+      content: `Tu es un expert data et stratège de contenu LinkedIn B2B. Tu génères des posts optimisés basés sur l'analyse des performances passées de l'utilisateur.
 ${context}
 
-RÈGLES POUR UN CARROUSEL LINKEDIN VIRAL :
-1. PREMIÈRE SLIDE = HOOK PUissant qui force le "voir plus" (chiffre choc, question provocante, contre-intuition)
-2. Chaque slide = UNE idée forte, jamais plus
-3. Texte GROS et LISIBLE (pas de paragraphes)
-4. DERNIÈRE SLIDE = CTA clair ("Commentez", "Suivez-moi", "Partagez")
-5. 5 à 8 slides optimal
-6. Alterner les formats : cover → list → stat → quote → content → cta
+Profil de l'utilisateur :
+- Style : ${analysis.styleProfile}
+- Sujets qui performent : ${analysis.topTopics.join(", ")}
+- Formats qui performent : ${analysis.topFormats.join(", ")}
+- Engagement moyen : ${analysis.avgEngagement}
+- Forces : ${analysis.strengths.join(", ")}
+- Faiblesses à corriger : ${analysis.weaknesses.join(", ")}
+- Recommandations : ${analysis.recommendations.join("; ")}
+${topicInstruction}
 
-Génère le contenu structuré du carrousel en JSON strict :
+Génère ${count} suggestions de posts LinkedIn optimisés. Pour chaque suggestion, réponds en JSON strict :
 [
   {
-    "type": "cover|content|stat|list|quote|cta",
-    "headline": "Titre percutant de la slide (court, max 40 chars)",
-    "body": "Texte complémentaire (max 100 chars)",
-    "accent": "émoji ou texte court d'accent",
-    "bullets": ["point 1", "point 2"],   // uniquement si type=list
-    "stat": {                              // uniquement si type=stat
-      "value": "78%",
-      "label": "des décideurs B2B",
-      "context": "Source : étude 2025"
-    }
+    "text": "texte complet du post (150-220 mots, avec hook percutant, corps court, CTA)",
+    "topic": "sujet en 3-5 mots",
+    "hook": "la première ligne seule",
+    "estimatedEngagement": "high|medium|low",
+    "format": "story|list|contrarian|tutorial|data|question"
   }
 ]
 
-RÈGLES DE STRUCTURE :
-- Slide 1 : type=cover — Hook ultra-percutant, donne envie de swiper
-- Slides intermédiaires : alterne list, stat, quote, content pour varier le rythme
-- Avant-dernière slide : résumé ou insight clé
-- Dernière slide : type=cta — Appel à l'action clair
-
-RÈGLES DE STYLE :
-- headline : COURT et IMPACTANT (max 40 caractères)
-- body : COMPLÉMENT concis (max 100 caractères)
-- bullets : 3-5 points, chaque point max 60 caractères
-- Langue : français
-- Ton : direct, expert, sans jargon`,
+Règles :
+- Maximise l'engagement en exploitant les forces identifiées
+- Corrige les faiblesses dans les suggestions
+- Utilise les formats et sujets qui performent le mieux
+- Hook qui force le "voir plus" (chiffre, question, contre-intuition)
+- Paragraphes de 2-3 lignes max
+- CTA : question ouverte ou "commentez X"
+- Angle expert data avec des insights chiffrés
+- Langue : français`,
     },
     {
       role: "user",
-      content: `Transforme ce post LinkedIn en carrousel viral de 5-8 slides :
-
-${topicTitle ? `Sujet : ${topicTitle}\n\n` : ""}${postText}
-
-Génère le contenu JSON structuré du carrousel.`,
+      content: topic
+        ? `Génère ${count} posts optimisés sur le sujet : "${topic}". Exploite mon profil et mes forces. Le meilleur créneau est ${nextBest.day} à ${nextBest.time}.`
+        : `Génère ${count} posts optimisés basés sur mon profil. Exploite mes forces et corrige mes faiblesses. Le meilleur créneau est ${nextBest.day} à ${nextBest.time}.`,
     },
   ];
 
   try {
-    const response = await unifiedChatCompletion(messages, {
-      temperature: 0.75,
-      maxTokens: 3000,
+    const response = await chatCompletion(messages, {
+      temperature: 0.85,
+      maxTokens: 2000,
     });
 
     const jsonMatch = response.content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Validate and normalize
-      return parsed.map((slide: Record<string, unknown>) => ({
-        type: (["cover", "content", "stat", "list", "quote", "cta"].includes(slide.type as string)
-          ? slide.type : "content") as CarouselSlideData["type"],
-        headline: String(slide.headline || "").slice(0, 60),
-        body: String(slide.body || "").slice(0, 150),
-        accent: slide.accent ? String(slide.accent) : undefined,
-        bullets: Array.isArray(slide.bullets)
-          ? slide.bullets.map((b: unknown) => String(b).slice(0, 80))
-          : undefined,
-        stat: slide.stat && typeof slide.stat === "object"
-          ? {
-              value: String((slide.stat as Record<string, unknown>).value || ""),
-              label: String((slide.stat as Record<string, unknown>).label || ""),
-              context: String((slide.stat as Record<string, unknown>).context || ""),
-            }
-          : undefined,
+      return parsed.map((p: Record<string, string>, i: number) => ({
+        id: `expert-${Date.now()}-${i}`,
+        text: p.text || "",
+        topic: p.topic || "",
+        hook: p.hook || "",
+        estimatedEngagement: p.estimatedEngagement || "high",
+        bestTime: `${nextBest.day} ${nextBest.time}`,
+        format: p.format || "data",
       }));
     }
   } catch (error) {
-    console.error("Carousel content generation error:", error);
+    console.error("AI expert posts error:", error);
   }
 
-  // Fallback: create basic carousel from post text
-  return generateFallbackCarouselContent(postText, topicTitle);
-}
-
-function generateFallbackCarouselContent(postText: string, topicTitle?: string): CarouselSlideData[] {
-  const title = topicTitle || "Insight Data & IA";
-  const lines = postText.split("\n").filter(l => l.trim());
-  const bullets = lines.filter(l => l.trim().startsWith("→") || l.trim().startsWith("-") || l.trim().startsWith("•") || l.trim().startsWith("✅"))
-    .map(l => l.replace(/^[→•\-✅]\s*/, "").trim())
-    .slice(0, 5);
-  
-  return [
-    {
-      type: "cover",
-      headline: title.length > 40 ? title.slice(0, 37) + "..." : title,
-      body: "Ce que la plupart des professionnels ignorent",
-      accent: "📌 INSIGHT",
-    },
-    {
-      type: "list",
-      headline: "Les points clés",
-      body: "",
-      bullets: bullets.length > 0 ? bullets : [
-        "L'IA transforme la prospection B2B",
-        "Les données sont le nouveau pétrole",
-        "L'automatisation augmente l'efficacité 3x",
-        "La personnalisation fait la différence",
-      ],
-    },
-    {
-      type: "stat",
-      headline: "Le chiffre qui change tout",
-      body: "",
-      stat: {
-        value: "3x",
-        label: "Plus d'engagement",
-        context: "Avec un carrousel vs post texte",
-      },
-    },
-    {
-      type: "content",
-      headline: "L'essentiel à retenir",
-      body: "Le combo automatisation + personnalisation est la clé de la prospection moderne. L'IA gère le répétitif, vous vous concentrez sur l'humain.",
-    },
-    {
-      type: "cta",
-      headline: "Et vous ?",
-      body: "Quelle est votre expérience sur le sujet ?",
-      accent: "💬 Commentez ci-dessous",
-    },
-  ];
-}
-
-// ─── Data Expert Analysis ─────────────────────────────────────────
-
-export interface DataExpertAnalysis {
-  patterns: string[];
-  strengths: string[];
-  weaknesses: string[];
-  recommendations: string[];
-  suggestedTopics: Array<{
-    topic: string;
-    angle: string;
-    reason: string;
-  }>;
-  overallScore: number;
-}
-
-/**
- * Analyze all existing LinkedIn posts in "Data Expert" mode.
- * Detects patterns, strengths, weaknesses and proposes new topics.
- */
-export async function analyzePostsAsDataExpert(
-  posts: Array<{ text: string; topic?: string; createdAt?: string; likes?: number; comments?: number }>
-): Promise<DataExpertAnalysis> {
-  const context = getProjectContext();
-
-  // Build a summary of existing posts for the AI
-  const postsSummary = posts.length > 0
-    ? posts.map((p, i) => {
-        const metrics: string[] = [];
-        if (p.likes !== undefined) metrics.push(`${p.likes} likes`);
-        if (p.comments !== undefined) metrics.push(`${p.comments} comments`);
-        const metricStr = metrics.length > 0 ? ` [${metrics.join(", ")}]` : "";
-        const topicStr = p.topic ? ` (Sujet: ${p.topic})` : "";
-        return `Post ${i + 1}${topicStr}${metricStr} : "${p.text.slice(0, 200)}${p.text.length > 200 ? "..." : ""}"`;
-      }).join("\n\n")
-    : "Aucun post existant pour le moment.";
-
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `Tu es un expert en analyse de données LinkedIn B2B, spécialisé dans l'audit de stratégie de contenu.
-${context}
-
-Analyse les posts LinkedIn existants de cet utilisateur en mode "Data Expert". Tu dois :
-1. Identifier les patterns récurrents (thèmes, formats, tons, structures)
-2. Repérer les forces (ce qui fonctionne bien)
-3. Repérer les faiblesses (ce qui manque ou pourrait être amélioré)
-4. Proposer des recommandations concrètes et actionnables
-5. Suggérer 5 nouveaux sujets basés sur l'analyse, avec un angle unique et la raison
-6. Donner un score global de stratégie de contenu sur 100
-
-Réponds en JSON strict :
-{
-  "patterns": ["pattern 1", "pattern 2", "pattern 3"],
-  "strengths": ["force 1", "force 2"],
-  "weaknesses": ["faiblesse 1", "faiblesse 2"],
-  "recommendations": ["recommandation 1", "recommandation 2", "recommandation 3"],
-  "suggestedTopics": [
-    { "topic": "sujet en 3-5 mots", "angle": "angle spécifique", "reason": "pourquoi ce sujet" }
-  ],
-  "overallScore": 75
-}
-
-Règles :
-- Sois factuel et data-driven dans ton analyse
-- Les recommandations doivent être spécifiques et actionnables (pas de conseils vagues)
-- Les sujets proposés doivent être originaux et différenciants par rapport aux posts existants
-- Le score doit refléter la qualité réelle de la stratégie (pas de complaisance)
-- Langue : français`,
-    },
-    {
-      role: "user",
-      content: `Voici mes ${posts.length} posts LinkedIn existants. Analyse-les en mode Data Expert :
-
-${postsSummary}
-
-Donne-moi une analyse complète avec des recommandations concrètes et de nouveaux sujets proposés.`,
-    },
-  ];
-
-  try {
-    const response = await unifiedChatCompletion(messages, {
-      temperature: 0.5,
-      maxTokens: 2500,
-    });
-
-    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        patterns: parsed.patterns || [],
-        strengths: parsed.strengths || [],
-        weaknesses: parsed.weaknesses || [],
-        recommendations: parsed.recommendations || [],
-        suggestedTopics: parsed.suggestedTopics || [],
-        overallScore: parsed.overallScore || 50,
-      };
-    }
-  } catch (error) {
-    console.error("Data Expert analysis error:", error);
-  }
-
-  // Fallback analysis
-  return {
-    patterns: posts.length > 0
-      ? ["Contenu orienté IA et B2B", "Ton direct et factuel", "Structure hook-corps-CTA"]
-      : ["Aucun post publié pour le moment"],
-    strengths: posts.length > 0
-      ? ["Régularité dans la publication", "Expertise technique visible"]
-      : ["Aucun post à analyser — c'est le moment de commencer !"],
-    weaknesses: posts.length > 0
-      ? ["Manque de diversité dans les formats", "CTA pourrait être plus engageant"]
-      : ["Pas encore de contenu publié", "Aucune donnée d'engagement disponible"],
-    recommendations: posts.length > 0
-      ? ["Varier les formats (list, story, data, contrarian)", "Ajouter plus de données chiffrées", "Renforcer les CTA avec des questions ouvertes"]
-      : ["Publiez votre premier post pour commencer à collecter des données", "Utilisez la génération IA pour créer votre premier contenu", "Visez 3 posts par semaine pour maximiser la visibilité"],
-    suggestedTopics: [
-      { topic: "IA et qualité des données B2B", angle: "Pourquoi la qualité des données est le vrai enjeu de l'IA en B2B", reason: "Sujet peu traité mais fondamental pour votre audience" },
-      { topic: "ROI de l'automatisation LinkedIn", angle: "Calcul concret du ROI d'un agent IA de prospection", reason: "Angle data-driven qui résonne avec les décideurs" },
-      { topic: "Data mesh pour PME", angle: "Comment les PME peuvent adopter le data mesh sans DSI", reason: "Niche technique différenciante" },
-      { topic: "Éthique de l'IA en prospection", angle: "Les limites éthiques de l'automatisation B2B", reason: "Sujet engageant qui suscite le débat" },
-      { topic: "De data lake à data product", angle: "Pourquoi traiter vos données comme des produits change tout", reason: "Tendance montante dans la data gouvernance" },
-    ],
-    overallScore: posts.length > 0 ? 55 : 0,
-  };
+  // No hardcoded fallback — return empty array if AI fails
+  console.warn("[HERMÈS] generateExpertPosts: AI unavailable, returning empty array");
+  return [];
 }

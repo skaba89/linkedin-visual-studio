@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", linkedinId, imageAsset, documentAsset } = body;
+    const { text, visibility = "PUBLIC", linkedinId } = body;
 
     if (!text || !text.trim()) {
       return NextResponse.json(
@@ -29,54 +29,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine media category
-    // Priority: document (carousel) > image > text only
-    const hasDocument = !!documentAsset;
-    const hasImage = !!imageAsset && !hasDocument;
-    const shareMediaCategory = hasDocument ? "ARTICLE" : hasImage ? "IMAGE" : "NONE";
-
-    const shareContent: Record<string, unknown> = {
-      shareCommentary: {
-        text: text.trim(),
-      },
-      shareMediaCategory,
-    };
-
-    if (hasDocument) {
-      // Document (carousel PDF) post
-      shareContent.media = [
-        {
-          status: "READY",
-          description: {
-            text: text.trim().slice(0, 300),
-          },
-          media: documentAsset,
-          title: {
-            text: text.trim().slice(0, 200).split("\n")[0] || "Carrousel LinkedIn",
-          },
-        },
-      ];
-    } else if (hasImage) {
-      // Single image post
-      shareContent.media = [
-        {
-          status: "READY",
-          description: {
-            text: text.trim().slice(0, 300),
-          },
-          media: imageAsset,
-          title: {
-            text: text.trim().slice(0, 200).split("\n")[0] || "Post LinkedIn",
-          },
-        },
-      ];
-    }
-
     const postBody = {
       author: `urn:li:person:${linkedinId}`,
       lifecycleState: "PUBLISHED",
       specificContent: {
-        "com.linkedin.ugc.ShareContent": shareContent,
+        "com.linkedin.ugc.ShareContent": {
+          shareCommentary: {
+            text: text.trim(),
+          },
+          shareMediaCategory: "NONE",
+        },
       },
       visibility: {
         "com.linkedin.ugc.MemberNetworkVisibility": visibility === "CONNECTIONS" ? "CONNECTIONS" : "PUBLIC",
@@ -111,16 +73,10 @@ export async function POST(request: NextRequest) {
 
     const responseData = await postResponse.json();
 
-    let mediaType = "texte";
-    if (hasDocument) mediaType = "carrousel";
-    else if (hasImage) mediaType = "image";
-
     return NextResponse.json({
       success: true,
       postId: responseData.id,
-      message: `Post avec ${mediaType} publié avec succès sur LinkedIn`,
-      hasImage,
-      hasDocument,
+      message: "Post publié avec succès sur LinkedIn",
     });
   } catch (error) {
     console.error("LinkedIn post error:", error);

@@ -121,7 +121,6 @@ export default function LeadsView() {
   };
 
   const bulkDelete = () => {
-    if (!window.confirm(`Supprimer ${selectedLeads.size} lead(s) ? Cette action est irréversible.`)) return;
     for (const id of selectedLeads) {
       removeLead(id);
     }
@@ -139,14 +138,9 @@ export default function LeadsView() {
       Statut: l.statut,
       Date: l.dateCollected,
     }));
-    // Proper CSV escaping: wrap in quotes and escape existing quotes
-    const escapeCSV = (val: unknown): string => {
-      const str = String(val ?? "");
-      return `"${str.replace(/"/g, '""')}"`;
-    };
     const csv = [
-      Object.keys(data[0] || {}).map(escapeCSV).join(","),
-      ...data.map((row) => Object.values(row).map(escapeCSV).join(",")),
+      Object.keys(data[0] || {}).join(","),
+      ...data.map((row) => Object.values(row).join(",")),
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -421,7 +415,7 @@ export default function LeadsView() {
                           <button onClick={() => linkToCRM(lead)} className="text-[#7B8A9A] hover:text-[#00D4FF] transition-colors cursor-pointer" title="Ajouter au CRM">
                             <Link2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => { if (window.confirm(`Supprimer le lead "${lead.prenom}" ?`)) removeLead(lead.id); }} className="text-[#7B8A9A] hover:text-[#E5263A] transition-colors cursor-pointer" aria-label="Supprimer le lead">
+                          <button onClick={() => removeLead(lead.id)} className="text-[#7B8A9A] hover:text-[#E5263A] transition-colors cursor-pointer">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -474,7 +468,7 @@ export default function LeadsView() {
                         <button onClick={() => linkToCRM(lead)} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#7B8A9A] hover:text-[#00D4FF] cursor-pointer">
                           <Link2 className="w-3 h-3" />
                         </button>
-                        <button onClick={() => { if (window.confirm(`Supprimer le lead "${lead.prenom}" ?`)) removeLead(lead.id); }} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#7B8A9A] hover:text-[#E5263A] cursor-pointer" aria-label="Supprimer le lead">
+                        <button onClick={() => removeLead(lead.id)} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#7B8A9A] hover:text-[#E5263A] cursor-pointer">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>

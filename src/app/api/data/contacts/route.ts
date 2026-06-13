@@ -23,13 +23,7 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Parse JSON fields
-  const mapped = contacts.map((c) => ({
-    ...c,
-    tags: typeof c.tags === "string" ? JSON.parse(c.tags) : c.tags,
-  }));
-
-  return NextResponse.json(mapped);
+  return NextResponse.json(contacts);
 }
 
 export async function POST(req: NextRequest) {
@@ -50,7 +44,7 @@ export async function POST(req: NextRequest) {
       linkedinUrl: body.linkedinUrl,
       source: body.source || "manual",
       notes: body.notes,
-      tags: JSON.stringify(body.tags || []),
+      tags: body.tags || [],
       score: body.score || 0,
     },
   });
@@ -68,7 +62,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const data: Record<string, unknown> = { ...updates };
-  if (updates.tags) data.tags = JSON.stringify(updates.tags);
+  if (updates.tags) data.tags = updates.tags;
 
   const contact = await db.contact.update({
     where: { id },

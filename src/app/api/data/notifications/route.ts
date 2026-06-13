@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     const preferences = searchParams.get("preferences") === "true";
     if (preferences) {
-      const prefs = notificationEngine.getPreferences();
+      const prefs = await notificationEngine.getPreferences();
       return NextResponse.json({ preferences: prefs });
     }
 
@@ -103,7 +103,7 @@ export async function PUT(request: NextRequest) {
       }
       case "updatePreference": {
         if (!category) return NextResponse.json({ error: "category required" }, { status: 400 });
-        const pref = notificationEngine.updatePreference(category, updates);
+        const pref = await notificationEngine.updatePreference(category, updates);
         return NextResponse.json({ preference: pref });
       }
       default:

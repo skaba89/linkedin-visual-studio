@@ -4,24 +4,20 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore, type LinkedInPost, type ScheduledPost } from "@/store/appStore";
 import {
   generatePostSuggestions,
-  generatePostFromTopic,
   generateCommentSuggestions,
   generateTrendingTopics,
   improvePost,
-  analyzePostsAsDataExpert,
   getBestPostingTimes,
   getNextBestTime,
-  generateImagePrompt,
-  generateCarouselContent,
+  analyzeMyPosts,
+  generateExpertPosts,
 } from "@/lib/linkedin-ai";
 import type {
   LinkedInPostSuggestion,
-  LinkedInPostFromTopic,
   LinkedInCommentSuggestion,
   TrendingTopic,
   BestTimeSlot,
-  DataExpertAnalysis,
-  CarouselSlideData,
+  PostAnalysis,
 } from "@/lib/linkedin-ai";
 import {
   Linkedin,
@@ -55,29 +51,29 @@ import {
   TrendingUp,
   Copy,
   Trash2,
-  BookOpen,
+  Brain,
   Target,
-  Gauge,
-  Database,
-  ImagePlus,
-  ImageIcon,
-  Layers,
-  FileText,
-  Palette,
-  Download,
-  ChevronLeft,
-  ChevronRight,
+  Lightbulb,
+  Star,
+  Shield,
+  AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-type LinkedInTab = "connexion" | "publier" | "planifier" | "feed" | "engager" | "tendances";
+type LinkedInTab = "connexion" | "publier" | "planifier" | "feed" | "engager" | "tendances" | "expert";
 
 export default function LinkedInView() {
   const [activeTab, setActiveTab] = useState<LinkedInTab>("connexion");
   const [prefillTopic, setPrefillTopic] = useState<string | null>(null);
+  const [prefillPostText, setPrefillPostText] = useState<string | null>(null);
 
   const handleUseTopic = (topic: string) => {
     setPrefillTopic(topic);
+    setActiveTab("publier");
+  };
+
+  const handleUsePost = (postText: string) => {
+    setPrefillPostText(postText);
     setActiveTab("publier");
   };
 
@@ -88,6 +84,7 @@ export default function LinkedInView() {
     { id: "feed", label: "Feed", icon: Eye },
     { id: "engager", label: "Engager", icon: Zap },
     { id: "tendances", label: "Tendances", icon: TrendingUp },
+    { id: "expert", label: "Expert", icon: Brain },
   ];
 
   return (
@@ -136,11 +133,12 @@ export default function LinkedInView() {
           transition={{ duration: 0.15 }}
         >
           {activeTab === "connexion" && <ConnexionTab />}
-          {activeTab === "publier" && <PublierTab prefillTopic={prefillTopic} onClearPrefill={() => setPrefillTopic(null)} />}
+          {activeTab === "publier" && <PublierTab prefillTopic={prefillTopic} prefillPostText={prefillPostText} onClearPrefill={() => { setPrefillTopic(null); setPrefillPostText(null); }} />}
           {activeTab === "planifier" && <PlanifierTab />}
           {activeTab === "feed" && <FeedTab />}
           {activeTab === "engager" && <EngagerTab />}
           {activeTab === "tendances" && <TendancesTab onUseTopic={handleUseTopic} />}
+          {activeTab === "expert" && <ExpertTab onUsePost={handleUsePost} />}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -374,10 +372,9 @@ function ConnexionTab() {
 }
 
 /* ========== PUBLIER TAB (UPGRADED) ========== */
-function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | null; onClearPrefill: () => void }) {
-  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates, hermesConfig, generatedPosts } = useAppStore();
+function PublierTab({ prefillTopic, prefillPostText, onClearPrefill }: { prefillTopic: string | null; prefillPostText: string | null; onClearPrefill: () => void }) {
+  const { linkedInConnected, linkedInProfile, linkedInPosts, addLinkedInPost, addScheduledPost, templates } = useAppStore();
   const [postText, setPostText] = useState("");
-  const [topicTitle, setTopicTitle] = useState("");
   const [visibility, setVisibility] = useState<"PUBLIC" | "CONNECTIONS">("PUBLIC");
   const [publishing, setPublishing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -391,78 +388,34 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [improving, setImproving] = useState(false);
-
-  // Topic generation states
-  const [topicPost, setTopicPost] = useState<LinkedInPostFromTopic | null>(null);
-  const [topicLoading, setTopicLoading] = useState(false);
-  const [topicError, setTopicError] = useState<string | null>(null);
-
-  // Data Expert states
-  const [expertAnalysis, setExpertAnalysis] = useState<DataExpertAnalysis | null>(null);
-  const [expertLoading, setExpertLoading] = useState(false);
-  const [expertError, setExpertError] = useState<string | null>(null);
-
-  // Image states
-  const [postImageBase64, setPostImageBase64] = useState<string | null>(null);
-  const [postImageAsset, setPostImageAsset] = useState<string | null>(null);
-  const [imageGenerating, setImageGenerating] = useState(false);
-  const [imageUploading, setImageUploading] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
-  const [customImagePrompt, setCustomImagePrompt] = useState("");
-  const [showImagePromptInput, setShowImagePromptInput] = useState(false);
-
-  // Carousel states
-  const [carouselPdfBase64, setCarouselPdfBase64] = useState<string | null>(null);
-  const [carouselPreviewBase64, setCarouselPreviewBase64] = useState<string | null>(null);
-  const [carouselSlides, setCarouselSlides] = useState<CarouselSlideData[]>([]);
-  const [carouselDocumentAsset, setCarouselDocumentAsset] = useState<string | null>(null);
-  const [carouselGenerating, setCarouselGenerating] = useState(false);
-  const [carouselUploading, setCarouselUploading] = useState(false);
-  const [carouselError, setCarouselError] = useState<string | null>(null);
-  const [carouselStyle, setCarouselStyle] = useState<"dark_pro" | "clean_light" | "gradient" | "minimal">("dark_pro");
-  const [carouselPreviewSlide, setCarouselPreviewSlide] = useState(0);
-  const [carouselSlidePreviews, setCarouselSlidePreviews] = useState<string[]>([]);
+  const [aiTopic, setAiTopic] = useState("");
 
   const maxChars = 3000;
   const charCount = postText.length;
   const charPercentage = (charCount / maxChars) * 100;
 
-  // Handle prefill from Tendances
+  // Handle prefill from Tendances or Expert
   useEffect(() => {
     if (prefillTopic) {
-      setTopicTitle(prefillTopic);
+      setPostText((prev) => prev ? prev : `Sujet : ${prefillTopic}\n\n`);
       onClearPrefill();
     }
-  }, [prefillTopic, onClearPrefill]);
+    if (prefillPostText) {
+      setPostText(prefillPostText);
+      onClearPrefill();
+    }
+  }, [prefillTopic, prefillPostText, onClearPrefill]);
 
   const handleGenerateAI = async () => {
     setAiLoading(true);
     setAiError(null);
     try {
-      const suggestions = await generatePostSuggestions(3);
+      const suggestions = await generatePostSuggestions(3, undefined, aiTopic || undefined);
       setAiSuggestions(suggestions);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setAiError(msg || "Impossible de générer des suggestions IA. Veuillez réessayer.");
+    } catch {
+      setAiError("Impossible de générer des suggestions IA. Vérifiez votre clé API dans les Paramètres.");
     } finally {
       setAiLoading(false);
-    }
-  };
-
-  const handleGenerateFromTopic = async () => {
-    if (!topicTitle.trim()) return;
-    setTopicLoading(true);
-    setTopicError(null);
-    setTopicPost(null);
-    try {
-      const result = await generatePostFromTopic(topicTitle.trim());
-      setTopicPost(result);
-      setPostText(result.text);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setTopicError(msg || "Impossible de générer le post. Veuillez réessayer.");
-    } finally {
-      setTopicLoading(false);
     }
   };
 
@@ -473,231 +426,10 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       const result = await improvePost(postText);
       if (result.improved) setPostText(result.improved);
     } catch {
-      setAiError("Impossible d'améliorer le post. Veuillez réessayer.");
+      setAiError("Impossible d'améliorer le post. Vérifiez votre clé API.");
     } finally {
       setImproving(false);
     }
-  };
-
-  const handleDataExpert = async () => {
-    setExpertLoading(true);
-    setExpertError(null);
-    try {
-      const allPosts = [
-        ...linkedInPosts.map(p => ({ text: p.text, likes: p.likes, comments: p.comments, createdAt: p.createdAt })),
-        ...generatedPosts.map(p => ({ text: p.text, topic: p.topic })),
-      ];
-      const analysis = await analyzePostsAsDataExpert(allPosts);
-      setExpertAnalysis(analysis);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setExpertError(msg || "Impossible de lancer l'analyse Data Expert. Veuillez réessayer.");
-    } finally {
-      setExpertLoading(false);
-    }
-  };
-
-  const handleGenerateImage = async (customPrompt?: string) => {
-    setImageGenerating(true);
-    setImageError(null);
-    try {
-      // Generate image prompt from topic or post text
-      const sourceText = customPrompt || topicTitle || postText.slice(0, 200) || "AI and data architecture B2B";
-      const imagePrompt = await generateImagePrompt(sourceText);
-      setCustomImagePrompt(imagePrompt);
-
-      // Call the image generation API
-      const res = await fetch("/api/ai/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: imagePrompt, size: "1344x768" }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Erreur lors de la génération de l'image");
-      }
-
-      setPostImageBase64(data.imageBase64);
-      setPostImageAsset(null); // Reset asset since we have a new image
-
-      // Automatically upload to LinkedIn if connected
-      if (linkedInProfile?.id) {
-        await handleUploadImage(data.imageBase64);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setImageError(msg || "Impossible de générer l'image. Veuillez réessayer.");
-    } finally {
-      setImageGenerating(false);
-    }
-  };
-
-  const handleUploadImage = async (base64: string) => {
-    if (!linkedInProfile?.id) {
-      setImageError("Connectez votre compte LinkedIn pour uploader l'image.");
-      return;
-    }
-    setImageUploading(true);
-    setImageError(null);
-    try {
-      const res = await fetch("/api/linkedin/upload-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, linkedinId: linkedInProfile.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Erreur lors de l'upload de l'image");
-      }
-      setPostImageAsset(data.asset);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setImageError(msg || "Impossible d'uploader l'image sur LinkedIn.");
-    } finally {
-      setImageUploading(false);
-    }
-  };
-
-  const handleRemoveImage = () => {
-    setPostImageBase64(null);
-    setPostImageAsset(null);
-    setCustomImagePrompt("");
-    setShowImagePromptInput(false);
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setImageError("Veuillez sélectionner un fichier image.");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setImageError("L'image ne doit pas dépasser 10 Mo.");
-      return;
-    }
-
-    setImageUploading(true);
-    setImageError(null);
-    try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = (event.target?.result as string).split(",")[1];
-        setPostImageBase64(base64);
-        setPostImageAsset(null);
-
-        // Upload to LinkedIn if connected
-        if (linkedInProfile?.id) {
-          await handleUploadImage(base64);
-        } else {
-          setImageUploading(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch {
-      setImageError("Impossible de lire le fichier image.");
-      setImageUploading(false);
-    }
-  };
-
-  // ─── Carousel Handlers ──────────────────────────────────────────
-
-  const handleGenerateCarousel = async () => {
-    const sourceText = postText.trim() || topicTitle.trim();
-    if (!sourceText) {
-      setCarouselError("Rédigez un post ou entrez un sujet d'abord.");
-      return;
-    }
-    setCarouselGenerating(true);
-    setCarouselError(null);
-    try {
-      const res = await fetch("/api/ai/generate-carousel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postText: sourceText,
-          topicTitle: topicTitle || undefined,
-          authorName: linkedInProfile?.firstName ? `${linkedInProfile.firstName} ${linkedInProfile.lastName}` : "HERMÈS",
-          authorTitle: linkedInProfile?.headline || "Data & IA",
-          style: carouselStyle,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Erreur lors de la génération du carrousel");
-      }
-      setCarouselPdfBase64(data.pdfBase64);
-      setCarouselPreviewBase64(data.previewBase64);
-      setCarouselSlides(data.slides);
-      setCarouselPreviewSlide(0);
-      setCarouselSlidePreviews(data.slidePreviews || [data.previewBase64]);
-      setCarouselDocumentAsset(null);
-
-      // Automatically upload to LinkedIn if connected
-      if (linkedInProfile?.id) {
-        await handleUploadCarousel(data.pdfBase64);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setCarouselError(msg || "Impossible de générer le carrousel.");
-    } finally {
-      setCarouselGenerating(false);
-    }
-  };
-
-  const handleUploadCarousel = async (pdfBase64: string) => {
-    if (!linkedInProfile?.id) {
-      setCarouselError("Connectez votre compte LinkedIn pour uploader le carrousel.");
-      return;
-    }
-    setCarouselUploading(true);
-    setCarouselError(null);
-    try {
-      const res = await fetch("/api/linkedin/upload-document", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64, linkedinId: linkedInProfile.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Erreur lors de l'upload du carrousel");
-      }
-      setCarouselDocumentAsset(data.asset);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setCarouselError(msg || "Impossible d'uploader le carrousel sur LinkedIn.");
-    } finally {
-      setCarouselUploading(false);
-    }
-  };
-
-  const handleRemoveCarousel = () => {
-    setCarouselPdfBase64(null);
-    setCarouselPreviewBase64(null);
-    setCarouselSlides([]);
-    setCarouselDocumentAsset(null);
-    setCarouselPreviewSlide(0);
-    setCarouselSlidePreviews([]);
-  };
-
-  const handleDownloadCarousel = () => {
-    if (!carouselPdfBase64) return;
-    const byteCharacters = atob(carouselPdfBase64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `carousel-linkedin-${Date.now()}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const handlePublish = async () => {
@@ -709,23 +441,13 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       const res = await fetch("/api/linkedin/post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: postText,
-          visibility,
-          linkedinId: linkedInProfile.id,
-          imageAsset: postImageAsset || undefined,
-          documentAsset: carouselDocumentAsset || undefined,
-        }),
+        body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Erreur lors de la publication"); return; }
       setSuccess(true);
       addLinkedInPost({ id: data.postId || `post-${Date.now()}`, text: postText, createdAt: new Date().toISOString(), likes: 0, comments: 0, visibility });
       setPostText("");
-      setTopicTitle("");
-      setTopicPost(null);
-      handleRemoveImage();
-      handleRemoveCarousel();
       setTimeout(() => setSuccess(false), 3000);
     } catch {
       setError("Erreur réseau lors de la publication");
@@ -742,7 +464,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
       const res = await fetch("/api/linkedin/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id, scheduledAt, imageAsset: postImageAsset || undefined }),
+        body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id, scheduledAt }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Erreur lors de la planification"); return; }
@@ -755,11 +477,8 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
         createdAt: new Date().toISOString(),
       });
       setPostText("");
-      setTopicTitle("");
-      setTopicPost(null);
       setScheduledAt("");
       setScheduleMode(false);
-      handleRemoveImage();
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch {
@@ -773,155 +492,37 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
   const nextBest = getNextBestTime();
 
-  // Score color helper
-  const getScoreColor = (score: number) => {
-    if (score >= 85) return "#00C48C";
-    if (score >= 70) return "#0A66C2";
-    if (score >= 55) return "#F4A100";
-    return "#E5263A";
-  };
-
-  const getScoreLabel = (score: number) => {
-    if (score >= 85) return "Excellent";
-    if (score >= 70) return "Bon";
-    if (score >= 55) return "Moyen";
-    return "À améliorer";
-  };
-
   if (!linkedInConnected) return <NotConnectedBanner />;
 
   return (
     <div className="space-y-4">
-      {/* Topic Input Section */}
-      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <BookOpen className="w-4 h-4 text-[#0A66C2]" />
-          <h3 className="text-sm font-semibold text-[#F0F4F8]">Générer à partir d&apos;un sujet</h3>
-        </div>
-        <p className="text-[12px] text-[#7B8A9A] mb-3">Entrez un titre ou sujet et l&apos;IA génère un post optimisé avec un score LinkedIn.</p>
-
-        <div className="flex gap-2 mb-3">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={topicTitle}
-              onChange={(e) => setTopicTitle(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && topicTitle.trim()) handleGenerateFromTopic(); }}
-              placeholder="Ex: Architecture data mesh en B2B, IA et qualité des données..."
-              className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2.5 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#0A66C2]/30 pr-10"
-            />
-            {topicTitle && (
-              <button onClick={() => { setTopicTitle(""); setTopicPost(null); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#7B8A9A] hover:text-[#F0F4F8] transition-colors cursor-pointer">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={handleGenerateFromTopic}
-            disabled={topicLoading || !topicTitle.trim()}
-            className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-4 py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-          >
-            {topicLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-            {topicLoading ? "Génération..." : "Générer le post"}
-          </button>
-        </div>
-
-        {topicError && (
-          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{topicError}
-          </div>
-        )}
-
-        {/* Score Display */}
-        {topicPost && !topicLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="mt-3 space-y-3"
-          >
-            {/* Main Score */}
-            <div className="flex items-center gap-4 bg-[#18212F] rounded-xl p-4">
-              <div className="relative flex-shrink-0">
-                <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
-                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
-                  <circle cx="32" cy="32" r="28" fill="none" stroke={getScoreColor(topicPost.score)} strokeWidth="5"
-                    strokeDasharray={`${(topicPost.score / 100) * 176} 176`} strokeLinecap="round" />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-bold" style={{ color: getScoreColor(topicPost.score) }}>{topicPost.score}</span>
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold text-[#F0F4F8]">Score LinkedIn</span>
-                  <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ color: getScoreColor(topicPost.score), backgroundColor: `${getScoreColor(topicPost.score)}15` }}>
-                    {getScoreLabel(topicPost.score)}
-                  </span>
-                </div>
-                <p className="text-[11px] text-[#7B8A9A]">Sujet : <strong className="text-[#F0F4F8]">{topicPost.topic}</strong></p>
-              </div>
-              <div className="flex items-center gap-1 text-[11px] text-[#7B8A9A]">
-                <Timer className="w-3.5 h-3.5" />
-                <span>{topicPost.bestTime}</span>
-              </div>
-            </div>
-
-            {/* Score Breakdown */}
-            <div className="grid grid-cols-5 gap-2">
-              {[
-                { key: "hook", label: "Hook", icon: Target, value: topicPost.scoreBreakdown.hook },
-                { key: "structure", label: "Structure", icon: BarChart3, value: topicPost.scoreBreakdown.structure },
-                { key: "cta", label: "CTA", icon: Zap, value: topicPost.scoreBreakdown.cta },
-                { key: "readability", label: "Lisibilité", icon: Eye, value: topicPost.scoreBreakdown.readability },
-                { key: "engagement", label: "Engagement", icon: Flame, value: topicPost.scoreBreakdown.engagement },
-              ].map((item) => {
-                const pct = (item.value / 20) * 100;
-                const color = item.value >= 17 ? "#00C48C" : item.value >= 13 ? "#0A66C2" : item.value >= 10 ? "#F4A100" : "#E5263A";
-                const Icon = item.icon;
-                return (
-                  <div key={item.key} className="bg-[#18212F] rounded-lg p-2.5 text-center">
-                    <Icon className="w-3.5 h-3.5 mx-auto mb-1" style={{ color }} />
-                    <p className="text-[10px] text-[#7B8A9A] mb-1">{item.label}</p>
-                    <div className="w-full h-1.5 rounded-full bg-[#080C10] mb-1">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-                    </div>
-                    <p className="text-[12px] font-semibold" style={{ color }}>{item.value}/20</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Tips */}
-            {topicPost.tips.length > 0 && (
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#7B8A9A] uppercase tracking-wide mb-2">Conseils pour améliorer le score</p>
-                <div className="space-y-1.5">
-                  {topicPost.tips.map((tip, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <div className="w-4 h-4 rounded-full bg-[#0A66C2]/15 text-[#0A66C2] text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
-                      <p className="text-[11px] text-[#7B8A9A]">{tip}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </div>
-
       {/* AI Generation Section */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#00D4FF]" />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Suggestions IA</h3>
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Génération IA</h3>
           </div>
           <button onClick={handleGenerateAI} disabled={aiLoading}
             className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
             {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-            Suggestions IA
+            Générer avec l&apos;IA
           </button>
+        </div>
+
+        {/* Topic Input */}
+        <div className="mb-4">
+          <label className="text-[11px] font-medium text-[#7B8A9A] mb-1.5 flex items-center gap-1.5">
+            <Target className="w-3 h-3 text-[#F4A100]" />
+            Sujet (optionnel)
+          </label>
+          <input
+            type="text"
+            value={aiTopic}
+            onChange={(e) => setAiTopic(e.target.value)}
+            placeholder="Sujet ou titre (ex: Data Architecture B2B)"
+            className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30"
+          />
         </div>
 
         {aiError && (
@@ -961,423 +562,6 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
         )}
       </div>
 
-      {/* Data Expert Section */}
-      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-[#00C48C]" />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Mode Data Expert</h3>
-            <span className="text-[10px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-1.5 py-0.5 rounded">ANALYSE</span>
-          </div>
-          <button onClick={handleDataExpert} disabled={expertLoading}
-            className="flex items-center gap-1.5 text-[12px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-3 py-1.5 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer disabled:opacity-50">
-            {expertLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-            Lancer l&apos;analyse
-          </button>
-        </div>
-
-        <p className="text-[12px] text-[#7B8A9A] mb-3">L&apos;IA analyse vos posts existants pour identifier les patterns, forces, faiblesses et proposer de nouveaux sujets optimisés.</p>
-
-        {expertError && (
-          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{expertError}
-          </div>
-        )}
-
-        {expertLoading && (
-          <div className="space-y-3">
-            <div className="bg-[#18212F] rounded-lg p-4 animate-pulse">
-              <div className="h-3 bg-white/[0.06] rounded mb-2 w-1/3" />
-              <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-full" />
-              <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-5/6" />
-              <div className="h-2 bg-white/[0.04] rounded w-4/6" />
-            </div>
-          </div>
-        )}
-
-        {expertAnalysis && !expertLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-3"
-          >
-            {/* Overall Score */}
-            <div className="flex items-center gap-4 bg-[#18212F] rounded-xl p-4">
-              <div className="relative flex-shrink-0">
-                <svg width="56" height="56" viewBox="0 0 64 64" className="-rotate-90">
-                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
-                  <circle cx="32" cy="32" r="28" fill="none" stroke={expertAnalysis.overallScore >= 70 ? "#00C48C" : expertAnalysis.overallScore >= 40 ? "#F4A100" : "#E5263A"} strokeWidth="5"
-                    strokeDasharray={`${(expertAnalysis.overallScore / 100) * 176} 176`} strokeLinecap="round" />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-base font-bold" style={{ color: expertAnalysis.overallScore >= 70 ? "#00C48C" : expertAnalysis.overallScore >= 40 ? "#F4A100" : "#E5263A" }}>{expertAnalysis.overallScore}</span>
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#F0F4F8]">Score de stratégie contenu</p>
-                <p className="text-[11px] text-[#7B8A9A]">Basé sur l&apos;analyse de {linkedInPosts.length + generatedPosts.length} post(s)</p>
-              </div>
-            </div>
-
-            {/* Patterns, Strengths, Weaknesses */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {/* Patterns */}
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#0A66C2] uppercase tracking-wide mb-2 flex items-center gap-1"><Search className="w-3 h-3" />Patterns</p>
-                <div className="space-y-1.5">
-                  {expertAnalysis.patterns.map((p, i) => (
-                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {p}</p>
-                  ))}
-                </div>
-              </div>
-              {/* Strengths */}
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#00C48C] uppercase tracking-wide mb-2 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Forces</p>
-                <div className="space-y-1.5">
-                  {expertAnalysis.strengths.map((s, i) => (
-                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {s}</p>
-                  ))}
-                </div>
-              </div>
-              {/* Weaknesses */}
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#F4A100] uppercase tracking-wide mb-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Axes d&apos;amélioration</p>
-                <div className="space-y-1.5">
-                  {expertAnalysis.weaknesses.map((w, i) => (
-                    <p key={i} className="text-[11px] text-[#7B8A9A]">• {w}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Recommendations */}
-            {expertAnalysis.recommendations.length > 0 && (
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#00D4FF] uppercase tracking-wide mb-2 flex items-center gap-1"><Zap className="w-3 h-3" />Recommandations</p>
-                <div className="space-y-1.5">
-                  {expertAnalysis.recommendations.map((r, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <div className="w-4 h-4 rounded-full bg-[#00D4FF]/15 text-[#00D4FF] text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
-                      <p className="text-[11px] text-[#7B8A9A]">{r}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Suggested Topics */}
-            {expertAnalysis.suggestedTopics.length > 0 && (
-              <div className="bg-[#18212F] rounded-lg p-3">
-                <p className="text-[11px] font-semibold text-[#0A66C2] uppercase tracking-wide mb-2 flex items-center gap-1"><Target className="w-3 h-3" />Sujets proposés par l&apos;IA</p>
-                <div className="space-y-2">
-                  {expertAnalysis.suggestedTopics.map((t, i) => (
-                    <button
-                      key={i}
-                      onClick={() => { setTopicTitle(t.topic); }}
-                      className="w-full bg-[#0F1520] border border-white/[0.04] rounded-lg p-2.5 text-left hover:border-[#0A66C2]/30 transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-[12px] font-semibold text-[#F0F4F8] group-hover:text-[#0A66C2] transition-colors">{t.topic}</p>
-                        <ArrowUpRight className="w-3 h-3 text-[#7B8A9A] group-hover:text-[#0A66C2] transition-colors" />
-                      </div>
-                      <p className="text-[11px] text-[#7B8A9A] mb-0.5">{t.angle}</p>
-                      <p className="text-[10px] text-[#7B8A9A]/60 italic">{t.reason}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </div>
-
-      {/* ─── CAROUSEL & IMAGE SECTION ─── */}
-      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-[#F4A100]" />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Visuel du post</h3>
-            {carouselPdfBase64 && (
-              <span className="text-[10px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-1.5 py-0.5 rounded">
-                CARROUSEL {carouselSlides.length} SLIDES
-              </span>
-            )}
-            {!carouselPdfBase64 && postImageBase64 && (
-              <span className="text-[10px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-1.5 py-0.5 rounded">
-                IMAGE
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {carouselPdfBase64 && (
-              <>
-                <button onClick={handleDownloadCarousel}
-                  className="flex items-center gap-1.5 text-[12px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-2.5 py-1 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer"
-                >
-                  <Download className="w-3 h-3" />
-                  Télécharger PDF
-                </button>
-                <button onClick={handleRemoveCarousel}
-                  className="flex items-center gap-1.5 text-[12px] font-medium text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 px-2.5 py-1 rounded-lg hover:bg-[#E5263A]/15 transition-colors cursor-pointer"
-                >
-                  <X className="w-3 h-3" />
-                  Supprimer
-                </button>
-              </>
-            )}
-            {!carouselPdfBase64 && postImageBase64 && (
-              <button onClick={handleRemoveImage}
-                className="flex items-center gap-1.5 text-[12px] font-medium text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 px-2.5 py-1 rounded-lg hover:bg-[#E5263A]/15 transition-colors cursor-pointer"
-              >
-                <X className="w-3 h-3" />
-                Supprimer
-              </button>
-            )}
-          </div>
-        </div>
-
-        <p className="text-[12px] text-[#7B8A9A] mb-4">
-          Les carrousels PDF génèrent <strong className="text-[#00C48C]">3 à 5x plus d&apos;engagement</strong> que les posts texte. C&apos;est le format #1 sur LinkedIn dans le monde.
-        </p>
-
-        {/* Error display */}
-        {(carouselError || imageError) && (
-          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{carouselError || imageError}
-          </div>
-        )}
-
-        {/* ─── CAROUSEL PREVIEW ─── */}
-        {carouselPdfBase64 ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-3"
-          >
-            {/* Main preview image */}
-            <div className="relative rounded-xl overflow-hidden border border-white/[0.06]">
-              <img
-                src={`data:image/png;base64,${carouselPreviewBase64}`}
-                alt={`Slide ${carouselPreviewSlide + 1}`}
-                className="w-full h-auto max-h-[500px] object-contain bg-[#080C10]"
-              />
-              {carouselUploading && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <div className="flex items-center gap-2 text-white">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span className="text-sm font-medium">Upload du carrousel vers LinkedIn...</span>
-                  </div>
-                </div>
-              )}
-              {carouselDocumentAsset && (
-                <div className="absolute top-3 right-3">
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-[#00C48C] bg-[#00C48C]/90 px-2.5 py-1 rounded-lg shadow-lg">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Prêt à publier
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Slide navigation */}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setCarouselPreviewSlide(Math.max(0, carouselPreviewSlide - 1))}
-                disabled={carouselPreviewSlide === 0}
-                className="flex items-center gap-1 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] disabled:opacity-30 cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" /> Précédent
-              </button>
-              <div className="flex items-center gap-1">
-                {carouselSlides.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setCarouselPreviewSlide(i)}
-                    className={`w-2 h-2 rounded-full transition-all cursor-pointer ${i === carouselPreviewSlide ? "bg-[#F4A100] w-4" : "bg-white/20 hover:bg-white/40"}`}
-                  />
-                ))}
-              </div>
-              <button
-                onClick={() => setCarouselPreviewSlide(Math.min(carouselSlides.length - 1, carouselPreviewSlide + 1))}
-                disabled={carouselPreviewSlide === carouselSlides.length - 1}
-                className="flex items-center gap-1 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] disabled:opacity-30 cursor-pointer"
-              >
-                Suivant <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Slide content summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {carouselSlides.map((slide, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCarouselPreviewSlide(i)}
-                  className={`text-left p-2 rounded-lg border transition-all cursor-pointer ${
-                    i === carouselPreviewSlide
-                      ? "bg-[#F4A100]/10 border-[#F4A100]/30"
-                      : "bg-[#18212F] border-white/[0.04] hover:border-white/[0.1]"
-                  }`}
-                >
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[9px] font-bold text-[#7B8A9A] bg-white/[0.06] px-1.5 py-0.5 rounded">
-                      {i + 1}
-                    </span>
-                    <span className="text-[9px] font-medium text-[#F4A100] uppercase">{slide.type}</span>
-                  </div>
-                  <p className="text-[11px] text-[#F0F4F8] line-clamp-1">{slide.headline}</p>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        ) : postImageBase64 ? (
-          /* ─── SINGLE IMAGE PREVIEW ─── */
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            className="relative rounded-xl overflow-hidden border border-white/[0.06]"
-          >
-            <img
-              src={`data:image/png;base64,${postImageBase64}`}
-              alt="Image du post LinkedIn"
-              className="w-full h-auto max-h-80 object-cover"
-            />
-            {imageUploading && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                <div className="flex items-center gap-2 text-white">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="text-sm font-medium">Upload vers LinkedIn...</span>
-                </div>
-              </div>
-            )}
-            {postImageAsset && (
-              <div className="absolute top-2 right-2">
-                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#00C48C] bg-[#00C48C]/90 px-2 py-1 rounded-lg">
-                  <CheckCircle2 className="w-3 h-3" />
-                  Prête à publier
-                </span>
-              </div>
-            )}
-          </motion.div>
-        ) : (
-          /* ─── GENERATION OPTIONS ─── */
-          <div className="space-y-3">
-            {/* Main CTA: Generate Carousel */}
-            <button
-              onClick={handleGenerateCarousel}
-              disabled={carouselGenerating || (!postText.trim() && !topicTitle.trim())}
-              className="w-full flex items-center justify-center gap-3 text-[14px] font-bold text-white bg-gradient-to-r from-[#F4A100] to-[#E5263A] hover:from-[#d4900a] hover:to-[#c42030] px-5 py-4 rounded-xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#F4A100]/10"
-            >
-              {carouselGenerating ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Génération du carrousel IA en cours...
-                </>
-              ) : (
-                <>
-                  <Layers className="w-5 h-5" />
-                  Générer un carrousel PDF
-                  <span className="text-[11px] font-medium bg-white/20 px-2 py-0.5 rounded-full ml-1">#1 FORMAT</span>
-                </>
-              )}
-            </button>
-
-            {/* Style selector */}
-            <div className="flex items-center gap-2">
-              <Palette className="w-3.5 h-3.5 text-[#7B8A9A]" />
-              <span className="text-[11px] text-[#7B8A9A]">Style :</span>
-              {([
-                { id: "dark_pro", label: "Dark Pro", desc: "Sombre premium" },
-                { id: "clean_light", label: "Light", desc: "Clair épuré" },
-                { id: "gradient", label: "Gradient", desc: "Couleurs vives" },
-                { id: "minimal", label: "Minimal", desc: "Ultra clean" },
-              ] as const).map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setCarouselStyle(s.id)}
-                  className={`flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-all cursor-pointer border ${
-                    carouselStyle === s.id
-                      ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/30"
-                      : "text-[#7B8A9A] bg-[#18212F] border-white/[0.04] hover:border-white/[0.1]"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Secondary options */}
-            <div className="flex gap-2">
-              {/* AI Image */}
-              <button
-                onClick={() => handleGenerateImage()}
-                disabled={imageGenerating}
-                className="flex-1 flex items-center justify-center gap-2 text-[12px] font-medium text-[#7B8A9A] bg-[#18212F] border border-white/[0.06] hover:border-[#0A66C2]/30 hover:text-[#F0F4F8] px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50"
-              >
-                {imageGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
-                Image IA
-              </button>
-              {/* Upload file */}
-              <label className="flex-1 flex items-center justify-center gap-2 text-[12px] font-medium text-[#7B8A9A] bg-[#18212F] border border-white/[0.06] hover:border-[#0A66C2]/30 hover:text-[#F0F4F8] px-4 py-2.5 rounded-lg transition-all cursor-pointer">
-                {imageUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-                Uploader image
-                <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} className="hidden" disabled={imageUploading} />
-              </label>
-              {/* Custom prompt */}
-              <button
-                onClick={() => setShowImagePromptInput(!showImagePromptInput)}
-                className={`flex items-center justify-center gap-1.5 text-[12px] font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer border ${
-                  showImagePromptInput ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/20" : "text-[#7B8A9A] bg-[#18212F] border-white/[0.06] hover:text-[#F0F4F8]"
-                }`}
-              >
-                <Search className="w-3.5 h-3.5" />
-                Prompt
-              </button>
-            </div>
-
-            {/* Custom Image Prompt Input */}
-            {showImagePromptInput && (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={customImagePrompt}
-                  onChange={(e) => setCustomImagePrompt(e.target.value)}
-                  placeholder="Décrivez l'image (en anglais pour de meilleurs résultats)..."
-                  className="flex-1 bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#F4A100]/30"
-                />
-                <button
-                  onClick={() => handleGenerateImage(customImagePrompt || undefined)}
-                  disabled={imageGenerating || !customImagePrompt.trim()}
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {imageGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                  Générer
-                </button>
-              </div>
-            )}
-
-            {/* Tips */}
-            <div className="bg-[#18212F] rounded-lg p-3 border border-white/[0.04]">
-              <p className="text-[11px] font-semibold text-[#F4A100] mb-2">💡 Pourquoi le carrousel ?</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { stat: "3-5x", label: "Plus d'engagement" },
-                  { stat: "2x", label: "Plus de partages" },
-                  { stat: "#1", label: "Format LinkedIn" },
-                ].map((item) => (
-                  <div key={item.label} className="text-center">
-                    <p className="text-[16px] font-bold text-[#F4A100]">{item.stat}</p>
-                    <p className="text-[10px] text-[#7B8A9A]">{item.label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Post Composer */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -1399,7 +583,7 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
 
         <div className="relative mb-3">
           <textarea value={postText} onChange={(e) => setPostText(e.target.value.slice(0, maxChars))}
-            placeholder="Écrivez votre post LinkedIn ici...&#10;&#10;Astuce : Entrez un sujet ci-dessus pour générer automatiquement un post optimisé."
+            placeholder="Écrivez votre post LinkedIn ici...&#10;&#10;Astuce : Commencez par un hook percutant pour forcer le 'voir plus'."
             rows={8}
             className="w-full bg-[#18212F] border border-white/[0.06] rounded-xl px-4 py-3 text-[14px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/40 focus:outline-none focus:border-[#0A66C2]/30 resize-none leading-relaxed" />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
@@ -1426,30 +610,20 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
           {/* Schedule toggle */}
           <button onClick={() => setScheduleMode(!scheduleMode)}
             className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all cursor-pointer border ${scheduleMode ? "text-[#F4A100] bg-[#F4A100]/10 border-[#F4A100]/20" : "text-[#7B8A9A] hover:text-[#F0F4F8] border-white/[0.06]"}`}>
-            <CalendarClock className="w-3.5 h-3.5" />Planifier
+            <CalendarClock className="w-3.5 h-3.5" />{scheduleMode ? "Planifier" : "Planifier"}
           </button>
-
-          {/* Copy to clipboard */}
-          {postText.trim() && (
-            <button
-              onClick={() => navigator.clipboard.writeText(postText)}
-              className="flex items-center gap-1.5 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-white/[0.1] transition-colors cursor-pointer"
-            >
-              <Copy className="w-3.5 h-3.5" />Copier
-            </button>
-          )}
 
           {!scheduleMode ? (
             <button onClick={handlePublish} disabled={publishing || !postText.trim()}
               className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#0A66C2] hover:bg-[#004182] px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto">
               {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : success ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-              {publishing ? "Publication..." : success ? "Publié !" : carouselPdfBase64 ? "Publier avec carrousel" : postImageBase64 ? "Publier avec image" : "Publier sur LinkedIn"}
+              {publishing ? "Publication..." : success ? "Publié !" : "Publier maintenant"}
             </button>
           ) : (
             <button onClick={handleSchedule} disabled={scheduling || !postText.trim() || !scheduledAt}
               className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#F4A100] hover:bg-[#d4900a] px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto">
               {scheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
-              {scheduling ? "Planification..." : carouselPdfBase64 ? "Planifier avec carrousel" : postImageBase64 ? "Planifier avec image" : "Planifier la publication"}
+              {scheduling ? "Planification..." : "Planifier la publication"}
             </button>
           )}
         </div>
@@ -1490,16 +664,6 @@ function PublierTab({ prefillTopic, onClearPrefill }: { prefillTopic: string | n
               </div>
             </div>
             <div className="text-[13px] text-[#F0F4F8] whitespace-pre-wrap leading-relaxed">{postText}</div>
-            {/* Image in preview */}
-            {postImageBase64 && (
-              <div className="mt-3 rounded-xl overflow-hidden border border-white/[0.06]">
-                <img
-                  src={`data:image/png;base64,${postImageBase64}`}
-                  alt="Image du post"
-                  className="w-full h-auto max-h-60 object-cover"
-                />
-              </div>
-            )}
             <div className="flex items-center gap-6 mt-4 pt-3 border-t border-white/[0.06] text-[12px] text-[#7B8A9A]">
               <span className="flex items-center gap-1"><ThumbsUp className="w-3.5 h-3.5" /> 0</span>
               <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> 0 commentaires</span>
@@ -1574,8 +738,12 @@ function PlanifierTab() {
     }
   };
 
-  const bestTimes = getBestPostingTimes();
+  const [bestTimes, setBestTimes] = useState<BestTimeSlot[]>([]);
   const nextBest = getNextBestTime();
+
+  useEffect(() => {
+    getBestPostingTimes().then(setBestTimes).catch(() => setBestTimes([]));
+  }, []);
 
   if (!linkedInConnected) return <NotConnectedBanner />;
 
@@ -2072,8 +1240,12 @@ function TendancesTab({ onUseTopic }: { onUseTopic: (topic: string) => void }) {
   };
 
   const weekDays = getWeekDays();
-  const bestTimes = getBestPostingTimes();
+  const [bestTimes, setBestTimes] = useState<BestTimeSlot[]>([]);
   const bestTimeDays = new Set(bestTimes.filter((s) => s.score >= 80).map((s) => s.day));
+
+  useEffect(() => {
+    getBestPostingTimes().then(setBestTimes).catch(() => setBestTimes([]));
+  }, []);
 
   if (!linkedInConnected) return <NotConnectedBanner />;
 
@@ -2158,6 +1330,270 @@ function TendancesTab({ onUseTopic }: { onUseTopic: (topic: string) => void }) {
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#0A66C2]" />Meilleur créneau</span>
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full border border-[#0A66C2]" />Aujourd&apos;hui</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ========== EXPERT TAB (NEW) ========== */
+function ExpertTab({ onUsePost }: { onUsePost: (postText: string) => void }) {
+  const { linkedInConnected, linkedInPosts } = useAppStore();
+  const [analysis, setAnalysis] = useState<PostAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [expertTopic, setExpertTopic] = useState("");
+  const [expertSuggestions, setExpertSuggestions] = useState<LinkedInPostSuggestion[]>([]);
+  const [expertLoading, setExpertLoading] = useState(false);
+  const [expertError, setExpertError] = useState<string | null>(null);
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const result = await analyzeMyPosts(linkedInPosts);
+      if (result) {
+        setAnalysis(result);
+      } else {
+        setAnalysisError("Impossible d'analyser vos posts. Vérifiez votre clé API et réessayez.");
+      }
+    } catch {
+      setAnalysisError("Impossible d'analyser vos posts. Vérifiez votre clé API.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleGenerateExpert = async () => {
+    if (!analysis) return;
+    setExpertLoading(true);
+    setExpertError(null);
+    try {
+      const suggestions = await generateExpertPosts(analysis, expertTopic || undefined);
+      setExpertSuggestions(suggestions);
+    } catch {
+      setExpertError("Impossible de générer des posts expert. Vérifiez votre clé API.");
+    } finally {
+      setExpertLoading(false);
+    }
+  };
+
+  if (!linkedInConnected) return <NotConnectedBanner />;
+
+  return (
+    <div className="space-y-4">
+      {/* Analyze Section */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-[#00D4FF]" />
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Mode Expert Data</h3>
+          </div>
+          <button onClick={handleAnalyze} disabled={analyzing}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
+            {analyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BarChart3 className="w-3.5 h-3.5" />}
+            Analyser mes posts
+          </button>
+        </div>
+
+        {linkedInPosts.length === 0 && (
+          <div className="flex items-center gap-2 text-[12px] text-[#F4A100] bg-[#F4A100]/5 border border-[#F4A100]/10 rounded-lg px-3 py-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Aucun post publié — l&apos;analyse sera basée sur des recommandations génériques.</span>
+          </div>
+        )}
+
+        {analysisError && (
+          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{analysisError}
+          </div>
+        )}
+
+        {analyzing && (
+          <div className="space-y-3">
+            <div className="bg-[#18212F] rounded-lg p-4 animate-pulse">
+              <div className="h-3 bg-white/[0.06] rounded mb-2 w-1/3" />
+              <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-full" />
+              <div className="h-2 bg-white/[0.04] rounded mb-3 w-2/3" />
+              <div className="flex gap-2">
+                <div className="h-5 bg-white/[0.04] rounded w-20" />
+                <div className="h-5 bg-white/[0.04] rounded w-20" />
+                <div className="h-5 bg-white/[0.04] rounded w-20" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {analysis && !analyzing && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+            {/* Style Profile */}
+            <div className="bg-[#18212F] rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-3.5 h-3.5 text-[#00D4FF]" />
+                <h4 className="text-[12px] font-semibold text-[#00D4FF]">Profil de style</h4>
+              </div>
+              <p className="text-[12px] text-[#F0F4F8] leading-relaxed">{analysis.styleProfile}</p>
+            </div>
+
+            {/* Stats Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {/* Top Topics */}
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <TrendingUp className="w-3 h-3 text-[#00C48C]" />
+                  <h4 className="text-[11px] font-semibold text-[#00C48C]">Sujets performants</h4>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {analysis.topTopics.map((t, i) => (
+                    <span key={i} className="text-[10px] font-medium text-[#00C48C] bg-[#00C48C]/10 px-1.5 py-0.5 rounded">{t}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Top Formats */}
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <BarChart3 className="w-3 h-3 text-[#0A66C2]" />
+                  <h4 className="text-[11px] font-semibold text-[#0A66C2]">Formats performants</h4>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {analysis.topFormats.map((f, i) => (
+                    <span key={i} className="text-[10px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 px-1.5 py-0.5 rounded">{f}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Avg Engagement */}
+              <div className="bg-[#18212F] rounded-lg p-3 col-span-2 sm:col-span-1">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Activity className="w-3 h-3 text-[#F4A100]" />
+                  <h4 className="text-[11px] font-semibold text-[#F4A100]">Engagement moyen</h4>
+                </div>
+                <p className="text-[11px] text-[#F0F4F8]">{analysis.avgEngagement}</p>
+              </div>
+            </div>
+
+            {/* Strengths & Weaknesses */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Shield className="w-3.5 h-3.5 text-[#00C48C]" />
+                  <h4 className="text-[11px] font-semibold text-[#00C48C]">Forces</h4>
+                </div>
+                <ul className="space-y-1">
+                  {analysis.strengths.map((s, i) => (
+                    <li key={i} className="text-[11px] text-[#F0F4F8] flex items-start gap-1.5">
+                      <CheckCircle2 className="w-3 h-3 text-[#00C48C] flex-shrink-0 mt-0.5" />{s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="bg-[#18212F] rounded-lg p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[#E5263A]" />
+                  <h4 className="text-[11px] font-semibold text-[#E5263A]">Axes d&apos;amélioration</h4>
+                </div>
+                <ul className="space-y-1">
+                  {analysis.weaknesses.map((w, i) => (
+                    <li key={i} className="text-[11px] text-[#F0F4F8] flex items-start gap-1.5">
+                      <AlertCircle className="w-3 h-3 text-[#E5263A] flex-shrink-0 mt-0.5" />{w}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            <div className="bg-[#18212F] rounded-lg p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Lightbulb className="w-3.5 h-3.5 text-[#F4A100]" />
+                <h4 className="text-[11px] font-semibold text-[#F4A100]">Recommandations</h4>
+              </div>
+              <ul className="space-y-1">
+                {analysis.recommendations.map((r, i) => (
+                  <li key={i} className="text-[11px] text-[#F0F4F8] flex items-start gap-1.5">
+                    <Star className="w-3 h-3 text-[#F4A100] flex-shrink-0 mt-0.5" />{r}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Expert Post Generation */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Wand2 className="w-4 h-4 text-[#00D4FF]" />
+            <h3 className="text-sm font-semibold text-[#F0F4F8]">Génération Expert</h3>
+          </div>
+          <button onClick={handleGenerateExpert} disabled={!analysis || expertLoading}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-50">
+            {expertLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+            Générer en mode Expert
+          </button>
+        </div>
+
+        {/* Topic Input */}
+        <div className="mb-4">
+          <label className="text-[11px] font-medium text-[#7B8A9A] mb-1.5 flex items-center gap-1.5">
+            <Target className="w-3 h-3 text-[#F4A100]" />
+            Sujet (optionnel)
+          </label>
+          <input
+            type="text"
+            value={expertTopic}
+            onChange={(e) => setExpertTopic(e.target.value)}
+            placeholder="Sujet ou titre (ex: Data Architecture B2B)"
+            className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30"
+          />
+        </div>
+
+        {!analysis && (
+          <div className="flex items-center gap-2 text-[12px] text-[#7B8A9A] bg-[#18212F] rounded-lg px-3 py-3">
+            <Brain className="w-3.5 h-3.5 flex-shrink-0 text-[#7B8A9A]/50" />
+            <span>Analysez d&apos;abord vos posts pour activer la génération expert.</span>
+          </div>
+        )}
+
+        {expertError && (
+          <div className="flex items-center gap-2 text-[12px] text-[#E5263A] bg-[#E5263A]/10 border border-[#E5263A]/20 rounded-lg px-3 py-2 mb-3">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{expertError}
+          </div>
+        )}
+
+        {expertLoading && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="bg-[#18212F] rounded-lg p-3 animate-pulse">
+                <div className="h-3 bg-white/[0.06] rounded mb-2 w-3/4" />
+                <div className="h-2 bg-white/[0.04] rounded mb-1.5 w-full" />
+                <div className="h-2 bg-white/[0.04] rounded w-2/3" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {expertSuggestions.length > 0 && !expertLoading && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {expertSuggestions.map((sug) => (
+              <div key={sug.id} className="bg-[#18212F] border border-white/[0.04] rounded-lg p-3 group">
+                <p className="text-[12px] text-[#F0F4F8] line-clamp-3 mb-2">{sug.hook}</p>
+                <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                  <span className="text-[10px] font-medium text-[#7B8A9A] bg-white/[0.06] px-1.5 py-0.5 rounded">{sug.topic}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${sug.estimatedEngagement === "high" ? "text-[#00C48C] bg-[#00C48C]/10" : "text-[#F4A100] bg-[#F4A100]/10"}`}>
+                    {sug.estimatedEngagement === "high" ? "🔥 Élevé" : "📊 Moyen"}
+                  </span>
+                  <span className="text-[10px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 px-1.5 py-0.5 rounded">{sug.format}</span>
+                </div>
+                <button onClick={() => onUsePost(sug.text)}
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-2.5 py-1 rounded-lg hover:bg-[#0A66C2]/15 transition-colors cursor-pointer w-full justify-center">
+                  <ArrowUpRight className="w-3 h-3" />Utiliser
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

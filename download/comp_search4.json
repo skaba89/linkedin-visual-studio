@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.linkedin.com/legal/l/api-terms-of-use",
+    "name": "API Terms of Use - LinkedIn",
+    "snippet": "4. your Application DOES NOT attempt to exceed any applicable API call limits, set by LinkedIn in its sole discretion (or 100,000 daily calls ...\nYou may create up to five test LinkedIn Member profiles for purposes of testing your Application only. You must create the profiles manually and ...",
+    "host_name": "www.linkedin.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://learn.microsoft.com/en-us/linkedin/marketing/restricted-use-cases?view=li-lms-2026-05",
+    "name": "Restricted Uses of LinkedIn Marketing APIs and Data - Microsoft Learn",
+    "snippet": "Restrictions on Member Data. You'll have access to member data, such as: (1) Portions of members' profiles and identifiers for members, and ( ...\nRestrictions on Member Data. You'll have access to member data, such as: (1) Portions of members' profiles and identifiers for members, and (2) ...",
+    "host_name": "learn.microsoft.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/legal/l/marketing-api-terms",
+    "name": "Additional Terms for the LinkedIn Marketing API Program",
+    "snippet": "As a developer using the LinkedIn Marketing APIs, you'll be able to build applications that integrate with LinkedIn's advertising and community management ...\nUsing the Member Post Analytics API, Marketing Applications can access data relating to Member Profiles (including engagement on Member posts) ...",
+    "host_name": "www.linkedin.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://connectsafely.ai/articles/linkedin-api-complete-guide-2026",
+    "name": "LinkedIn API 2026: Access, Endpoints, Limits & Alternatives",
+    "snippet": "LinkedIn's official API is gated and restricted. ConnectSafely gives developers full REST API access for messaging, connections, search, ...\nLinkedIn's official API is gated and restricted. ConnectSafely gives developers full REST API access for messaging, connections, search, and ...",
+    "host_name": "connectsafely.ai",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedhelper.com/blog/linkedin-automation-limits",
+    "name": "LinkedIn Automation Limits 2026: Safe Daily & Weekly Caps",
+    "snippet": "LinkedIn does not publish exact automation limits. Community testing suggests that ~100 connection requests per week, up to ~50 per day on a ...",
+    "host_name": "www.linkedhelper.com",
+    "rank": 4,
+    "date": "Jun 4, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://salesflow.io/blog/the-ultimate-guide-to-safe-linkedin-automation-in-2025",
+    "name": "The Ultimate Guide to Safe LinkedIn Automation in 2025 - Salesflow",
+    "snippet": "Automate LinkedIn safely in 2025 without getting banned. Learn about LinkedIn limits, compliance tips, and tools like Salesflow for risk-free ...",
+    "host_name": "salesflow.io",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=J-DiUTMphBk",
+    "name": "LinkedIn Automation in 2026 — What Still Works (And What's Banned)",
+    "snippet": "... LinkedIn network ethically and effectively, ensuring compliance with new platform rules. I share real examples and provide bonus tips to ...",
+    "host_name": "www.youtube.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://blog.gojiberry.ai/blog/linkedin-automation-compliance",
+    "name": "LinkedIn Automation Compliance: How to Stay Safe & Avoid",
+    "snippet": "Learn LinkedIn automation compliance in 2026: what's allowed vs forbidden, safe rate limits, GDPR best practices, and how to automate ...",
+    "host_name": "blog.gojiberry.ai",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://getsales.io/blog/linkedin-automation-safety-guide-2026",
+    "name": "LinkedIn automation safety guide 2026: avoid bans and restrictions",
+    "snippet": "Content-related violations: You cannot send repetitive, high-volume messages that lead to a high rate of “I don't know this person” reports.",
+    "host_name": "getsales.io",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.unipile.com/what-linkedin-data-can-be-pulled-from-their-api",
+    "name": "What LinkedIn Data Can Be Pulled from Their API? - Unipile",
+    "snippet": "Yes, LinkedIn imposes restrictions such as: Limited access to certain user information (e.g., personal contact details). API rate limits to prevent overuse.\nLinkedIn imposes strict API rate limits to prevent misuse or overextraction of data. These limits ensure that developers access data responsibly without ...",
+    "host_name": "www.unipile.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

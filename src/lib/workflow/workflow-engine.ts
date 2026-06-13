@@ -1,6 +1,5 @@
-// ─── Workflow Execution Engine — Prisma-persisted (BUG-H2 fix) ──────────
+// ─── Workflow Execution Engine (Prisma-backed) ───────────────────────
 
-import { db, DEFAULT_USER_ID, ensureDefaultUser } from "@/lib/db";
 import {
   Workflow,
   WorkflowNode,
@@ -10,45 +9,73 @@ import {
   WorkflowCondition,
   WorkflowStatus,
   TriggerType,
+  WORKFLOW_TEMPLATES,
 } from "./types";
+
+import { db, DEFAULT_USER_ID } from "@/lib/db";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-}
-
-// ─── DB ↔ Type Mappers ──────────────────────────────────────────────
-
-function dbToWorkflow(row: {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  nodes: string;
-  edges: string;
-  executions: string;
-  lastExecutionAt: string | null;
-  tags: string;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
-}): Workflow {
+/** Convert a Prisma Workflow row to our Workflow type */
+function prismaToWorkflow(
+  row: {
+    id: string;
+    name: string;
+    description: string;
+    status: string;
+    nodes: unknown;
+    edges: unknown;
+    tags: unknown;
+    version: number;
+    lastExecutionAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  executions: WorkflowExecution[] = []
+): Workflow {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     status: row.status as WorkflowStatus,
-    nodes: JSON.parse(row.nodes || "[]"),
-    edges: JSON.parse(row.edges || "[]"),
-    executions: JSON.parse(row.executions || "[]"),
-    lastExecutionAt: row.lastExecutionAt,
-    tags: JSON.parse(row.tags || "[]"),
+    nodes: (row.nodes as WorkflowNode[]) ?? [],
+    edges: (row.edges as WorkflowEdge[]) ?? [],
+    tags: (row.tags as string[]) ?? [],
     version: row.version,
+    lastExecutionAt: row.lastExecutionAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    executions,
   };
 }
+
+/** Convert a Prisma WorkflowExecution row to our WorkflowExecution type */
+function prismaToExecution(row: {
+  id: string;
+  workflowId: string;
+  status: string;
+  triggerNode: string;
+  currentNode: string | null;
+  error: string | null;
+  data: unknown;
+  steps: unknown;
+  startedAt: Date;
+  completedAt: Date | null;
+}): WorkflowExecution {
+  return {
+    id: row.id,
+    workflowId: row.workflowId,
+    status: row.status as WorkflowExecution["status"],
+    triggerNode: row.triggerNode,
+    currentNode: row.currentNode,
+    startedAt: row.startedAt.toISOString(),
+    completedAt: row.completedAt?.toISOString() ?? null,
+    error: row.error,
+    data: (row.data as Record<string, unknown>) ?? {},
+    steps: (row.steps as WorkflowExecutionStep[]) ?? [],
+  };
+}
+
 
 // ─── Condition Evaluator ────────────────────────────────────────────
 
@@ -93,12 +120,11 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   }, obj);
 }
 
-// ─── Workflow Engine (Prisma-backed) ────────────────────────────────
+// ─── Workflow Engine ────────────────────────────────────────────────
 
 class WorkflowEngine {
-
   /**
-   * Create a new workflow from scratch — persisted to SQLite
+   * Create a new workflow from scratch
    */
   async createWorkflow(input: {
     name: string;
@@ -107,28 +133,26 @@ class WorkflowEngine {
     edges?: WorkflowEdge[];
     tags?: string[];
   }): Promise<Workflow> {
-    await ensureDefaultUser();
-    const row = await db.workflowData.create({
+    const row = await db.workflow.create({
       data: {
         userId: DEFAULT_USER_ID,
         name: input.name,
         description: input.description ?? "",
         status: "draft",
-        nodes: JSON.stringify(input.nodes ?? []),
-        edges: JSON.stringify(input.edges ?? []),
-        executions: JSON.stringify([]),
-        tags: JSON.stringify(input.tags ?? []),
+        nodes: input.nodes ?? [],
+        edges: input.edges ?? [],
+        tags: input.tags ?? [],
         version: 1,
       },
     });
-    return dbToWorkflow(row);
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Create a workflow from a template
    */
   async createFromTemplate(templateId: string, name?: string): Promise<Workflow | null> {
-    const { WORKFLOW_TEMPLATES } = require("./types");
     const template = WORKFLOW_TEMPLATES.find((t: { id: string }) => t.id === templateId);
     if (!template) return null;
 
@@ -155,53 +179,82 @@ class WorkflowEngine {
   /**
    * Get a workflow by ID
    */
-  async getWorkflow(id: string): Promise<Workflow | null> {
-    const row = await db.workflowData.findUnique({ where: { id } });
-    if (!row) return null;
-    return dbToWorkflow(row);
+  async getWorkflow(id: string): Promise<Workflow | undefined> {
+    const row = await db.workflow.findUnique({
+      where: { id },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
+    });
+
+    if (!row) return undefined;
+
+    const executions = row.executions.map(prismaToExecution);
+    return prismaToWorkflow(row, executions);
   }
 
   /**
    * Get all workflows
    */
   async getWorkflows(): Promise<Workflow[]> {
-    const rows = await db.workflowData.findMany({
+    const rows = await db.workflow.findMany({
       where: { userId: DEFAULT_USER_ID },
       orderBy: { updatedAt: "desc" },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
     });
-    return rows.map(dbToWorkflow);
+
+    return rows.map((row) => {
+      const executions = row.executions.map(prismaToExecution);
+      return prismaToWorkflow(row, executions);
+    });
   }
 
   /**
    * Update a workflow
    */
-  async updateWorkflow(id: string, updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>): Promise<Workflow | null> {
-    const existing = await db.workflowData.findUnique({ where: { id } });
+  async updateWorkflow(
+    id: string,
+    updates: Partial<Pick<Workflow, "name" | "description" | "nodes" | "edges" | "tags">>
+  ): Promise<Workflow | null> {
+    const existing = await db.workflow.findUnique({ where: { id } });
     if (!existing) return null;
 
     const data: Record<string, unknown> = {};
     if (updates.name !== undefined) data.name = updates.name;
     if (updates.description !== undefined) data.description = updates.description;
-    if (updates.nodes !== undefined) data.nodes = JSON.stringify(updates.nodes);
-    if (updates.edges !== undefined) data.edges = JSON.stringify(updates.edges);
-    if (updates.tags !== undefined) data.tags = JSON.stringify(updates.tags);
+    if (updates.nodes !== undefined) data.nodes = updates.nodes;
+    if (updates.edges !== undefined) data.edges = updates.edges;
+    if (updates.tags !== undefined) data.tags = updates.tags;
 
-    const row = await db.workflowData.update({ where: { id }, data });
-    return dbToWorkflow(row);
+    const row = await db.workflow.update({
+      where: { id },
+      data,
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Change workflow status
    */
   async setWorkflowStatus(id: string, status: WorkflowStatus): Promise<Workflow | null> {
-    const existing = await db.workflowData.findUnique({ where: { id } });
+    const existing = await db.workflow.findUnique({ where: { id } });
     if (!existing) return null;
 
-    const row = await db.workflowData.update({
+    const row = await db.workflow.update({
       where: { id },
       data: { status },
     });
-    return dbToWorkflow(row);
+
+    return prismaToWorkflow(row);
   }
 
   /**
@@ -209,7 +262,7 @@ class WorkflowEngine {
    */
   async deleteWorkflow(id: string): Promise<boolean> {
     try {
-      await db.workflowData.delete({ where: { id } });
+      await db.workflow.delete({ where: { id } });
       return true;
     } catch {
       return false;
@@ -220,63 +273,112 @@ class WorkflowEngine {
    * Add a node to a workflow
    */
   async addNode(workflowId: string, node: WorkflowNode): Promise<Workflow | null> {
-    const workflow = await this.getWorkflow(workflowId);
-    if (!workflow) return null;
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.nodes.push(node);
-    return this.updateWorkflow(workflowId, { nodes: workflow.nodes });
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    nodes.push(node);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { nodes },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Remove a node from a workflow (and its edges)
    */
   async removeNode(workflowId: string, nodeId: string): Promise<Workflow | null> {
-    const workflow = await this.getWorkflow(workflowId);
-    if (!workflow) return null;
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.nodes = workflow.nodes.filter((n) => n.id !== nodeId);
-    workflow.edges = workflow.edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
-    return this.updateWorkflow(workflowId, { nodes: workflow.nodes, edges: workflow.edges });
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+
+    const filteredNodes = nodes.filter((n) => n.id !== nodeId);
+    const filteredEdges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: {
+        nodes: filteredNodes,
+        edges: filteredEdges,
+      },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Add an edge between two nodes
    */
   async addEdge(workflowId: string, edge: WorkflowEdge): Promise<Workflow | null> {
-    const workflow = await this.getWorkflow(workflowId);
-    if (!workflow) return null;
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    const fromExists = workflow.nodes.some((n) => n.id === edge.from);
-    const toExists = workflow.nodes.some((n) => n.id === edge.to);
+    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+
+    // Validate nodes exist
+    const fromExists = nodes.some((n) => n.id === edge.from);
+    const toExists = nodes.some((n) => n.id === edge.to);
     if (!fromExists || !toExists) return null;
 
-    workflow.edges.push(edge);
-    return this.updateWorkflow(workflowId, { edges: workflow.edges });
+    edges.push(edge);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { edges },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Remove an edge
    */
   async removeEdge(workflowId: string, edgeId: string): Promise<Workflow | null> {
-    const workflow = await this.getWorkflow(workflowId);
-    if (!workflow) return null;
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) return null;
 
-    workflow.edges = workflow.edges.filter((e) => e.id !== edgeId);
-    return this.updateWorkflow(workflowId, { edges: workflow.edges });
+    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+    const filteredEdges = edges.filter((e) => e.id !== edgeId);
+
+    const row = await db.workflow.update({
+      where: { id: workflowId },
+      data: { edges: filteredEdges },
+    });
+
+    return prismaToWorkflow(row);
   }
 
   /**
    * Find workflows that match a trigger type
    */
   async findWorkflowsByTrigger(triggerType: TriggerType): Promise<Workflow[]> {
-    const workflows = await this.getWorkflows();
-    return workflows.filter(
-      (w) =>
-        w.status === "active" &&
-        w.nodes.some(
-          (n) => n.type === "trigger" && n.triggerType === triggerType
-        )
-    );
+    const rows = await db.workflow.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        status: "active",
+      },
+      include: {
+        executions: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+        },
+      },
+    });
+
+    return rows
+      .map((row) => {
+        const executions = row.executions.map(prismaToExecution);
+        return prismaToWorkflow(row, executions);
+      })
+      .filter((w) =>
+        w.nodes.some((n) => n.type === "trigger" && n.triggerType === triggerType)
+      );
   }
 
   /**
@@ -287,10 +389,10 @@ class WorkflowEngine {
     triggerData: Record<string, unknown> = {},
     triggerNodeOverride?: string
   ): Promise<WorkflowExecution> {
-    const workflow = await this.getWorkflow(workflowId);
-    if (!workflow) {
+    const existing = await db.workflow.findUnique({ where: { id: workflowId } });
+    if (!existing) {
       return {
-        id: generateId(),
+        id: "",
         workflowId,
         status: "failed",
         triggerNode: "",
@@ -303,15 +405,18 @@ class WorkflowEngine {
       };
     }
 
+    const workflow = prismaToWorkflow(existing);
+    const nodes = workflow.nodes;
+    const edges = workflow.edges;
+
     // Find trigger node
-    const triggerNode =
-      triggerNodeOverride
-        ? workflow.nodes.find((n) => n.id === triggerNodeOverride)
-        : workflow.nodes.find((n) => n.type === "trigger");
+    const triggerNode = triggerNodeOverride
+      ? nodes.find((n) => n.id === triggerNodeOverride)
+      : nodes.find((n) => n.type === "trigger");
 
     if (!triggerNode) {
       return {
-        id: generateId(),
+        id: "",
         workflowId,
         status: "failed",
         triggerNode: "",
@@ -324,25 +429,41 @@ class WorkflowEngine {
       };
     }
 
+    // Create execution record in DB
+    const steps: WorkflowExecutionStep[] = nodes.map((n) => ({
+      nodeId: n.id,
+      nodeLabel: n.label,
+      status: "pending" as const,
+      startedAt: null,
+      completedAt: null,
+      output: null,
+      error: null,
+    }));
+
+    const executionRow = await db.workflowExecution.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+        status: "running",
+        triggerNode: triggerNode.id,
+        currentNode: triggerNode.id,
+        data: { ...triggerData },
+        steps,
+      },
+    });
+
+    // Build in-memory execution object for graph traversal
     const execution: WorkflowExecution = {
-      id: generateId(),
+      id: executionRow.id,
       workflowId,
       status: "running",
       triggerNode: triggerNode.id,
       currentNode: triggerNode.id,
-      startedAt: new Date().toISOString(),
+      startedAt: executionRow.startedAt.toISOString(),
       completedAt: null,
       error: null,
       data: { ...triggerData },
-      steps: workflow.nodes.map((n) => ({
-        nodeId: n.id,
-        nodeLabel: n.label,
-        status: "pending" as const,
-        startedAt: null,
-        completedAt: null,
-        output: null,
-        error: null,
-      })),
+      steps,
     };
 
     // Mark trigger as completed
@@ -364,20 +485,24 @@ class WorkflowEngine {
     execution.completedAt = new Date().toISOString();
     execution.currentNode = null;
 
-    // Store execution in DB
-    const existing = await db.workflowData.findUnique({ where: { id: workflowId } });
-    if (existing) {
-      const executions: WorkflowExecution[] = JSON.parse(existing.executions || "[]");
-      executions.unshift(execution);
-      const trimmed = executions.slice(0, 100);
-      await db.workflowData.update({
-        where: { id: workflowId },
-        data: {
-          executions: JSON.stringify(trimmed),
-          lastExecutionAt: new Date().toISOString(),
-        },
-      });
-    }
+    // Update execution record in DB
+    await db.workflowExecution.update({
+      where: { id: executionRow.id },
+      data: {
+        status: execution.status,
+        currentNode: null,
+        error: execution.error,
+        data: execution.data,
+        steps: execution.steps,
+        completedAt: new Date(),
+      },
+    });
+
+    // Update workflow's lastExecutionAt
+    await db.workflow.update({
+      where: { id: workflowId },
+      data: { lastExecutionAt: new Date() },
+    });
 
     return execution;
   }
@@ -390,12 +515,14 @@ class WorkflowEngine {
     execution: WorkflowExecution,
     fromNodeId: string
   ): Promise<void> {
+    // Find all outgoing edges from the current node
     const outgoingEdges = workflow.edges.filter((e) => e.from === fromNodeId);
 
     for (const edge of outgoingEdges) {
       const targetNode = workflow.nodes.find((n) => n.id === edge.to);
       if (!targetNode) continue;
 
+      // Check edge condition
       if (edge.condition && !evaluateCondition(edge.condition, execution.data)) {
         const step = execution.steps.find((s) => s.nodeId === targetNode.id);
         if (step) {
@@ -405,6 +532,7 @@ class WorkflowEngine {
         continue;
       }
 
+      // Execute the target node
       const step = execution.steps.find((s) => s.nodeId === targetNode.id);
       if (!step || step.status === "completed") continue;
 
@@ -418,6 +546,7 @@ class WorkflowEngine {
         step.completedAt = new Date().toISOString();
         step.output = nodeOutput;
 
+        // Merge output into execution data
         if (nodeOutput && typeof nodeOutput === "object") {
           Object.assign(execution.data, nodeOutput);
         }
@@ -430,6 +559,7 @@ class WorkflowEngine {
         return;
       }
 
+      // Continue traversing
       await this.executeGraph(workflow, execution, targetNode.id);
     }
   }
@@ -454,6 +584,8 @@ class WorkflowEngine {
 
       case "delay": {
         const delayMs = node.delayMs ?? 1000;
+        // In production, this would schedule a future execution
+        // For now, we simulate the delay (capped at 2s for UX)
         const actualDelay = Math.min(delayMs, 2000);
         await new Promise((resolve) => setTimeout(resolve, actualDelay));
         return { delayed: true, delayMs: actualDelay };
@@ -486,6 +618,7 @@ class WorkflowEngine {
       case "transform": {
         if (node.transformExpr) {
           try {
+            // Simple transform using a sandboxed expression
             const fn = new Function("data", `with(data) { return ${node.transformExpr}; }`);
             const result = fn(data);
             return { transformResult: result };
@@ -514,8 +647,8 @@ class WorkflowEngine {
     switch (actionType) {
       case "send_email": {
         const recipient = String(data.lead_email ?? data.email ?? node.config.recipient ?? "");
-        const subject = String(node.config.subject ?? "Notification HERMES");
-        const body = String(node.config.body ?? "Action declenchée par workflow HERMES");
+        const subject = String(node.config.subject ?? "Notification HERMÈS");
+        const body = String(node.config.body ?? "Action déclenchée par workflow HERMÈS");
         return { emailSent: true, recipient, subject };
       }
 
@@ -580,13 +713,13 @@ class WorkflowEngine {
 
       case "notify_slack": {
         const channel = String(node.config.channel ?? "#hermes-alerts");
-        const message = String(node.config.message ?? `Alerte HERMES: ${node.label}`);
+        const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
         return { slackNotified: true, channel, message };
       }
 
       case "notify_discord": {
         const webhookUrl = String(node.config.webhookUrl ?? "");
-        const message = String(node.config.message ?? `Alerte HERMES: ${node.label}`);
+        const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
         return { discordNotified: true, webhookUrl: webhookUrl ? "***" : "not configured", message };
       }
 
@@ -614,10 +747,16 @@ class WorkflowEngine {
    * Get execution history for a workflow
    */
   async getExecutionHistory(workflowId: string, limit = 20): Promise<WorkflowExecution[]> {
-    const row = await db.workflowData.findUnique({ where: { id: workflowId } });
-    if (!row) return [];
-    const executions: WorkflowExecution[] = JSON.parse(row.executions || "[]");
-    return executions.slice(0, limit);
+    const rows = await db.workflowExecution.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+      },
+      orderBy: { startedAt: "desc" },
+      take: limit,
+    });
+
+    return rows.map(prismaToExecution);
   }
 
   /**
@@ -629,11 +768,14 @@ class WorkflowEngine {
     avgDurationMs: number;
     lastExecution: string | null;
   }> {
-    const row = await db.workflowData.findUnique({ where: { id: workflowId } });
-    if (!row) {
-      return { totalExecutions: 0, successRate: 0, avgDurationMs: 0, lastExecution: null };
-    }
-    const executions: WorkflowExecution[] = JSON.parse(row.executions || "[]");
+    const executions = await db.workflowExecution.findMany({
+      where: {
+        userId: DEFAULT_USER_ID,
+        workflowId,
+      },
+      orderBy: { startedAt: "desc" },
+    });
+
     if (executions.length === 0) {
       return { totalExecutions: 0, successRate: 0, avgDurationMs: 0, lastExecution: null };
     }
@@ -643,19 +785,17 @@ class WorkflowEngine {
       .filter((e) => e.startedAt && e.completedAt)
       .map((e) => new Date(e.completedAt!).getTime() - new Date(e.startedAt).getTime());
 
+    const workflow = await db.workflow.findUnique({
+      where: { id: workflowId },
+      select: { lastExecutionAt: true },
+    });
+
     return {
       totalExecutions: executions.length,
       successRate: completed.length / executions.length,
       avgDurationMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
-      lastExecution: row.lastExecutionAt,
+      lastExecution: workflow?.lastExecutionAt?.toISOString() ?? null,
     };
-  }
-
-  /**
-   * Load workflows from external data — no-op, data comes from DB now
-   */
-  loadWorkflows(_workflows: Workflow[]): void {
-    // Kept for backwards compatibility but does nothing — DB is the source of truth
   }
 }
 

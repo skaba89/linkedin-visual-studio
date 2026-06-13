@@ -22,20 +22,6 @@ export async function POST(req: NextRequest) {
   await ensureDefaultUser();
   const body = await req.json();
 
-  // Validate required fields
-  if (!body.contactId || body.contactId.trim() === "") {
-    return NextResponse.json(
-      { error: "contactId est requis pour créer un deal" },
-      { status: 400 }
-    );
-  }
-  if (!body.titre || body.titre.trim() === "") {
-    return NextResponse.json(
-      { error: "titre est requis pour créer un deal" },
-      { status: 400 }
-    );
-  }
-
   const deal = await db.deal.create({
     data: {
       userId: DEFAULT_USER_ID,

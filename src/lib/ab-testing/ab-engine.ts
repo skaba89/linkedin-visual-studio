@@ -1,7 +1,6 @@
-// HERMÈS A/B Testing Engine — Prisma-persisted (BUG-H2 fix)
-// Uses existing Experiment + ExperimentResult Prisma models
+// HERMÈS A/B Testing Engine — Statistical testing with Z-test and Wilson score
+// Single source of truth: Prisma database (no in-memory duplicate stores)
 
-import { db, DEFAULT_USER_ID, ensureDefaultUser } from "@/lib/db";
 import {
   ExperimentType,
   ExperimentStatus,
@@ -13,53 +12,101 @@ import {
   VariantReport,
   ABTestAssignment,
 } from "./types";
+import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+
+/**
+ * Convert a Prisma Experiment record to an ExperimentConfig by casting
+ * the Json `variants` field into a Variant[] array.
+ */
+function experimentToConfig(exp: {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  status: string;
+  targetAgentId: string | null;
+  variants: unknown;
+  trafficSplit: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  winnerId: string | null;
+  confidence: number;
+}): ExperimentConfig {
+  return {
+    id: exp.id,
+    name: exp.name,
+    description: exp.description,
+    type: exp.type as ExperimentType,
+    status: exp.status as ExperimentStatus,
+    targetAgentId: exp.targetAgentId ?? undefined,
+    variants: (exp.variants as Variant[]) ?? [],
+    trafficSplit: exp.trafficSplit,
+    startDate: exp.startDate ?? undefined,
+    endDate: exp.endDate ?? undefined,
+    winnerId: exp.winnerId ?? undefined,
+    confidence: exp.confidence,
+  };
+}
 
 export class ABTestingEngine {
+  // Session-level assignment cache for performance — NOT a source of truth
   private assignments: Map<string, ABTestAssignment> = new Map();
 
-  async createExperiment(config: Omit<ExperimentConfig, "id" | "status" | "confidence">): Promise<ExperimentConfig> {
+  async createExperiment(
+    config: Omit<ExperimentConfig, "id" | "status" | "confidence">
+  ): Promise<ExperimentConfig> {
     await ensureDefaultUser();
-    const row = await db.experiment.create({
+
+    const experiment = await db.experiment.create({
       data: {
         userId: DEFAULT_USER_ID,
         name: config.name,
-        description: config.description,
-        type: config.type,
+        description: config.description || "",
+        type: config.type || "ab",
         status: "draft",
         targetAgentId: config.targetAgentId ?? null,
-        variants: JSON.stringify(config.variants),
-        trafficSplit: config.trafficSplit,
+        variants: config.variants as object,
+        trafficSplit: config.trafficSplit || "50/50",
+        startDate: config.startDate ?? null,
+        endDate: config.endDate ?? null,
         confidence: 0,
       },
     });
-    return this.dbToConfig(row);
+
+    return experimentToConfig(experiment);
   }
 
   async startExperiment(experimentId: string): Promise<ExperimentConfig | null> {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing || existing.status !== "draft") return null;
 
-    const row = await db.experiment.update({
+    const updated = await db.experiment.update({
       where: { id: experimentId },
-      data: { status: "running", startDate: new Date() },
+      data: {
+        status: "running",
+        startDate: new Date(),
+      },
     });
-    return this.dbToConfig(row);
+
+    return experimentToConfig(updated);
   }
 
   async assignVariant(experimentId: string, userId: string): Promise<Variant | null> {
-    const experiment = await this.getConfig(experimentId);
-    if (!experiment || experiment.status !== "running") return null;
+    const existing = await db.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing || existing.status !== "running") return null;
 
-    // Check if already assigned
+    const variants = (existing.variants as Variant[]) ?? [];
+
+    // Check session cache for existing assignment
     const key = `${experimentId}:${userId}`;
-    const existing = this.assignments.get(key);
-    if (existing) {
-      return experiment.variants.find((v) => v.id === existing.variantId) || null;
+    const cached = this.assignments.get(key);
+    if (cached) {
+      return variants.find((v) => v.id === cached.variantId) || null;
     }
 
     // Consistent hashing for deterministic assignment
     const hash = this.consistentHash(userId, experimentId);
-    const variant = this.selectVariant(experiment.variants, hash);
+    const variant = this.selectVariant(variants, hash);
 
     if (variant) {
       this.assignments.set(key, {
@@ -80,13 +127,16 @@ export class ABTestingEngine {
     metricValue: number,
     metadata?: Record<string, unknown>
   ): Promise<ExperimentResult | null> {
-    const experiment = await this.getConfig(experimentId);
-    if (!experiment) return null;
+    const existing = await db.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing) return null;
 
-    const variant = experiment.variants.find((v) => v.id === variantId);
+    const variants = (existing.variants as Variant[]) ?? [];
+    const variant = variants.find((v) => v.id === variantId);
     if (!variant) return null;
 
-    const row = await db.experimentResult.create({
+    await ensureDefaultUser();
+
+    const created = await db.experimentResult.create({
       data: {
         userId: DEFAULT_USER_ID,
         experimentId,
@@ -95,37 +145,37 @@ export class ABTestingEngine {
         impressionId: `imp-${Math.random().toString(36).slice(2, 8)}`,
         outcome,
         metricValue,
-        metadata: metadata ? JSON.stringify(metadata) : null,
+        metadata: metadata ?? undefined,
       },
     });
-
-    const result: ExperimentResult = {
-      id: row.id,
-      experimentId: row.experimentId,
-      variantId: row.variantId,
-      variantName: row.variantName,
-      impressionId: row.impressionId ?? undefined,
-      outcome: row.outcome as OutcomeType,
-      metricValue: row.metricValue,
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-      timestamp: row.createdAt,
-    };
 
     // Check significance after each result
     await this.checkSignificance(experimentId);
 
-    return result;
+    return {
+      id: created.id,
+      experimentId: created.experimentId,
+      variantId: created.variantId,
+      variantName: created.variantName,
+      impressionId: created.impressionId ?? undefined,
+      outcome: created.outcome as OutcomeType,
+      metricValue: created.metricValue,
+      metadata: created.metadata ?? undefined,
+      timestamp: created.createdAt,
+    };
   }
 
-  async checkSignificance(experimentId: string): Promise<{ isSignificant: boolean; confidence: number }> {
-    const experiment = await this.getConfig(experimentId);
-    if (!experiment) return { isSignificant: false, confidence: 0 };
+  async checkSignificance(
+    experimentId: string
+  ): Promise<{ isSignificant: boolean; confidence: number }> {
+    const existing = await db.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing) return { isSignificant: false, confidence: 0 };
 
-    const dbResults = await db.experimentResult.findMany({
-      where: { userId: DEFAULT_USER_ID, experimentId },
+    const results = await db.experimentResult.findMany({
+      where: { experimentId, userId: DEFAULT_USER_ID },
     });
 
-    if (dbResults.length < 20) {
+    if (results.length < 20) {
       await db.experiment.update({
         where: { id: experimentId },
         data: { confidence: 0 },
@@ -134,22 +184,11 @@ export class ABTestingEngine {
     }
 
     // Get results per variant
-    const variantResults = new Map<string, ExperimentResult[]>();
-    for (const r of dbResults) {
-      const result: ExperimentResult = {
-        id: r.id,
-        experimentId: r.experimentId,
-        variantId: r.variantId,
-        variantName: r.variantName,
-        impressionId: r.impressionId ?? undefined,
-        outcome: r.outcome as OutcomeType,
-        metricValue: r.metricValue,
-        metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
-        timestamp: r.createdAt,
-      };
-      const existing = variantResults.get(r.variantId) || [];
-      existing.push(result);
-      variantResults.set(r.variantId, existing);
+    const variantResults = new Map<string, typeof results>();
+    for (const result of results) {
+      const arr = variantResults.get(result.variantId) || [];
+      arr.push(result);
+      variantResults.set(result.variantId, arr);
     }
 
     if (variantResults.size < 2) {
@@ -173,6 +212,7 @@ export class ABTestingEngine {
     const pA = conversionsA / nA;
     const pB = conversionsB / nB;
 
+    // Z-test for two proportions
     const pPool = (conversionsA + conversionsB) / (nA + nB);
     const se = Math.sqrt(pPool * (1 - pPool) * (1 / nA + 1 / nB));
 
@@ -188,27 +228,29 @@ export class ABTestingEngine {
     const confidence = this.zScoreToConfidence(zScore);
 
     const isSignificant = confidence >= 0.95;
-    const winnerId = isSignificant ? (pB > pA ? variantIds[1] : variantIds[0]) : null;
+    const updateData: Record<string, unknown> = { confidence };
+    if (isSignificant && existing.status === "running") {
+      updateData.winnerId = pB > pA ? variantIds[1] : variantIds[0];
+    }
 
     await db.experiment.update({
       where: { id: experimentId },
-      data: {
-        confidence,
-        ...(winnerId ? { winnerId } : {}),
-      },
+      data: updateData,
     });
 
     return { isSignificant, confidence };
   }
 
   async getReport(experimentId: string): Promise<ExperimentReport | null> {
-    const experiment = await this.getConfig(experimentId);
-    if (!experiment) return null;
+    const existing = await db.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing) return null;
 
+    const experiment = experimentToConfig(existing);
     const dbResults = await db.experimentResult.findMany({
-      where: { userId: DEFAULT_USER_ID, experimentId },
+      where: { experimentId, userId: DEFAULT_USER_ID },
     });
 
+    // Convert DB results to typed results
     const results: ExperimentResult[] = dbResults.map((r) => ({
       id: r.id,
       experimentId: r.experimentId,
@@ -217,7 +259,7 @@ export class ABTestingEngine {
       impressionId: r.impressionId ?? undefined,
       outcome: r.outcome as OutcomeType,
       metricValue: r.metricValue,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata ?? undefined,
       timestamp: r.createdAt,
     }));
 
@@ -244,10 +286,13 @@ export class ABTestingEngine {
 
     const winner = variantReports.find((v) => v.isWinner);
 
+    // Calculate duration
     let duration = "N/A";
     if (experiment.startDate) {
       const end = experiment.endDate || new Date();
-      const days = Math.ceil((end.getTime() - experiment.startDate.getTime()) / (24 * 60 * 60 * 1000));
+      const days = Math.ceil(
+        (end.getTime() - experiment.startDate.getTime()) / (24 * 60 * 60 * 1000)
+      );
       duration = `${days} jour${days > 1 ? "s" : ""}`;
     }
 
@@ -264,82 +309,48 @@ export class ABTestingEngine {
     };
   }
 
-  async updateStatus(experimentId: string, status: ExperimentStatus): Promise<ExperimentConfig | null> {
+  async updateStatus(
+    experimentId: string,
+    status: ExperimentStatus
+  ): Promise<ExperimentConfig | null> {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing) return null;
 
-    const data: Record<string, unknown> = { status };
+    const updateData: Record<string, unknown> = { status };
     if (status === "completed") {
-      data.endDate = new Date();
+      updateData.endDate = new Date();
     }
 
-    const row = await db.experiment.update({ where: { id: experimentId }, data });
-    return this.dbToConfig(row);
+    const updated = await db.experiment.update({
+      where: { id: experimentId },
+      data: updateData,
+    });
+
+    return experimentToConfig(updated);
   }
 
   async getExperiments(): Promise<ExperimentConfig[]> {
-    const rows = await db.experiment.findMany({
+    const experiments = await db.experiment.findMany({
       where: { userId: DEFAULT_USER_ID },
       orderBy: { createdAt: "desc" },
     });
-    return rows.map((r) => this.dbToConfig(r));
+
+    return experiments.map(experimentToConfig);
   }
 
-  loadExperiments(_experiments: ExperimentConfig[]): void {
-    // No-op — DB is the source of truth
-  }
-
-  // ─── Private helpers ────────────────────────────────────────────────
-
-  private async getConfig(id: string): Promise<ExperimentConfig | null> {
-    const row = await db.experiment.findUnique({ where: { id } });
-    if (!row) return null;
-    return this.dbToConfig(row);
-  }
-
-  private dbToConfig(row: {
-    id: string;
-    name: string;
-    description: string;
-    type: string;
-    status: string;
-    targetAgentId: string | null;
-    variants: string;
-    trafficSplit: string;
-    startDate: Date | null;
-    endDate: Date | null;
-    winnerId: string | null;
-    confidence: number;
-    createdAt: Date;
-    updatedAt: Date;
-  }): ExperimentConfig {
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      type: row.type as ExperimentType,
-      status: row.status as ExperimentStatus,
-      targetAgentId: row.targetAgentId ?? undefined,
-      variants: JSON.parse(row.variants || "[]"),
-      trafficSplit: row.trafficSplit,
-      startDate: row.startDate ?? undefined,
-      endDate: row.endDate ?? undefined,
-      winnerId: row.winnerId ?? undefined,
-      confidence: row.confidence,
-    };
-  }
-
+  // Consistent hashing for deterministic variant assignment
   private consistentHash(userId: string, experimentId: string): number {
     const str = `${userId}:${experimentId}`;
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
+      hash = hash & hash; // Convert to 32bit integer
     }
-    return Math.abs(hash) / 2147483647;
+    return Math.abs(hash) / 2147483647; // Normalize to 0-1
   }
 
+  // Weighted random variant selection
   private selectVariant(variants: Variant[], hash: number): Variant | null {
     if (variants.length === 0) return null;
 
@@ -356,10 +367,11 @@ export class ABTestingEngine {
     return variants[variants.length - 1];
   }
 
+  // Wilson score interval for binomial proportion
   private wilsonScoreInterval(successes: number, trials: number): [number, number] {
     if (trials === 0) return [0, 0];
 
-    const z = 1.96;
+    const z = 1.96; // 95% confidence
     const p = successes / trials;
     const n = trials;
 
@@ -373,10 +385,14 @@ export class ABTestingEngine {
     ];
   }
 
+  // Convert Z-score to confidence level
   private zScoreToConfidence(z: number): number {
+    // Approximate using the normal CDF
     const absZ = Math.abs(z);
+    // Simple approximation: confidence ≈ 1 - 2 * (1 - Φ(|z|))
+    // Using an approximation of the normal CDF
     const t = 1 / (1 + 0.2316419 * absZ);
-    const d = 0.3989422804014327;
+    const d = 0.3989422804014327; // 1/sqrt(2*pi)
     const p = d * Math.exp(-absZ * absZ / 2) *
       (0.319381530 * t + -0.356563782 * t * t + 1.781477937 * t * t * t +
         -1.821255978 * t * t * t * t + 1.330274429 * t * t * t * t * t);
