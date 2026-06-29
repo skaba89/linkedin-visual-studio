@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/lib/auth-provider";
@@ -27,11 +28,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // R-010 — Lecture du nonce CSP posé par le middleware
+  // Le nonce est ensuite injecté dans <Script nonce={...}> pour autoriser
+  // les scripts inline Next.js (analytics, hot-reload, etc.) tout en
+  // maintenant une CSP stricte 'strict-dynamic'.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="fr" suppressHydrationWarning>
       <body
@@ -41,6 +48,14 @@ export default function RootLayout({
           {children}
           <Toaster />
         </AuthProvider>
+        {/* Le nonce est exposé aux composants client via cet attribut
+            pour qu'ils puissent le passer aux <Script> tags si besoin. */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `window.__HERMES_NONCE__=${JSON.stringify(nonce)};`,
+          }}
+        />
       </body>
     </html>
   );
