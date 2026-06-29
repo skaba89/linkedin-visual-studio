@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import {
+  generateNonce,
+  applySecurityHeaders,
+} from "@/lib/security-headers";
 
 // ─── Rate-limit store (in-memory, per-instance) ────────────────────────────────
+// NOTE (Volume 2 §6) : ce rate-limit local est conservé comme fallback
+// défensif. Le rate-limit distribué Upstash Redis (R-007) doit être appliqué
+// dans les handlers API eux-mêmes pour être partagé entre instances.
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 60; // requests per window
@@ -26,6 +33,7 @@ const AUTH_SKIP_ROUTES = [
   "/api/health",         // Health check for Render/monitoring
   "/api/ai/chat",        // Uses its own API key auth
   "/api/ai/web-search",  // Uses its own API key auth
+  "/api/csp-report",     // Endpoint de reporting CSP (POST)
 ];
 
 function shouldSkipAuth(pathname: string): boolean {
@@ -35,11 +43,19 @@ function shouldSkipAuth(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ─── 1. Security headers ──────────────────────────────────────────────────
-  const response = NextResponse.next();
-  response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  // ─── 1. Security headers + CSP nonce per-request ─────────────────────────
+  // R-010 — Headers de sécurité (Volume 2 chapitre 9)
+  // Le nonce est régénéré à chaque requête et injecté dans <Script nonce={...}>
+  // côté layout racine via request.headers.get('x-nonce').
+  const nonce = generateNonce();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+
+  applySecurityHeaders(response, nonce);
 
   // ─── 2. Rate limiting for API routes ──────────────────────────────────────
   if (pathname.startsWith("/api/")) {
@@ -51,7 +67,14 @@ export async function middleware(request: NextRequest) {
     if (isRateLimited(ip)) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
-        { status: 429 },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)),
+            "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+            "X-RateLimit-Remaining": "0",
+          },
+        },
       );
     }
   }
