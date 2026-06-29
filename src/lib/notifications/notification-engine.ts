@@ -9,6 +9,7 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
 } from "./types";
 import { db, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ function mapDbNotificationToTs(row: DbNotification): Notification {
     actionLabel: row.actionLabel ?? undefined,
     sourceAgent: row.sourceAgent ?? undefined,
     sourceWorkflow: row.sourceWorkflow ?? undefined,
-    metadata: row.metadata ?? undefined,
+    metadata: parseJsonField<Record<string, unknown> | undefined>(row.metadata as string | null | undefined, undefined),
     read: row.read,
     readAt: row.readAt?.toISOString() ?? undefined,
     dismissed: row.dismissed,
@@ -89,7 +90,7 @@ class NotificationEngine {
 
     // Check if this notification should be suppressed by preferences
     const pref = await db.notificationPreference.findUnique({
-      where: { category: input.category },
+      where: { userId_category: { userId: DEFAULT_USER_ID, category: input.category } },
     });
 
     if (pref && (!pref.enabled || PRIORITY_RANK[priority] < PRIORITY_RANK[pref.minPriority as NotificationPriority])) {
@@ -105,7 +106,7 @@ class NotificationEngine {
           actionLabel: input.actionLabel ?? null,
           sourceAgent: input.sourceAgent ?? null,
           sourceWorkflow: input.sourceWorkflow ?? null,
-          metadata: input.metadata ?? undefined,
+          metadata: input.metadata ? stringifyJsonField(input.metadata) : null,
           read: false,
           dismissed: true,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -140,7 +141,7 @@ class NotificationEngine {
             actionLabel: input.actionLabel ?? null,
             sourceAgent: input.sourceAgent ?? null,
             sourceWorkflow: input.sourceWorkflow ?? null,
-            metadata: input.metadata ?? undefined,
+            metadata: input.metadata ? stringifyJsonField(input.metadata) : null,
             read: false,
             dismissed: false,
             expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -161,7 +162,7 @@ class NotificationEngine {
         actionLabel: input.actionLabel ?? null,
         sourceAgent: input.sourceAgent ?? null,
         sourceWorkflow: input.sourceWorkflow ?? null,
-        metadata: input.metadata ?? undefined,
+        metadata: input.metadata ? stringifyJsonField(input.metadata) : null,
         read: false,
         dismissed: false,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -397,7 +398,7 @@ class NotificationEngine {
 
     try {
       const row = await db.notificationPreference.upsert({
-        where: { category },
+        where: { userId_category: { userId: DEFAULT_USER_ID, category } },
         update: data,
         create: {
           userId: DEFAULT_USER_ID,

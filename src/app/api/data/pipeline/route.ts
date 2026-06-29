@@ -28,7 +28,7 @@ export async function GET() {
         .filter((d) => d.stage === stage.id)
         .map((d) => ({
           ...d,
-          contact: contactMap.get(d.contactId) || null,
+          contact: d.contactId ? contactMap.get(d.contactId) ?? null : null,
         }));
 
       return {

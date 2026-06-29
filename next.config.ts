@@ -3,8 +3,10 @@ import type { NextConfig } from "next";
 /**
  * HERMÈS — next.config.ts
  *
- * Note : ignoreBuildErrors:true est encore présent (R-003, P0) et sera
- * retiré dans un correctif séparé une fois les erreurs TypeScript résolues.
+ * R-003 (P0) résolu : `ignoreBuildErrors: true` retiré. Toutes les erreurs
+ * TypeScript ont été corrigées dans le commit R-003 (86 → 0 erreurs via
+ * `tsc --noEmit`). Le build échouera désormais en cas de régression de type.
+ *
  * Les headers de sécurité (R-010) sont gérés dynamiquement par le middleware
  * via src/lib/security-headers.ts car ils nécessitent un nonce CSP per-request.
  * Les headers ci-dessous s'appliquent uniquement aux assets statiques
@@ -32,10 +34,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  typescript: {
-    // TODO (R-003): Remove ignoreBuildErrors after all implicit-any errors are fixed
-    ignoreBuildErrors: true,
-  },
+  // R-003 : `typescript.ignoreBuildErrors` retiré — 0 erreurs tsc --noEmit
   reactStrictMode: true,
   // Retire X-Powered-By header
   poweredByHeader: false,

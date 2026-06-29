@@ -45,15 +45,21 @@ export async function GET(request: NextRequest) {
     }
 
     const feedData = await feedResponse.json();
-    const posts = (feedData.elements || []).map((share: Record<string, unknown>) => ({
-      id: share.id || share.updateKey || String(Math.random()),
-      text: share.commentary || share.text?.text || "",
-      author: share.owner || "",
-      createdAt: share.created?.time || new Date().toISOString(),
-      likes: 0,
-      comments: 0,
-      visibility: share.visibility?.code || "PUBLIC",
-    }));
+    const elements: Array<Record<string, unknown>> = feedData.elements || [];
+    const posts = elements.map((share) => {
+      const commentary = share.commentary as { text?: string } | undefined;
+      const created = share.created as { time?: number } | undefined;
+      const visibility = share.visibility as { code?: string } | undefined;
+      return {
+        id: (share.id as string) || (share.updateKey as string) || String(Math.random()),
+        text: commentary?.text || "",
+        author: (share.owner as string) || "",
+        createdAt: created?.time ? new Date(created.time).toISOString() : new Date().toISOString(),
+        likes: 0,
+        comments: 0,
+        visibility: visibility?.code || "PUBLIC",
+      };
+    });
 
     return NextResponse.json({
       simulated: false,

@@ -13,6 +13,7 @@ import {
 } from "./types";
 
 import { db, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -139,9 +140,9 @@ class WorkflowEngine {
         name: input.name,
         description: input.description ?? "",
         status: "draft",
-        nodes: input.nodes ?? [],
-        edges: input.edges ?? [],
-        tags: input.tags ?? [],
+        nodes: stringifyJsonField(input.nodes ?? []),
+        edges: stringifyJsonField(input.edges ?? []),
+        tags: stringifyJsonField(input.tags ?? []),
         version: 1,
       },
     });
@@ -276,12 +277,12 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
+    const nodes: WorkflowNode[] = parseJsonField<WorkflowNode[]>(existing.nodes, []);
     nodes.push(node);
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { nodes },
+      data: { nodes: stringifyJsonField(nodes) },
     });
 
     return prismaToWorkflow(row);
@@ -294,8 +295,8 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
-    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+    const nodes: WorkflowNode[] = parseJsonField<WorkflowNode[]>(existing.nodes, []);
+    const edges: WorkflowEdge[] = parseJsonField<WorkflowEdge[]>(existing.edges, []);
 
     const filteredNodes = nodes.filter((n) => n.id !== nodeId);
     const filteredEdges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
@@ -303,8 +304,8 @@ class WorkflowEngine {
     const row = await db.workflow.update({
       where: { id: workflowId },
       data: {
-        nodes: filteredNodes,
-        edges: filteredEdges,
+        nodes: stringifyJsonField(filteredNodes),
+        edges: stringifyJsonField(filteredEdges),
       },
     });
 
@@ -318,8 +319,8 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const nodes: WorkflowNode[] = (existing.nodes as WorkflowNode[]) ?? [];
-    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+    const nodes: WorkflowNode[] = parseJsonField<WorkflowNode[]>(existing.nodes, []);
+    const edges: WorkflowEdge[] = parseJsonField<WorkflowEdge[]>(existing.edges, []);
 
     // Validate nodes exist
     const fromExists = nodes.some((n) => n.id === edge.from);
@@ -330,7 +331,7 @@ class WorkflowEngine {
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { edges },
+      data: { edges: stringifyJsonField(edges) },
     });
 
     return prismaToWorkflow(row);
@@ -343,12 +344,12 @@ class WorkflowEngine {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) return null;
 
-    const edges: WorkflowEdge[] = (existing.edges as WorkflowEdge[]) ?? [];
+    const edges: WorkflowEdge[] = parseJsonField<WorkflowEdge[]>(existing.edges, []);
     const filteredEdges = edges.filter((e) => e.id !== edgeId);
 
     const row = await db.workflow.update({
       where: { id: workflowId },
-      data: { edges: filteredEdges },
+      data: { edges: stringifyJsonField(filteredEdges) },
     });
 
     return prismaToWorkflow(row);
@@ -447,8 +448,8 @@ class WorkflowEngine {
         status: "running",
         triggerNode: triggerNode.id,
         currentNode: triggerNode.id,
-        data: { ...triggerData },
-        steps,
+        data: stringifyJsonField({ ...triggerData }),
+        steps: stringifyJsonField(steps),
       },
     });
 
@@ -492,8 +493,8 @@ class WorkflowEngine {
         status: execution.status,
         currentNode: null,
         error: execution.error,
-        data: execution.data,
-        steps: execution.steps,
+        data: stringifyJsonField(execution.data),
+        steps: stringifyJsonField(execution.steps),
         completedAt: new Date(),
       },
     });

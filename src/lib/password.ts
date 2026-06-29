@@ -33,13 +33,19 @@ const scrypt = promisify(_scrypt) as (
 ) => Promise<Buffer>;
 
 /** Default scrypt parameters (tune N up for production if needed). */
-const DEFAULT_PARAMS = {
+const DEFAULT_PARAMS: {
+  N: number;
+  r: number;
+  p: number;
+  keylen: number;
+  saltlen: number;
+} = {
   N: 16384, // CPU/memory cost
   r: 8, // block size
   p: 1, // parallelism
   keylen: 32, // derived key length (bytes)
   saltlen: 32, // salt length (bytes)
-} as const;
+};
 
 /** Minimum password length enforced by the helpers. */
 export const MIN_PASSWORD_LENGTH = 12;

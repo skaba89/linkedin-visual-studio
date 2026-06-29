@@ -1221,13 +1221,13 @@ function TendancesTab({ onUseTopic }: { onUseTopic: (topic: string) => void }) {
   };
 
   // Calendar: current week Mon-Sun
-  const getWeekDays = () => {
+  const getWeekDays = (): { name: string; date: number; isToday: boolean; hasScheduled: boolean }[] => {
     const now = new Date();
     const day = now.getDay();
     const mondayOffset = day === 0 ? -6 : 1 - day;
     const monday = new Date(now);
     monday.setDate(now.getDate() + mondayOffset);
-    const days = [];
+    const days: { name: string; date: number; isToday: boolean; hasScheduled: boolean }[] = [];
     const dayNames = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);

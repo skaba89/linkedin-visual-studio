@@ -13,6 +13,7 @@ import {
   DEFAULT_MIMICRY,
 } from "./types";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 type LinkedInAction = "invitation" | "message" | "comment" | "like" | "profileView" | "post";
 
@@ -56,12 +57,12 @@ export class LinkedInComplianceManager {
       this.limits = { ...DEFAULT_LIMITS[this.level] };
       this.warmupActive = row.warmupActive;
       this.warmupStartDate = row.warmupStartDate ?? undefined;
-      this.usage = (row.usage as Record<LinkedInAction, number>) ?? {};
+      this.usage = parseJsonField<Record<LinkedInAction, number>>(row.usage as string, { ...DEFAULT_USAGE });
       this.weeklyInvitations = row.weeklyInvitations;
       this.lastResetDate = row.lastResetDate;
       this.lastWeeklyReset = row.lastWeeklyReset;
-      this.violations = (row.violations as ComplianceViolation[]) ?? [];
-      this.mimicryConfig = (row.mimicryConfig as MimicryConfig) ?? {};
+      this.violations = parseJsonField<ComplianceViolation[]>(row.violations as string, []);
+      this.mimicryConfig = parseJsonField<MimicryConfig>(row.mimicryConfig as string, DEFAULT_MIMICRY);
     }
 
     this.initialized = true;
@@ -81,24 +82,24 @@ export class LinkedInComplianceManager {
         level: this.level,
         warmupActive: this.warmupActive,
         warmupStartDate: this.warmupStartDate ?? null,
-        usage: this.usage,
+        usage: stringifyJsonField(this.usage),
         weeklyInvitations: this.weeklyInvitations,
         lastResetDate: this.lastResetDate,
         lastWeeklyReset: this.lastWeeklyReset,
-        violations: this.violations,
-        mimicryConfig: this.mimicryConfig,
+        violations: stringifyJsonField(this.violations),
+        mimicryConfig: stringifyJsonField(this.mimicryConfig),
       },
       create: {
         userId: this.userId,
         level: this.level,
         warmupActive: this.warmupActive,
         warmupStartDate: this.warmupStartDate ?? null,
-        usage: this.usage,
+        usage: stringifyJsonField(this.usage),
         weeklyInvitations: this.weeklyInvitations,
         lastResetDate: this.lastResetDate,
         lastWeeklyReset: this.lastWeeklyReset,
-        violations: this.violations,
-        mimicryConfig: this.mimicryConfig,
+        violations: stringifyJsonField(this.violations),
+        mimicryConfig: stringifyJsonField(this.mimicryConfig),
       },
     });
   }

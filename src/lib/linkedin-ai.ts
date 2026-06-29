@@ -344,15 +344,29 @@ async function generateFallbackSuggestions(
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: Record<string, string>, i: number) => ({
-          id: `sug-fallback-${Date.now()}-${i}`,
-          text: p.text || "",
-          topic: p.topic || "",
-          hook: p.hook || "",
-          estimatedEngagement: p.estimatedEngagement || "medium",
-          bestTime: `${nextBest.day} ${nextBest.time}`,
-          format: p.format || formats[i % formats.length],
-        }));
+        return parsed.map((p: Record<string, string>, i: number) => {
+          const engagementRaw = (p.estimatedEngagement || "medium").toLowerCase();
+          const engagement: "high" | "medium" | "low" =
+            engagementRaw === "high" || engagementRaw === "low"
+              ? engagementRaw
+              : "medium";
+          const validFormats: LinkedInPostSuggestion["format"][] = [
+            "story", "list", "contrarian", "tutorial", "data", "question",
+          ];
+          const formatRaw = (p.format || formats[i % formats.length]).toLowerCase() as LinkedInPostSuggestion["format"];
+          const format: LinkedInPostSuggestion["format"] = validFormats.includes(formatRaw)
+            ? formatRaw
+            : (formats[i % formats.length] as LinkedInPostSuggestion["format"]);
+          return {
+            id: `sug-fallback-${Date.now()}-${i}`,
+            text: p.text || "",
+            topic: p.topic || "",
+            hook: p.hook || "",
+            estimatedEngagement: engagement,
+            bestTime: `${nextBest.day} ${nextBest.time}`,
+            format,
+          };
+        });
       }
     }
   } catch (error) {

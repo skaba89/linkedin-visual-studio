@@ -148,26 +148,26 @@ describe("buildSecurityHeaders", () => {
   });
 
   it("désactive HSTS par défaut en développement", () => {
-    process.env.NODE_ENV = "development";
+    (process.env as { NODE_ENV: string }).NODE_ENV = "development";
     const h = buildSecurityHeaders();
     expect(h["Strict-Transport-Security"]).toBeUndefined();
   });
 
   it("active HSTS en production", () => {
-    process.env.NODE_ENV = "production";
+    (process.env as { NODE_ENV: string }).NODE_ENV = "production";
     const h = buildSecurityHeaders();
     expect(h["Strict-Transport-Security"]).toContain("max-age=31536000");
     expect(h["Strict-Transport-Security"]).toContain("includeSubDomains");
   });
 
   it("n'inclut pas preload par défaut (à activer manuellement après soumission)", () => {
-    process.env.NODE_ENV = "production";
+    (process.env as { NODE_ENV: string }).NODE_ENV = "production";
     const h = buildSecurityHeaders();
     expect(h["Strict-Transport-Security"]).not.toContain("preload");
   });
 
   it("accepte hstsPreload explicite", () => {
-    process.env.NODE_ENV = "production";
+    (process.env as { NODE_ENV: string }).NODE_ENV = "production";
     const h = buildSecurityHeaders({ hstsPreload: true });
     expect(h["Strict-Transport-Security"]).toContain("preload");
   });

@@ -54,8 +54,8 @@ export default function IntegrationsView() {
       setWebhooks(data.webhooks ?? []);
       setDeliveries(data.deliveries ?? []);
     } catch {
-      setWebhooks(webhookEngine.getWebhooks());
-      setDeliveries(webhookEngine.getDeliveries());
+      setWebhooks(await webhookEngine.getWebhooks());
+      setDeliveries(await webhookEngine.getDeliveries());
     }
   }, []);
 

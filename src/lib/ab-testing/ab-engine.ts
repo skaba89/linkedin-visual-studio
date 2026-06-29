@@ -13,6 +13,7 @@ import {
   ABTestAssignment,
 } from "./types";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 /**
  * Convert a Prisma Experiment record to an ExperimentConfig by casting
@@ -39,7 +40,7 @@ function experimentToConfig(exp: {
     type: exp.type as ExperimentType,
     status: exp.status as ExperimentStatus,
     targetAgentId: exp.targetAgentId ?? undefined,
-    variants: (exp.variants as Variant[]) ?? [],
+    variants: parseJsonField<Variant[]>(exp.variants as string | null | undefined, []),
     trafficSplit: exp.trafficSplit,
     startDate: exp.startDate ?? undefined,
     endDate: exp.endDate ?? undefined,
@@ -65,7 +66,7 @@ export class ABTestingEngine {
         type: config.type || "ab",
         status: "draft",
         targetAgentId: config.targetAgentId ?? null,
-        variants: config.variants as object,
+        variants: stringifyJsonField(config.variants),
         trafficSplit: config.trafficSplit || "50/50",
         startDate: config.startDate ?? null,
         endDate: config.endDate ?? null,
@@ -95,7 +96,7 @@ export class ABTestingEngine {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing || existing.status !== "running") return null;
 
-    const variants = (existing.variants as Variant[]) ?? [];
+    const variants = parseJsonField<Variant[]>(existing.variants as string | null | undefined, []);
 
     // Check session cache for existing assignment
     const key = `${experimentId}:${userId}`;
@@ -130,7 +131,7 @@ export class ABTestingEngine {
     const existing = await db.experiment.findUnique({ where: { id: experimentId } });
     if (!existing) return null;
 
-    const variants = (existing.variants as Variant[]) ?? [];
+    const variants = parseJsonField<Variant[]>(existing.variants as string | null | undefined, []);
     const variant = variants.find((v) => v.id === variantId);
     if (!variant) return null;
 
@@ -145,7 +146,7 @@ export class ABTestingEngine {
         impressionId: `imp-${Math.random().toString(36).slice(2, 8)}`,
         outcome,
         metricValue,
-        metadata: metadata ?? undefined,
+        metadata: metadata ? stringifyJsonField(metadata) : null,
       },
     });
 
@@ -160,7 +161,7 @@ export class ABTestingEngine {
       impressionId: created.impressionId ?? undefined,
       outcome: created.outcome as OutcomeType,
       metricValue: created.metricValue,
-      metadata: created.metadata ?? undefined,
+      metadata: parseJsonField<Record<string, unknown> | undefined>(created.metadata as string | null | undefined, undefined),
       timestamp: created.createdAt,
     };
   }
@@ -259,7 +260,7 @@ export class ABTestingEngine {
       impressionId: r.impressionId ?? undefined,
       outcome: r.outcome as OutcomeType,
       metricValue: r.metricValue,
-      metadata: r.metadata ?? undefined,
+      metadata: parseJsonField<Record<string, unknown> | undefined>(r.metadata as string | null | undefined, undefined),
       timestamp: r.createdAt,
     }));
 

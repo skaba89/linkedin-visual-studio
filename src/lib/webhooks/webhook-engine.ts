@@ -10,6 +10,7 @@ import {
   buildDiscordPayload,
 } from "./types";
 import { db, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -44,9 +45,9 @@ function toWebhookConfig(row: {
     provider: row.provider as WebhookProvider,
     url: row.url,
     secret: row.secret ?? undefined,
-    events: (row.events as WebhookEvent[]) ?? [],
+    events: parseJsonField<WebhookEvent[]>(row.events as string | null | undefined, []),
     status: row.status as WebhookStatus,
-    headers: row.headers ?? undefined,
+    headers: parseJsonField<Record<string, string> | undefined>(row.headers as string | null | undefined, undefined),
     retryCount: row.retryCount,
     retryDelayMs: row.retryDelayMs,
     timeoutMs: row.timeoutMs,
@@ -80,8 +81,8 @@ function toWebhookDelivery(row: {
     event: row.event as WebhookEvent,
     status: row.status as WebhookDelivery["status"],
     attempts: row.attempts,
-    request: row.request,
-    response: row.response ?? null,
+    request: parseJsonField<WebhookDelivery["request"]>(row.request as string | null | undefined, { url: "", method: "POST", headers: {}, body: "" }),
+    response: parseJsonField<WebhookDelivery["response"] | null>(row.response as string | null | undefined, null),
     deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
     nextRetryAt: row.nextRetryAt ? row.nextRetryAt.toISOString() : null,
     error: row.error,
@@ -112,9 +113,9 @@ class WebhookEngine {
         provider: input.provider,
         url: input.url,
         secret: input.secret ?? null,
-        events: input.events,
+        events: stringifyJsonField(input.events),
         status: "active",
-        headers: input.headers ?? undefined,
+        headers: input.headers ? stringifyJsonField(input.headers) : null,
         retryCount: input.retryCount ?? 3,
         retryDelayMs: 5000,
         timeoutMs: input.timeoutMs ?? 10000,
@@ -212,7 +213,7 @@ class WebhookEngine {
     // Extra filter to ensure exact match (not partial substring)
     return rows
       .filter((row) => {
-        const events = (row.events as string[]) ?? [];
+        const events = parseJsonField<string[]>(row.events as string | null | undefined, []);
         return events.includes(event);
       })
       .map(toWebhookConfig);
@@ -268,7 +269,7 @@ class WebhookEngine {
         event,
         status: "pending",
         attempts: 0,
-        request: requestObj,
+        request: stringifyJsonField(requestObj),
       },
     });
 
@@ -353,7 +354,7 @@ class WebhookEngine {
       data: {
         status: deliveryStatus,
         attempts,
-        response: responseObj ?? undefined,
+        response: responseObj ? stringifyJsonField(responseObj) : null,
         deliveredAt,
         nextRetryAt,
         error: lastError,
@@ -495,7 +496,7 @@ class WebhookEngine {
           event: "notification.created",
           status: "failed",
           attempts: 0,
-          request: { url: "", method: "POST", headers: {}, body: "{}" },
+          request: stringifyJsonField({ url: "", method: "POST", headers: {}, body: "{}" }),
           error: "Webhook not found",
         },
       });

@@ -3,6 +3,7 @@
 
 import { AgentEvent, AgentEventType } from "./types";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 type EventCallback = (event: AgentEvent) => void;
 type AnyEventCallback = (event: AgentEvent) => void;
@@ -56,7 +57,7 @@ export class HermesEventBus {
           eventType,
           agentId: event.agentId,
           agentName: event.agentName,
-          data: event.data ?? undefined,
+          data: event.data ? stringifyJsonField(event.data) : null,
         },
       });
     } catch (err) {
@@ -109,7 +110,7 @@ export class HermesEventBus {
       agentId: row.agentId,
       agentName: row.agentName,
       timestamp: row.createdAt,
-      data: row.data ?? undefined,
+      data: parseJsonField<Record<string, unknown> | undefined>(row.data as string | null | undefined, undefined),
     }));
   }
 

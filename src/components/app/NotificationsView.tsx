@@ -55,12 +55,12 @@ export default function NotificationsView() {
       setNotifications(data.notifications ?? []);
       setStats(data.stats ?? { total: 0, unread: 0, byCategory: {}, byPriority: {}, todayCount: 0 });
     } catch {
-      const notifs = notificationEngine.getNotifications({
+      const notifs = await notificationEngine.getNotifications({
         category: filterCategory !== "all" ? filterCategory : undefined,
         unreadOnly: filterUnread || undefined,
       });
       setNotifications(notifs);
-      setStats(notificationEngine.getStats());
+      setStats(await notificationEngine.getStats());
     }
   }, [filterCategory, filterUnread]);
 
@@ -70,7 +70,7 @@ export default function NotificationsView() {
       const data = await res.json();
       setPreferences(data.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES);
     } catch {
-      setPreferences(notificationEngine.getPreferences());
+      setPreferences(await notificationEngine.getPreferences());
     }
   }, []);
 

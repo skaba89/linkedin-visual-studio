@@ -29,6 +29,7 @@ import {
   randomBytes,
   timingSafeEqual,
   type CipherGCM,
+  type DecipherGCM,
 } from "node:crypto";
 
 const ALGO = "aes-256-gcm";
@@ -156,7 +157,7 @@ export function decrypt(stored: string): string {
   const key = resolveKey();
   const decipher = createDecipheriv(ALGO, key, iv, {
     authTagLength: TAG_LEN,
-  }) as CipherGCM;
+  }) as DecipherGCM;
   decipher.setAuthTag(tag);
 
   try {

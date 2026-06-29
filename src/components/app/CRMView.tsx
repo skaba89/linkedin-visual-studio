@@ -149,7 +149,7 @@ function ContactFormDialog({
           <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (separes par virgules)" className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={2} className="w-full bg-[#18212F] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-[#F0F4F8] placeholder:text-[#7B8A9A]/50 focus:outline-none focus:border-[#00D4FF]/30" />
           <div className="flex gap-2 pt-1">
-            <button onClick={() => { onSave({ ...form, tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) }); onClose(); }} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
+            <button onClick={() => { onSave({ ...form, source: form.source as ContactData["source"], tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) }); onClose(); }} className="text-[13px] font-medium text-[#080C10] bg-[#00D4FF] px-4 py-2 rounded-lg hover:bg-[#00AACF] transition-colors cursor-pointer">
               {contact ? "Enregistrer" : "Creer"}
             </button>
             <button onClick={onClose} className="text-[13px] font-medium text-[#7B8A9A] bg-[#18212F] px-4 py-2 rounded-lg hover:text-[#F0F4F8] transition-colors cursor-pointer">

@@ -16,6 +16,7 @@ import {
 import { eventBus } from "./event-bus";
 import { parseAllHeartbeats, getRulesForEvent, getScheduleRules, getTriggerDelayMs } from "./heartbeat-parser";
 import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 const DEFAULT_METRICS: OrchestratorMetrics = {
   totalEventsProcessed: 0,
@@ -46,13 +47,13 @@ export class AgentOrchestrator {
 
     if (row) {
       this.state = row.state as OrchestratorState;
-      this.rules = (row.rules as HeartbeatRule[]) ?? [];
+      this.rules = parseJsonField<HeartbeatRule[]>(row.rules as string | null | undefined, parseAllHeartbeats());
       this.startTime = row.startedAt ?? undefined;
 
       // Restore metrics if they were persisted
       if (row.metrics && row.metrics !== "{}") {
         try {
-          const saved = (row.metrics as Partial<OrchestratorMetrics>) ?? {};
+          const saved = parseJsonField<Partial<OrchestratorMetrics>>(row.metrics as string, {});
           this.metrics = {
             totalEventsProcessed: saved.totalEventsProcessed ?? 0,
             totalRulesFired: saved.totalRulesFired ?? 0,
@@ -87,16 +88,16 @@ export class AgentOrchestrator {
       where: { userId: this.userId },
       update: {
         state: this.state,
-        rules: this.rules,
+        rules: stringifyJsonField(this.rules),
         startedAt: this.startTime ?? null,
-        metrics: this.metrics,
+        metrics: stringifyJsonField(this.metrics),
       },
       create: {
         userId: this.userId,
         state: this.state,
-        rules: this.rules,
+        rules: stringifyJsonField(this.rules),
         startedAt: this.startTime ?? null,
-        metrics: this.metrics,
+        metrics: stringifyJsonField(this.metrics),
       },
     });
   }
