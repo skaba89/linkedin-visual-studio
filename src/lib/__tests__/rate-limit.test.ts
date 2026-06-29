@@ -249,7 +249,7 @@ describe("getCategoryConfig", () => {
   });
 
   it("returns a copy (mutation does not affect internal state)", () => {
-    const config = getCategoryConfig("api");
+    const config = getCategoryConfig("api") as { limit: number; windowMs: number };
     const originalLimit = config.limit;
     config.limit = 99999;
     expect(getCategoryConfig("api").limit).toBe(originalLimit);

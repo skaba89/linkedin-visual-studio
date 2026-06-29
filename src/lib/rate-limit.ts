@@ -163,17 +163,14 @@ export function resolveCategory(
   pathname: string,
   method: string,
 ): RateLimitCategory | null {
-  // Auth: login attempts
-  if (
-    pathname.startsWith("/api/auth/callback/credentials") ||
-    pathname.startsWith("/api/auth/signin") ||
-    pathname.startsWith("/api/auth/session")
-  ) {
-    return "auth";
-  }
-  // Register
+  // Register (POST only) — checked BEFORE the broader auth fallback so it wins
   if (pathname === "/api/auth/register" && method === "POST") {
     return "register";
+  }
+  // Auth: any /api/auth/* path (login attempts, session, sign-in, callback,
+  // GET /api/auth/register for availability check, etc.)
+  if (pathname.startsWith("/api/auth/")) {
+    return "auth";
   }
   // AI
   if (pathname.startsWith("/api/ai/")) {

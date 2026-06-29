@@ -176,11 +176,15 @@ export function decrypt(stored: string): string {
  * Type guard: is this value a `v1:` prefixed ciphertext?
  *
  * Useful to skip decrypt() on legacy plaintext values during migration.
+ *
+ * Each of the three base64 segments (IV, ciphertext, tag) may end with
+ * 0, 1, or 2 `=` padding chars — base64 standard padding rules apply
+ * independently to each segment.
  */
 export function isEncrypted(value: unknown): value is string {
   if (typeof value !== "string") return false;
   if (value === "") return false;
-  return /^v1:[A-Za-z0-9+/]+:[A-Za-z0-9+/]+:[A-Za-z0-9+/]+={0,2}$/.test(value);
+  return /^v1:[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}$/.test(value);
 }
 
 /**
