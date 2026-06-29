@@ -1,22 +1,38 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/data/import
+ *
+ * Réécriture complète :
+ *  - Remplace `new PrismaClient()` (memory leak) par l'instance partagée `db`.
+ *  - Remplace `userId = "default"` (hardcoded) par `requireUser()`.
+ *  - Toutes les insertions sont scoppées à user.id (le `record.userId = userId`
+ *    est conservé mais `userId` vient désormais de la session).
+ *
+ * TODO (R-008) : remapper les erreurs vers HttpError une fois le global error
+ * handler en place.
+ * TODO (R-002 deep) : vérifier que les `record.userId` imposés ne écrasent pas
+ * un userId légitime déjà présent dans `record` (aujourd'hui on l'écrase ce qui
+ * est OK car on ne fait jamais confiance au client sur ce champ).
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
+import { requireUser } from "@/lib/session";
+import { isHttpError } from "@/lib/http-error";
 
 // POST /api/data/import — Import data from JSON
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireUser();
     const body = await request.json();
     const { data, mode = "merge" } = body; // mode: "merge" | "replace"
 
     if (!data || typeof data !== "object") {
       return NextResponse.json(
         { error: "data object is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const userId = "default";
+    const userId = user.id;
     const results: Record<string, { imported: number; errors: number }> = {};
 
     for (const [table, rows] of Object.entries(data)) {
@@ -25,7 +41,6 @@ export async function POST(request: NextRequest) {
       let imported = 0;
       let errors = 0;
 
-      // In replace mode, delete existing data first
       if (mode === "replace") {
         try {
           await deleteTableData(table, userId);
@@ -37,6 +52,7 @@ export async function POST(request: NextRequest) {
       for (const row of rows) {
         try {
           const record = row as Record<string, unknown>;
+          // Always override userId with the authenticated user's id
           record.userId = userId;
 
           const result = await upsertRecord(table, record);
@@ -54,10 +70,11 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ results });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Import failed", details: String(error) },
-      { status: 500 }
+      { error: "Import failed", details: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -65,36 +82,39 @@ export async function POST(request: NextRequest) {
 async function deleteTableData(table: string, userId: string): Promise<void> {
   switch (table) {
     case "leads":
-      await prisma.lead.deleteMany({ where: { userId } });
+      await db.lead.deleteMany({ where: { userId } });
       break;
     case "contacts":
-      await prisma.contact.deleteMany({ where: { userId } });
+      await db.contact.deleteMany({ where: { userId } });
       break;
     case "deals":
-      await prisma.deal.deleteMany({ where: { userId } });
+      await db.deal.deleteMany({ where: { userId } });
       break;
     case "activityLogs":
-      await prisma.activityLog.deleteMany({ where: { userId } });
+      await db.activityLog.deleteMany({ where: { userId } });
       break;
     case "metrics":
-      await prisma.metrics.deleteMany({ where: { userId } });
+      await db.metrics.deleteMany({ where: { userId } });
       break;
   }
 }
 
-async function upsertRecord(table: string, record: Record<string, unknown>): Promise<boolean> {
+async function upsertRecord(
+  table: string,
+  record: Record<string, unknown>,
+): Promise<boolean> {
   switch (table) {
     case "leads":
-      await prisma.lead.create({ data: record as never });
+      await db.lead.create({ data: record as never });
       return true;
     case "contacts":
-      await prisma.contact.create({ data: record as never });
+      await db.contact.create({ data: record as never });
       return true;
     case "deals":
-      await prisma.deal.create({ data: record as never });
+      await db.deal.create({ data: record as never });
       return true;
     case "activityLogs":
-      await prisma.activityLog.create({ data: record as never });
+      await db.activityLog.create({ data: record as never });
       return true;
     default:
       return false;

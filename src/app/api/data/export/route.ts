@@ -1,11 +1,25 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/data/export
+ *
+ * Réécriture complète :
+ *  - Remplace `new PrismaClient()` (memory leak — une nouvelle instance à chaque
+ *    requête) par l'instance partagée `db` de `@/lib/db`.
+ *  - Remplace `userId = "default"` (hardcoded) par `requireUser()` qui garantit
+ *    l'authentification ET l'isolation multi-tenant.
+ *  - Toutes les requêtes Prisma sont désormais scoppées par user.id.
+ *
+ * TODO (R-008) : remapper les `NextResponse.json({ error }, { status: 500 })`
+ * vers des `HttpError` une fois le global error handler en place.
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
+import { requireUser } from "@/lib/session";
+import { isHttpError } from "@/lib/http-error";
 
 // GET /api/data/export — Export all data as JSON
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireUser();
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") ?? "json";
     const tables = searchParams.get("tables")?.split(",") ?? [];
@@ -22,69 +36,68 @@ export async function GET(request: NextRequest) {
       ? tables.filter((t) => availableTables.includes(t))
       : availableTables;
 
-    const userId = "default";
-
+    const userId = user.id;
     const data: Record<string, unknown[]> = {};
 
     for (const table of tablesToExport) {
       try {
         switch (table) {
           case "leads":
-            data[table] = await prisma.lead.findMany({ where: { userId } });
+            data[table] = await db.lead.findMany({ where: { userId } });
             break;
           case "contacts":
-            data[table] = await prisma.contact.findMany({ where: { userId } });
+            data[table] = await db.contact.findMany({ where: { userId } });
             break;
           case "deals":
-            data[table] = await prisma.deal.findMany({ where: { userId } });
+            data[table] = await db.deal.findMany({ where: { userId } });
             break;
           case "generatedPosts":
-            data[table] = await prisma.generatedPost.findMany({ where: { userId } });
+            data[table] = await db.generatedPost.findMany({ where: { userId } });
             break;
           case "generatedMessages":
-            data[table] = await prisma.generatedMessage.findMany({ where: { userId } });
+            data[table] = await db.generatedMessage.findMany({ where: { userId } });
             break;
           case "generatedComments":
-            data[table] = await prisma.generatedComment.findMany({ where: { userId } });
+            data[table] = await db.generatedComment.findMany({ where: { userId } });
             break;
           case "marketBriefings":
-            data[table] = await prisma.marketBriefing.findMany({ where: { userId } });
+            data[table] = await db.marketBriefing.findMany({ where: { userId } });
             break;
           case "nurturingActions":
-            data[table] = await prisma.nurturingAction.findMany({ where: { userId } });
+            data[table] = await db.nurturingAction.findMany({ where: { userId } });
             break;
           case "performanceInsights":
-            data[table] = await prisma.performanceInsight.findMany({ where: { userId } });
+            data[table] = await db.performanceInsight.findMany({ where: { userId } });
             break;
           case "connectionRequests":
-            data[table] = await prisma.connectionRequest.findMany({ where: { userId } });
+            data[table] = await db.connectionRequest.findMany({ where: { userId } });
             break;
           case "emailSequences":
-            data[table] = await prisma.emailSequence.findMany({ where: { userId } });
+            data[table] = await db.emailSequence.findMany({ where: { userId } });
             break;
           case "emailMessages":
-            data[table] = await prisma.emailMessage.findMany({ where: { userId } });
+            data[table] = await db.emailMessage.findMany({ where: { userId } });
             break;
           case "scheduledPosts":
-            data[table] = await prisma.scheduledPost.findMany({ where: { userId } });
+            data[table] = await db.scheduledPost.findMany({ where: { userId } });
             break;
           case "metrics":
-            data[table] = await prisma.metrics.findMany({ where: { userId } });
+            data[table] = await db.metrics.findMany({ where: { userId } });
             break;
           case "activityLogs":
-            data[table] = await prisma.activityLog.findMany({ where: { userId } });
+            data[table] = await db.activityLog.findMany({ where: { userId } });
             break;
           case "experiments":
-            data[table] = await prisma.experiment.findMany({ where: { userId } });
+            data[table] = await db.experiment.findMany({ where: { userId } });
             break;
           case "experimentResults":
-            data[table] = await prisma.experimentResult.findMany({ where: { userId } });
+            data[table] = await db.experimentResult.findMany({ where: { userId } });
             break;
           case "feedbackEvents":
-            data[table] = await prisma.feedbackEvent.findMany({ where: { userId } });
+            data[table] = await db.feedbackEvent.findMany({ where: { userId } });
             break;
           case "contentMetrics":
-            data[table] = await prisma.contentMetric.findMany({ where: { userId } });
+            data[table] = await db.contentMetric.findMany({ where: { userId } });
             break;
         }
       } catch {
@@ -93,7 +106,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (format === "csv") {
-      // Return first table as CSV (simplified)
       const firstTable = tablesToExport[0];
       const rows = data[firstTable] ?? [];
       if (rows.length === 0) {
@@ -115,17 +127,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Default: JSON
     return new NextResponse(JSON.stringify(data, null, 2), {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": "attachment; filename=hermes_export.json",
       },
     });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Export failed", details: String(error) },
-      { status: 500 }
+      { error: "Export failed", details: String(err) },
+      { status: 500 },
     );
   }
 }
