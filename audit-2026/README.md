@@ -1,4 +1,4 @@
-# Audit HERMÈS 2026 — Volumes 1 & 2
+# Audit HERMÈS 2026 — Volumes 1, 2 & 3
 
 > Audit technique complet et guide d'implémentation pour la plateforme **HERMÈS** (Next.js 16 / React 19 / Prisma 6 / TypeScript 5).
 
@@ -28,6 +28,19 @@ Guide opérationnel détaillé pour chaque risque P0/P1/P2 avec :
 - **Patterns before/after** pour chaque risque
 - **Pièges courants** et leurs mitigations
 
+### Volume 3 — Approfondissement et risques résiduels
+**Fichier :** [`../download/HERMES_Volume3_Approfondissement_2026.pdf`](../download/HERMES_Volume3_Approfondissement_2026.pdf)
+
+Traitement des 6 domaines résiduels non couverts par les Volumes 1 et 2 :
+- **R-011** — Orchestrateur de workflows (machine à états persistée + BullMQ)
+- **R-012** — Optimisation bundle client (dynamic imports + gate CI)
+- **R-013** — Accessibilité WCAG 2.1 AA (useFocusTrap, useAriaLive, palette corrigée)
+- **R-014** — Internationalisation next-intl (fr/pt/en)
+- **R-015** — Documentation API OpenAPI 3.1 (zod-to-openapi)
+- **R-016** — Migration PostgreSQL sans downtime (dual-write + cutover)
+
+**18 snippets · 9 checklists · 8 helpers · roadmap 6 mois**
+
 ---
 
 ## 🗂️ Structure
@@ -36,82 +49,49 @@ Guide opérationnel détaillé pour chaque risque P0/P1/P2 avec :
 audit-2026/
 ├── README.md                          # Ce fichier
 └── scripts/
-    ├── generate_audit_pdf.py          # Script Python Volume 1 (ReportLab + Playwright)
-    ├── generate_v2_pdf.py             # Script Python Volume 2 (ReportLab + Playwright)
-    ├── audit_cover.html               # Template HTML cover Volume 1
-    └── v2_cover.html                  # Template HTML cover Volume 2
+    ├── generate_audit_pdf.py          # Volume 1 (ReportLab + Playwright)
+    ├── generate_v2_pdf.py             # Volume 2 (ReportLab + Playwright)
+    ├── generate_v3_pdf.py             # Volume 3 (ReportLab + Playwright)
+    ├── audit_cover.html               # Cover Volume 1
+    ├── v2_cover.html                  # Cover Volume 2
+    └── v3_cover.html                  # Cover Volume 3
 ```
 
 Les PDFs finaux sont dans `../download/` à la racine du dépôt.
 
 ---
 
-## 🔧 Stack technique auditée
+## 📋 Synthèse des trois volumes
 
-| Couche | Technologie |
-|---|---|
-| Framework | Next.js 16 (App Router) |
-| UI | React 19 |
-| ORM | Prisma 6 |
-| Langage | TypeScript 5 |
-| Auth | NextAuth.js (à corriger) |
-| Rate-limit | Upstash Redis (à implémenter) |
-| Tests | Vitest + Playwright (à compléter) |
-
----
-
-## 📋 Risques couverts
-
-| ID | Priorité | Titre | Volume 2 — Chapitre |
-|---|---|---|---|
-| R-001 | **P0** | Réécrire l'authentification | 2 |
-| R-002 | **P0** | Imposer le multi-tenant | 3 |
-| R-003 | **P0** | Désactiver `ignoreBuildErrors` | 4 |
-| R-004/005 | P1 | Aligner schéma et logs Prisma | 5 |
-| R-007 | P1 | Rate-limit distribué | 6 |
-| R-008 | P1 | Gestion d'erreurs API unifiée | 7 |
-| R-009 | P1 | Stratégie de test en 3 couches | 8 |
-| R-010 | P1 | Headers de sécurité | 9 |
-| P2 | P2 | Quick wins (imageDomains, seed) | 10 |
+| Volume | Pages | Risques | Helpers | Snippets | Checklists |
+|---|---|---|---|---|---|
+| V1 — Audit | 45 | 19 | — | — | — |
+| V2 — Implémentation | 55 | 8 | 10 | 24 | 12 |
+| V3 — Approfondissement | 50 | 6 | 8 | 18 | 9 |
+| **TOTAL** | **150** | **33** | **18** | **42** | **21** |
 
 ---
 
 ## 🚀 Régénérer les PDFs
 
 ```bash
-# Pré-requis : Python 3.11+, ReportLab, pypdf, Playwright
 pip install reportlab pypdf playwright
 playwright install chromium
 
-# Depuis la racine du dépôt
 python audit-2026/scripts/generate_audit_pdf.py   # Volume 1
 python audit-2026/scripts/generate_v2_pdf.py      # Volume 2
+python audit-2026/scripts/generate_v3_pdf.py      # Volume 3
 ```
 
-Les PDFs sont générés dans `download/`.
-
 ---
 
-## 📅 Calendrier d'implémentation recommandé
+## 📅 Roadmap complète
 
-| Semaines | Risques | Effort total |
+| Phase | Périmètre | Durée |
 |---|---|---|
-| 1 | R-010 (headers de sécurité) | 1 j |
-| 2-3 | R-001 (auth) + R-002 (multi-tenant) | 8 j |
-| 4-5 | R-003 (build strict) + R-004/005 (DB) | 5 j |
-| 6-8 | R-007 (rate-limit) + R-008 (erreurs API) | 4 j |
-| 9-11 | R-009 (tests) | 5 j |
-| 12 | Quick wins P2 + revue finale | 2 j |
-
-**Total : ~25 jours-homme sur 12 semaines**
-
----
-
-## 🔒 Sécurité
-
-- **Aucun token, secret ou variable d'environnement** n'est inclus dans les livrables.
-- Les scripts Python utilisent uniquement les chemins locaux pour la génération des PDFs.
-- Si vous implémentez les recommandations, **renouvelez immédiatement** tous les secrets qui auraient pu être exposés.
+| Phase 1 — Volumes 1 & 2 | Audit + implémentation P0/P1/P2 | 12 semaines |
+| Phase 2 — Volume 3 | Risques résiduels et approfondissement | 6 mois |
+| Phase 3 — Audit annuel 2027 | Revue post-implémentation + Volume 4 | T2 2027 |
 
 ---
 
