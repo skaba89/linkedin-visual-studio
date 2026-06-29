@@ -79,8 +79,9 @@ async function main(): Promise<void> {
     }
 
     if (dryRun) {
+      const plaintext = row.accessToken as string;
       console.log(
-        `[migrate-encrypt] row ${row.id} (user=${row.userId}): would encrypt (plaintext length=${row.accessToken.length})`,
+        `[migrate-encrypt] row ${row.id} (user=${row.userId}): would encrypt (plaintext length=${plaintext.length})`,
       );
       encrypted++;
       continue;

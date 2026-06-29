@@ -1,16 +1,18 @@
 /**
- * HERMÈS — R-001 / R-002 — /api/linkedin/schedule
+ * HERMÈS — R-001 / R-002 / R-004 — /api/linkedin/schedule
  *
  * Migré vers requireUser() + assertOwnership.
  *
- * Note : `checkAndPublishDuePosts()` est désormais scoppée à l'utilisateur
- * authentifié (puisqu'elle lit `linkedInAuth` qui est user-specific).
+ * `checkAndPublishDuePosts()` est scoppée à l'utilisateur authentifié.
  *
- * TODO (R-004) : le token LinkedIn est lu via `getTokenFromCookies()` qui
- * retourne du plaintext — à chiffrer via ENCRYPTION_KEY (Volume 1 §R-004).
+ * R-004 deep : le token LinkedIn est résolu via `getActiveLinkedInToken()`
+ * qui essaie d'abord le cookie chiffré (fast path), puis la colonne
+ * `LinkedInAuth.accessToken` (decryptée) en fallback. Cela permet aux
+ * publications planifiées de s'exécuter même si la session browser a
+ * expiré — le token persisté en base survit 60 jours.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getTokenFromCookies } from "@/lib/linkedin-token";
+import { getActiveLinkedInToken } from "@/lib/linkedin-token";
 import { db } from "@/lib/db";
 import { requireUser, assertOwnership } from "@/lib/session";
 import { HttpError, isHttpError } from "@/lib/http-error";
@@ -39,7 +41,7 @@ async function checkAndPublishDuePosts(userId: string) {
     });
 
     try {
-      const token = await getTokenFromCookies();
+      const token = await getActiveLinkedInToken(userId);
       if (!token) {
         await db.scheduledPost.update({
           where: { id: post.id },
@@ -156,7 +158,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUser();
-    const token = await getTokenFromCookies();
+    const token = await getActiveLinkedInToken(user.id);
     if (!token) {
       throw new HttpError(
         401,
