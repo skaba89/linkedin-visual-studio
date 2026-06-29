@@ -5,27 +5,11 @@ import {
   generateNonce,
   applySecurityHeaders,
 } from "@/lib/security-headers";
-
-// ─── Rate-limit store (in-memory, per-instance) ────────────────────────────────
-// NOTE (Volume 2 §6) : ce rate-limit local est conservé comme fallback
-// défensif. Le rate-limit distribué Upstash Redis (R-007) doit être appliqué
-// dans les handlers API eux-mêmes pour être partagé entre instances.
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 60; // requests per window
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  entry.count += 1;
-  return entry.count > RATE_LIMIT_MAX;
-}
+import {
+  resolveCategory,
+  checkRateLimit,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
 
 // ─── Routes that skip auth entirely ────────────────────────────────────────────
 const AUTH_SKIP_ROUTES = [
@@ -40,13 +24,20 @@ function shouldSkipAuth(pathname: string): boolean {
   return AUTH_SKIP_ROUTES.some((route) => pathname.startsWith(route));
 }
 
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const method = request.method;
 
   // ─── 1. Security headers + CSP nonce per-request ─────────────────────────
   // R-010 — Headers de sécurité (Volume 2 chapitre 9)
-  // Le nonce est régénéré à chaque requête et injecté dans <Script nonce={...}>
-  // côté layout racine via request.headers.get('x-nonce').
   const nonce = generateNonce();
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
@@ -57,25 +48,39 @@ export async function middleware(request: NextRequest) {
 
   applySecurityHeaders(response, nonce);
 
-  // ─── 2. Rate limiting for API routes ──────────────────────────────────────
+  // ─── 2. Rate limiting (R-007) ─────────────────────────────────────────────
+  // Apply to all /api/* routes with category-specific limits.
+  // Per-IP by default; the withRateLimit() wrapper can switch to per-userId
+  // for sensitive endpoints (register, ai, etc.).
   if (pathname.startsWith("/api/")) {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "unknown";
+    const category = resolveCategory(pathname, method);
+    if (category) {
+      const ip = getClientIp(request);
+      // Don't await session here — middleware rate-limits per-IP for simplicity.
+      // Per-userId limiting happens in the route handler via withRateLimit().
+      const rl = await checkRateLimit(category, ip);
 
-    if (isRateLimited(ip)) {
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)),
-            "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
-            "X-RateLimit-Remaining": "0",
+      // Attach rate-limit headers to ALL responses (including successful ones)
+      const headers = rateLimitHeaders(rl);
+      for (const [k, v] of Object.entries(headers)) {
+        response.headers.set(k, v);
+      }
+
+      if (!rl.allowed) {
+        return NextResponse.json(
+          {
+            error: {
+              code: "RATE_LIMITED",
+              message: "Too many requests. Please try again later.",
+              retryAfter: rl.retryAfter,
+            },
           },
-        },
-      );
+          {
+            status: 429,
+            headers: rateLimitHeaders(rl),
+          },
+        );
+      }
     }
   }
 
