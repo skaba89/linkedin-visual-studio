@@ -1,18 +1,32 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/linkedin/schedule
+ *
+ * Migré vers requireUser() + assertOwnership.
+ *
+ * Note : `checkAndPublishDuePosts()` est désormais scoppée à l'utilisateur
+ * authentifié (puisqu'elle lit `linkedInAuth` qui est user-specific).
+ *
+ * TODO (R-004) : le token LinkedIn est lu via `getTokenFromCookies()` qui
+ * retourne du plaintext — à chiffrer via ENCRYPTION_KEY (Volume 1 §R-004).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
-import { db, DEFAULT_USER_ID } from "@/lib/db";
+import { db } from "@/lib/db";
+import { requireUser, assertOwnership } from "@/lib/session";
+import { HttpError, isHttpError } from "@/lib/http-error";
 
-// Check and publish due posts
-let lastCheck = 0;
+// In-memory throttle for the publish sweep (per user now — kept simple)
+const lastCheckPerUser = new Map<string, number>();
 
-async function checkAndPublishDuePosts() {
+async function checkAndPublishDuePosts(userId: string) {
   const now = Date.now();
-  if (now - lastCheck < 30000) return; // Check every 30s
-  lastCheck = now;
+  const last = lastCheckPerUser.get(userId) ?? 0;
+  if (now - last < 30000) return; // Check every 30s per user
+  lastCheckPerUser.set(userId, now);
 
   const duePosts = await db.scheduledPost.findMany({
     where: {
-      userId: DEFAULT_USER_ID,
+      userId,
       status: "scheduled",
       scheduledAt: { lte: new Date(now) },
     },
@@ -35,7 +49,7 @@ async function checkAndPublishDuePosts() {
       }
 
       const linkedInAuth = await db.linkedInAuth.findUnique({
-        where: { userId: DEFAULT_USER_ID },
+        where: { userId },
       });
 
       if (!linkedInAuth || !linkedInAuth.linkedInUserId) {
@@ -105,25 +119,34 @@ async function checkAndPublishDuePosts() {
  * List all scheduled posts
  */
 export async function GET() {
-  await checkAndPublishDuePosts();
+  try {
+    const user = await requireUser();
+    await checkAndPublishDuePosts(user.id);
 
-  const posts = await db.scheduledPost.findMany({
-    where: { userId: DEFAULT_USER_ID },
-    orderBy: { scheduledAt: "asc" },
-  });
+    const posts = await db.scheduledPost.findMany({
+      where: { userId: user.id },
+      orderBy: { scheduledAt: "asc" },
+    });
 
-  return NextResponse.json({
-    posts: posts.map((p) => ({
-      id: p.id,
-      text: p.text,
-      visibility: p.visibility,
-      scheduledAt: p.scheduledAt.toISOString(),
-      status: p.status,
-      createdAt: p.createdAt.toISOString(),
-      publishedAt: p.publishedAt?.toISOString(),
-      error: p.error,
-    })),
-  });
+    return NextResponse.json({
+      posts: posts.map((p) => ({
+        id: p.id,
+        text: p.text,
+        visibility: p.visibility,
+        scheduledAt: p.scheduledAt.toISOString(),
+        status: p.status,
+        createdAt: p.createdAt.toISOString(),
+        publishedAt: p.publishedAt?.toISOString(),
+        error: p.error,
+      })),
+    });
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
+    return NextResponse.json(
+      { error: "Erreur interne du serveur" },
+      { status: 500 },
+    );
+  }
 }
 
 /**
@@ -132,11 +155,13 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireUser();
     const token = await getTokenFromCookies();
     if (!token) {
-      return NextResponse.json(
-        { error: "Non authentifié. Connectez votre compte LinkedIn." },
-        { status: 401 }
+      throw new HttpError(
+        401,
+        "Non authentifié. Connectez votre compte LinkedIn.",
+        "AUTH_REQUIRED",
       );
     }
 
@@ -144,44 +169,33 @@ export async function POST(request: NextRequest) {
     const { text, visibility = "PUBLIC", linkedinId, scheduledAt } = body;
 
     if (!text || !text.trim()) {
-      return NextResponse.json(
-        { error: "Le texte du post est requis" },
-        { status: 400 }
-      );
+      throw new HttpError(422, "Le texte du post est requis", "VALIDATION_ERROR");
     }
 
     if (!linkedinId) {
-      return NextResponse.json(
-        { error: "L'ID LinkedIn est requis" },
-        { status: 400 }
-      );
+      throw new HttpError(422, "L'ID LinkedIn est requis", "VALIDATION_ERROR");
     }
 
     if (!scheduledAt) {
-      return NextResponse.json(
-        { error: "La date de publication est requise" },
-        { status: 400 }
-      );
+      throw new HttpError(422, "La date de publication est requise", "VALIDATION_ERROR");
     }
 
     const scheduledDate = new Date(scheduledAt);
     if (isNaN(scheduledDate.getTime())) {
-      return NextResponse.json(
-        { error: "Date de publication invalide" },
-        { status: 400 }
-      );
+      throw new HttpError(422, "Date de publication invalide", "VALIDATION_ERROR");
     }
 
     if (scheduledDate.getTime() <= Date.now()) {
-      return NextResponse.json(
-        { error: "La date de publication doit être dans le futur" },
-        { status: 400 }
+      throw new HttpError(
+        422,
+        "La date de publication doit être dans le futur",
+        "VALIDATION_ERROR",
       );
     }
 
     const post = await db.scheduledPost.create({
       data: {
-        userId: DEFAULT_USER_ID,
+        userId: user.id,
         text: text.trim(),
         visibility,
         scheduledAt: scheduledDate,
@@ -201,11 +215,12 @@ export async function POST(request: NextRequest) {
         minute: "2-digit",
       })}`,
     });
-  } catch (error) {
-    console.error("LinkedIn schedule error:", error);
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
+    console.error("LinkedIn schedule error:", err);
     return NextResponse.json(
       { error: "Erreur interne du serveur" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -215,26 +230,37 @@ export async function POST(request: NextRequest) {
  * Cancel a scheduled post
  */
 export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
+  try {
+    const user = await requireUser();
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
 
-  if (!id) {
-    return NextResponse.json({ error: "ID du post manquant" }, { status: 400 });
-  }
+    if (!id) {
+      throw new HttpError(422, "ID du post manquant", "VALIDATION_ERROR");
+    }
 
-  const post = await db.scheduledPost.findUnique({ where: { id } });
+    const post = await db.scheduledPost.findUnique({ where: { id } });
+    assertOwnership(post, user.id);
 
-  if (!post || post.status !== "scheduled") {
+    if (post.status !== "scheduled") {
+      throw new HttpError(
+        404,
+        "Post planifié introuvable ou déjà publié",
+        "NOT_FOUND",
+      );
+    }
+
+    await db.scheduledPost.delete({ where: { id } });
+
+    return NextResponse.json({
+      success: true,
+      message: "Post planifié annulé",
+    });
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Post planifié introuvable ou déjà publié" },
-      { status: 404 }
+      { error: "Erreur interne du serveur" },
+      { status: 500 },
     );
   }
-
-  await db.scheduledPost.delete({ where: { id } });
-
-  return NextResponse.json({
-    success: true,
-    message: "Post planifié annulé",
-  });
 }
