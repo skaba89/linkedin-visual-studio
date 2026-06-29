@@ -7,11 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// HERMÈS — R-001 : modèle User étendu pour auth DB-backed.
+/// - passwordHash : stocke un hash scrypt (format "scrypt:N:r:p:salt:hash" en hex)
+/// - role         : "USER" par défaut, "ADMIN" pour les ops admin
+/// - emailVerified: nullable, peuplé quand l'email a été vérifié
+/// Le hash scrypt est généré par src/lib/password.ts (Node crypto.scrypt).
+/// Aucune contrainte NOT NULL sur passwordHash pour permettre futurs providers OAuth.
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
   avatarUrl     String?
+  passwordHash  String?
+  role          String    @default("USER")
+  emailVerified DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
