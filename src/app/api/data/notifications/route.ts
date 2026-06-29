@@ -1,10 +1,20 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/data/notifications
+ *
+ * Ajout de requireUser() au boundary.
+ *
+ * TODO (R-002 deep) : `notificationEngine` opère sur un état global.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { notificationEngine } from "@/lib/notifications";
 import { NotificationCategory, NotificationPriority } from "@/lib/notifications";
+import { requireUser } from "@/lib/session";
+import { isHttpError } from "@/lib/http-error";
 
 // GET /api/data/notifications — List notifications with optional filters
 export async function GET(request: NextRequest) {
   try {
+    await requireUser();
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category") as NotificationCategory | null;
     const priority = searchParams.get("priority") as NotificationPriority | null;
@@ -33,10 +43,11 @@ export async function GET(request: NextRequest) {
     const stats = await notificationEngine.getStats();
 
     return NextResponse.json({ notifications, stats });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to fetch notifications", details: String(error) },
-      { status: 500 }
+      { error: "Failed to fetch notifications", details: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -44,13 +55,14 @@ export async function GET(request: NextRequest) {
 // POST /api/data/notifications — Create a new notification
 export async function POST(request: NextRequest) {
   try {
+    await requireUser();
     const body = await request.json();
     const { title, message, category, priority, actionUrl, actionLabel, sourceAgent, sourceWorkflow, metadata, expiresAt } = body;
 
     if (!title || !message || !category) {
       return NextResponse.json(
         { error: "title, message, and category are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -68,17 +80,19 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ notification }, { status: 201 });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to create notification", details: String(error) },
-      { status: 500 }
+      { error: "Failed to create notification", details: String(err) },
+      { status: 500 },
     );
   }
 }
 
-// PUT /api/data/notifications — Update notifications (mark read, dismiss, update prefs)
+// PUT /api/data/notifications — Update notifications
 export async function PUT(request: NextRequest) {
   try {
+    await requireUser();
     const body = await request.json();
     const { action, id, category, updates } = body;
 
@@ -109,10 +123,11 @@ export async function PUT(request: NextRequest) {
       default:
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to update notification", details: String(error) },
-      { status: 500 }
+      { error: "Failed to update notification", details: String(err) },
+      { status: 500 },
     );
   }
 }

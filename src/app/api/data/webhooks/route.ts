@@ -1,10 +1,20 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/data/webhooks
+ *
+ * Ajout de requireUser() au boundary.
+ *
+ * TODO (R-002 deep) : `webhookEngine` opère sur un état global.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { webhookEngine } from "@/lib/webhooks";
 import { WebhookProvider, WebhookEvent } from "@/lib/webhooks";
+import { requireUser } from "@/lib/session";
+import { isHttpError } from "@/lib/http-error";
 
 // GET /api/data/webhooks — List webhooks and/or deliveries
 export async function GET(request: NextRequest) {
   try {
+    await requireUser();
     const { searchParams } = new URL(request.url);
     const includeDeliveries = searchParams.get("deliveries") === "true";
     const webhookId = searchParams.get("webhookId");
@@ -31,10 +41,11 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(result);
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to fetch webhooks", details: String(error) },
-      { status: 500 }
+      { error: "Failed to fetch webhooks", details: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -42,13 +53,14 @@ export async function GET(request: NextRequest) {
 // POST /api/data/webhooks — Register a new webhook
 export async function POST(request: NextRequest) {
   try {
+    await requireUser();
     const body = await request.json();
     const { name, provider, url, events, secret, headers, retryCount, timeoutMs } = body;
 
     if (!name || !provider || !url || !events || !Array.isArray(events)) {
       return NextResponse.json(
         { error: "name, provider, url, and events[] are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -64,10 +76,11 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ webhook }, { status: 201 });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to register webhook", details: String(error) },
-      { status: 500 }
+      { error: "Failed to register webhook", details: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -75,6 +88,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/data/webhooks — Update or toggle a webhook
 export async function PUT(request: NextRequest) {
   try {
+    await requireUser();
     const body = await request.json();
     const { id, action, ...updates } = body;
 
@@ -101,10 +115,11 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ webhook });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to update webhook", details: String(error) },
-      { status: 500 }
+      { error: "Failed to update webhook", details: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -112,6 +127,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/data/webhooks — Delete a webhook
 export async function DELETE(request: NextRequest) {
   try {
+    await requireUser();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -125,10 +141,11 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
-      { error: "Failed to delete webhook", details: String(error) },
-      { status: 500 }
+      { error: "Failed to delete webhook", details: String(err) },
+      { status: 500 },
     );
   }
 }
