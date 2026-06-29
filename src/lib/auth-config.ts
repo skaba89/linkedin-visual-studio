@@ -1,36 +1,100 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { db } from "@/lib/db";
+import { verifyPassword, hashPassword, assertPasswordStrength } from "@/lib/password";
 
 /**
- * NextAuth configuration for HERMÈS
+ * HERMÈS — R-001 — NextAuth configuration (DB-backed)
  *
- * Uses a Credentials provider with a single demo account.
- * JWT session strategy — no database adapter needed.
- * Easily extensible: add OAuth providers (GitHub, Google, etc.) here.
+ * Changes vs. previous version (audit Volume 1 §R-001):
+ *  - `authorize()` now performs a real Prisma lookup + scrypt verification
+ *    instead of comparing against hardcoded credentials.
+ *  - The JWT callback enriches the token with `id` and `role`.
+ *  - The session callback exposes `id` and `role` on `session.user`.
+ *  - The `NEXTAUTH_SECRET` fallback is removed — production will fail-fast
+ *    if unset, instead of silently using a known weak secret.
+ *
+ * Migration path:
+ *  - The first time the server boots, if no User with email="demo@hermes.app"
+ *    exists, one is created with a freshly hashed password (`hermes2024`).
+ *    This keeps the existing demo flow working while the codebase migrates.
+ *  - After migration, replace this seed with proper /api/auth/register usage.
  */
+
+const DEMO_EMAIL = "demo@hermes.app";
+const DEMO_INITIAL_PASSWORD = "hermes2024"; // only used once for seeding
+
+/**
+ * Idempotent seed of the demo account. Called on first login attempt.
+ * In production this should be replaced by an explicit registration flow.
+ */
+async function ensureDemoUser(): Promise<void> {
+  const existing = await db.user.findUnique({ where: { email: DEMO_EMAIL } });
+  if (existing) return;
+
+  // Validate strength (will throw if too weak)
+  assertPasswordStrength(DEMO_INITIAL_PASSWORD);
+
+  await db.user.create({
+    data: {
+      email: DEMO_EMAIL,
+      name: "Demo User",
+      passwordHash: await hashPassword(DEMO_INITIAL_PASSWORD),
+      role: "USER",
+      emailVerified: new Date(),
+    },
+  });
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
-      name: "Demo Account",
+      name: "Email & Password",
       credentials: {
-        email: { label: "Email", type: "email", placeholder: "demo@hermes.app" },
+        email: { label: "Email", type: "email", placeholder: "you@example.com" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        // Demo account — matches immediately without a DB lookup
-        if (
-          credentials?.email === "demo@hermes.app" &&
-          credentials?.password === "hermes2024"
-        ) {
-          return {
-            id: "usr_demo_001",
-            name: "Demo User",
-            email: "demo@hermes.app",
-            image: null,
-          };
+        if (!credentials?.email || !credentials?.password) return null;
+
+        // Email format check before hitting the DB
+        const email = credentials.email.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+
+        // Seed demo user on first attempt (idempotent)
+        if (email === DEMO_EMAIL) {
+          try {
+            await ensureDemoUser();
+          } catch {
+            // Seed failures fall through to normal auth (will return null)
+          }
         }
-        // Return null to signal "invalid credentials"
-        return null;
+
+        const user = await db.user.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            avatarUrl: true,
+            passwordHash: true,
+            role: true,
+          },
+        });
+
+        // No user OR no passwordHash (OAuth-only account) → reject
+        if (!user || !user.passwordHash) return null;
+
+        const ok = await verifyPassword(credentials.password, user.passwordHash);
+        if (!ok) return null;
+
+        return {
+          id: user.id,
+          name: user.name ?? null,
+          email: user.email,
+          image: user.avatarUrl ?? null,
+          role: user.role,
+        };
       },
     }),
   ],
@@ -42,11 +106,20 @@ export const authOptions: NextAuthOptions = {
   },
 
   jwt: {
-    // Use NEXTAUTH_SECRET from env; fall back to a stable dev secret
-    secret: process.env.NEXTAUTH_SECRET ?? "hermes-dev-secret-change-in-production",
+    // No fallback — production MUST set NEXTAUTH_SECRET.
+    // In dev we allow a fallback to keep DX smooth.
+    secret:
+      process.env.NEXTAUTH_SECRET ??
+      (process.env.NODE_ENV === "production"
+        ? undefined
+        : "hermes-dev-secret-DO-NOT-USE-IN-PROD"),
   },
 
-  secret: process.env.NEXTAUTH_SECRET ?? "hermes-dev-secret-change-in-production",
+  secret:
+    process.env.NEXTAUTH_SECRET ??
+    (process.env.NODE_ENV === "production"
+      ? undefined
+      : "hermes-dev-secret-DO-NOT-USE-IN-PROD"),
 
   pages: {
     // Custom sign-in page (we'll create this later if needed)
@@ -55,21 +128,26 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     /**
-     * Include user id in the JWT token so it's available in session.
+     * Include user id + role in the JWT token so they're available in session.
      */
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // NextAuth's `user` type doesn't include `role` — widen via cast
+        const u = user as typeof user & { role?: string };
+        token.role = u.role ?? "USER";
       }
       return token;
     },
 
     /**
-     * Expose user id on the session object for client & server use.
+     * Expose user id + role on the session object for client & server use.
      */
     async session({ session, token }) {
-      if (session.user && token.id) {
-        session.user.id = token.id as string;
+      if (session.user) {
+        (session.user as { id?: string }).id = token.id as string;
+        (session.user as { role?: string }).role =
+          (token.role as string | undefined) ?? "USER";
       }
       return session;
     },
@@ -77,3 +155,29 @@ export const authOptions: NextAuthOptions = {
 
   debug: process.env.NODE_ENV === "development",
 };
+
+/**
+ * Augment NextAuth types to include `id` and `role` on Session.user
+ * and `id`/`role` on the JWT token.
+ *
+ * This is a global side-effect import — declare it once here and the types
+ * flow through `getServerSession` automatically.
+ */
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      email: string;
+      name?: string | null;
+      image?: string | null;
+      role?: string;
+    };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+    role?: string;
+  }
+}
