@@ -1,31 +1,54 @@
+/**
+ * HERMÈS — R-001 / R-002 — /api/data/experiments/[id]
+ * Migré vers requireUser() + assertOwnership.
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { db, ensureDefaultUser, DEFAULT_USER_ID } from "@/lib/db";
+import { db } from "@/lib/db";
+import { requireUser, assertOwnership } from "@/lib/session";
+import { isHttpError } from "@/lib/http-error";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const user = await requireUser();
+    const { id } = await params;
 
-  const experiment = await db.experiment.findUnique({
-    where: { id },
-  });
+    const experiment = await db.experiment.findUnique({ where: { id } });
+    assertOwnership(experiment, user.id);
 
-  if (!experiment) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const results = await db.experimentResult.findMany({
+      where: { experimentId: id, userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json({ experiment, results });
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
+    throw err;
   }
-
-  const results = await db.experimentResult.findMany({
-    where: { experimentId: id, userId: DEFAULT_USER_ID },
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json({ experiment, results });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await ensureDefaultUser();
-  const { id } = await params;
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const user = await requireUser();
+    const { id } = await params;
 
-  await db.experimentResult.deleteMany({ where: { experimentId: id, userId: DEFAULT_USER_ID } });
-  await db.experiment.delete({ where: { id } });
+    const existing = await db.experiment.findUnique({ where: { id } });
+    assertOwnership(existing, user.id);
 
-  return NextResponse.json({ success: true });
+    await db.experimentResult.deleteMany({
+      where: { experimentId: id, userId: user.id },
+    });
+    await db.experiment.delete({ where: { id } });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
+    throw err;
+  }
 }
