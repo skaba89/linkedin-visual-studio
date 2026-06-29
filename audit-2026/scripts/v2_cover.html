@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>HERMÈS — Guide d'Implémentation Technique (Volume 2)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --c-bg: #f4f6f5;
+    --c-section: #e8eae9;
+    --c-card: #ebf0ee;
+    --c-header: #486757;
+    --c-border: #aec0b7;
+    --c-icon: #487c62;
+    --c-accent: #1c9659;
+    --c-accent2: #51cdcd;
+    --c-text: #181b1a;
+    --c-muted: #79847f;
+    --c-warn: #ac8c4b;
+    --c-err: #894943;
+    --c-info: #4f7193;
+  }
+  @page { size: 794px 1123px; margin: 0; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 794px; height: 1123px;
+    background: var(--c-bg);
+    font-family: 'Inter', sans-serif;
+    color: var(--c-text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .cover-page {
+    position: relative;
+    width: 794px; height: 1123px;
+    background: var(--c-bg);
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .cover-bg-layer {
+    position: absolute; inset: 0;
+    overflow: hidden;
+    z-index: 1;
+    background-image:
+      linear-gradient(to right, rgba(72, 103, 87, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(72, 103, 87, 0.04) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+  .wm {
+    position: absolute;
+    right: 20px; bottom: 30px;
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 460px;
+    line-height: 1;
+    color: var(--c-header);
+    opacity: 0.04;
+    letter-spacing: -0.04em;
+    z-index: 1;
+  }
+  .anchor-line {
+    position: absolute;
+    left: 95.3px;
+    top: 112.3px;
+    width: 6px;
+    height: 898.4px;
+    background: var(--c-header);
+    z-index: 2;
+  }
+  .content {
+    position: absolute; inset: 0;
+    z-index: 3;
+    padding: 0;
+  }
+  .kicker {
+    position: absolute;
+    left: 165px;
+    top: 168px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+    opacity: 0.85;
+  }
+  .kicker .dot {
+    color: var(--c-accent);
+    margin: 0 8px;
+    font-weight: 900;
+  }
+  .hero-title {
+    position: absolute;
+    left: 165px;
+    top: 280px;
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 76px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--c-text);
+    max-width: 600px;
+  }
+  .hero-title .vol {
+    color: var(--c-accent);
+  }
+  .subtitle {
+    position: absolute;
+    left: 165px;
+    top: 480px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 26px;
+    line-height: 1.35;
+    color: var(--c-header);
+    max-width: 560px;
+    letter-spacing: -0.005em;
+  }
+  .subtitle b {
+    font-weight: 700;
+    color: var(--c-text);
+  }
+  .summary {
+    position: absolute;
+    left: 165px;
+    top: 600px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 15.5px;
+    line-height: 1.7;
+    color: var(--c-text);
+    opacity: 0.85;
+    max-width: 480px;
+    text-align: left;
+  }
+  .stat-row {
+    position: absolute;
+    left: 165px;
+    top: 800px;
+    display: flex;
+    gap: 48px;
+    z-index: 3;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stat .num {
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 38px;
+    line-height: 1;
+    color: var(--c-accent);
+  }
+  .stat .num.warn { color: var(--c-warn); }
+  .stat .num.err  { color: var(--c-err);  }
+  .stat .num.info { color: var(--c-info); }
+  .stat .label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+  }
+  .meta {
+    position: absolute;
+    left: 165px;
+    top: 970px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--c-text);
+    max-width: 500px;
+  }
+  .meta .row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+  .meta .row .k {
+    color: var(--c-muted);
+    font-weight: 500;
+    min-width: 110px;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .meta .row .v {
+    color: var(--c-text);
+    font-weight: 500;
+  }
+  .footer-line {
+    position: absolute;
+    left: 165px;
+    right: 60px;
+    bottom: 36px;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+    opacity: 0.7;
+    z-index: 3;
+  }
+  .corner-mark {
+    position: absolute;
+    right: 60px;
+    top: 112px;
+    width: 80px;
+    height: 80px;
+    border-top: 2px solid var(--c-header);
+    border-right: 2px solid var(--c-header);
+    z-index: 2;
+  }
+  .corner-mark-bl {
+    position: absolute;
+    left: 60px;
+    bottom: 112px;
+    width: 80px;
+    height: 80px;
+    border-bottom: 2px solid var(--c-header);
+    border-left: 2px solid var(--c-header);
+    z-index: 2;
+  }
+</style>
+</head>
+<body>
+  <div class="cover-page">
+    <div class="cover-bg-layer">
+      <div class="wm">II</div>
+    </div>
+
+    <div class="anchor-line"></div>
+    <div class="corner-mark"></div>
+    <div class="corner-mark-bl"></div>
+
+    <div class="content">
+      <div class="kicker">Volume 2<span class="dot">·</span>Guide d'Implémentation Technique</div>
+
+      <div class="hero-title">
+        HERMÈS<br>
+        <span class="vol">Implémentation</span>
+      </div>
+
+      <div class="subtitle">
+        <b>Patterns de code, snippets avant/après</b><br>
+        et checklists de validation pour chaque risque P0 et P1
+      </div>
+
+      <div class="summary">
+        Ce volume fait suite au rapport d'audit stratégique. Pour chacun des huit
+        risques prioritaires, il fournit le code corrigé prêt à intégrer, le
+        pattern de refactor Avant / Après, les helpers réutilisables, les
+        pièges connus et une checklist de validation. L'objectif est de passer
+        de la recommandation à l'exécution sans ambiguïté de mise en œuvre.
+      </div>
+
+      <div class="stat-row">
+        <div class="stat">
+          <div class="num err">8</div>
+          <div class="label">Risques traités</div>
+        </div>
+        <div class="stat">
+          <div class="num warn">24</div>
+          <div class="label">Snippets code</div>
+        </div>
+        <div class="stat">
+          <div class="num info">12</div>
+          <div class="label">Checklists</div>
+        </div>
+        <div class="stat">
+          <div class="num">10</div>
+          <div class="label">Helpers réutilisables</div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="row"><span class="k">Cible</span><span class="v">Next.js 16 · React 19 · Prisma 6 · TypeScript 5</span></div>
+        <div class="row"><span class="k">Périmètre</span><span class="v">src/lib · src/app/api · middleware · prisma · CI</span></div>
+        <div class="row"><span class="k">Date</span><span class="v">29 juin 2026</span></div>
+        <div class="row"><span class="k">Prérequis</span><span class="v">Lecture préalable du Volume 1 — Audit</span></div>
+      </div>
+
+      <div class="footer-line">
+        <span>HERMÈS · Volume 2 — Implémentation</span>
+        <span>Confidentiel · Diffusion restreinte</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
