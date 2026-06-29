@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Audit HERMÈS — Recommandations</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --c-bg: #f4f6f5;
+    --c-section: #e8eae9;
+    --c-card: #ebf0ee;
+    --c-header: #486757;
+    --c-border: #aec0b7;
+    --c-icon: #487c62;
+    --c-accent: #1c9659;
+    --c-accent2: #51cdcd;
+    --c-text: #181b1a;
+    --c-muted: #79847f;
+    --c-warn: #ac8c4b;
+    --c-err: #894943;
+    --c-info: #4f7193;
+  }
+  @page { size: 794px 1123px; margin: 0; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 794px; height: 1123px;
+    background: var(--c-bg);
+    font-family: 'Inter', sans-serif;
+    color: var(--c-text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .cover-page {
+    position: relative;
+    width: 794px; height: 1123px;
+    background: var(--c-bg);
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  /* Layer 1 — background grid */
+  .cover-bg-layer {
+    position: absolute; inset: 0;
+    overflow: hidden;
+    z-index: 1;
+    background-image:
+      linear-gradient(to right, rgba(72, 103, 87, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(72, 103, 87, 0.04) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+  /* Watermark digit */
+  .wm {
+    position: absolute;
+    right: 20px; bottom: 30px;
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 460px;
+    line-height: 1;
+    color: var(--c-header);
+    opacity: 0.04;
+    letter-spacing: -0.04em;
+    z-index: 1;
+  }
+  /* Layer 2 — vertical anchor line */
+  .anchor-line {
+    position: absolute;
+    left: 95.3px;        /* 0.12 * W = 95.28 */
+    top: 112.3px;        /* 0.10 * H */
+    width: 6px;
+    height: 898.4px;     /* 0.80 * H */
+    background: var(--c-header);
+    z-index: 2;
+  }
+  /* Layer 3 — content */
+  .content {
+    position: absolute; inset: 0;
+    z-index: 3;
+    padding: 0;
+  }
+  .kicker {
+    position: absolute;
+    left: 165px;
+    top: 168px;       /* 0.15 * H */
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+    opacity: 0.85;
+  }
+  .kicker .dot {
+    color: var(--c-accent);
+    margin: 0 8px;
+    font-weight: 900;
+  }
+  .hero-title {
+    position: absolute;
+    left: 165px;
+    top: 280px;        /* ~0.25 * H */
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 76px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--c-text);
+    max-width: 600px;
+  }
+  .subtitle {
+    position: absolute;
+    left: 165px;
+    top: 480px;        /* ~0.43 * H */
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 26px;
+    line-height: 1.35;
+    color: var(--c-header);
+    max-width: 560px;
+    letter-spacing: -0.005em;
+  }
+  .subtitle b {
+    font-weight: 700;
+    color: var(--c-text);
+  }
+  .summary {
+    position: absolute;
+    left: 165px;
+    top: 600px;        /* ~0.53 * H */
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 15.5px;
+    line-height: 1.7;
+    color: var(--c-text);
+    opacity: 0.85;
+    max-width: 480px;  /* W * 0.6 */
+    text-align: left;
+  }
+  .stat-row {
+    position: absolute;
+    left: 165px;
+    top: 800px;        /* ~0.71 * H */
+    display: flex;
+    gap: 48px;
+    z-index: 3;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stat .num {
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 38px;
+    line-height: 1;
+    color: var(--c-accent);
+  }
+  .stat .num.warn { color: var(--c-warn); }
+  .stat .num.err  { color: var(--c-err);  }
+  .stat .num.info { color: var(--c-info); }
+  .stat .label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+  }
+  .meta {
+    position: absolute;
+    left: 165px;
+    top: 970px;        /* ~0.86 * H */
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--c-text);
+    max-width: 500px;
+  }
+  .meta .row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+  .meta .row .k {
+    color: var(--c-muted);
+    font-weight: 500;
+    min-width: 110px;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .meta .row .v {
+    color: var(--c-text);
+    font-weight: 500;
+  }
+  .footer-line {
+    position: absolute;
+    left: 165px;
+    right: 60px;
+    bottom: 36px;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--c-muted);
+    opacity: 0.7;
+    z-index: 3;
+  }
+  .corner-mark {
+    position: absolute;
+    right: 60px;
+    top: 112px;
+    width: 80px;
+    height: 80px;
+    border-top: 2px solid var(--c-header);
+    border-right: 2px solid var(--c-header);
+    z-index: 2;
+  }
+  .corner-mark-bl {
+    position: absolute;
+    left: 60px;
+    bottom: 112px;
+    width: 80px;
+    height: 80px;
+    border-bottom: 2px solid var(--c-header);
+    border-left: 2px solid var(--c-header);
+    z-index: 2;
+  }
+</style>
+</head>
+<body>
+  <div class="cover-page">
+    <div class="cover-bg-layer">
+      <div class="wm">H</div>
+    </div>
+
+    <div class="anchor-line"></div>
+    <div class="corner-mark"></div>
+    <div class="corner-mark-bl"></div>
+
+    <div class="content">
+      <div class="kicker">Audit Technique<span class="dot">·</span>Rapport de Recommandations</div>
+
+      <div class="hero-title">
+        HERMÈS<br>
+        Audit 2026
+      </div>
+
+      <div class="subtitle">
+        <b>Recommandations stratégiques</b><br>
+        pour la sécurisation et l'industrialisation de la plateforme
+      </div>
+
+      <div class="summary">
+        Ce rapport présente les résultats de l'audit complet du codebase HERMÈS —
+        application Next.js 16 dédiée à l'automatisation LinkedIn B2B. Il cartographie
+        les risques par criticité, détaille les vulnérabilités identifiées sur les
+        couches d'authentification, de données, de build et de sécurité applicative,
+        et propose un plan de mise en œuvre priorisé sur douze semaines avec
+        quick wins, efforts estimés et impact métier.
+      </div>
+
+      <div class="stat-row">
+        <div class="stat">
+          <div class="num err">3</div>
+          <div class="label">Risques P0</div>
+        </div>
+        <div class="stat">
+          <div class="num warn">7</div>
+          <div class="label">Risques P1</div>
+        </div>
+        <div class="stat">
+          <div class="num info">9</div>
+          <div class="label">Risques P2</div>
+        </div>
+        <div class="stat">
+          <div class="num">12</div>
+          <div class="label">Semaines</div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="row"><span class="k">Cible</span><span class="v">Next.js 16 · React 19 · Prisma 6 · TypeScript 5</span></div>
+        <div class="row"><span class="k">Périmètre</span><span class="v">src/lib · src/app/api · prisma · middleware · next.config</span></div>
+        <div class="row"><span class="k">Date</span><span class="v">29 juin 2026</span></div>
+        <div class="row"><span class="k">Auteur</span><span class="v">Audit Technique Interne</span></div>
+      </div>
+
+      <div class="footer-line">
+        <span>HERMÈS · Audit Technique 2026</span>
+        <span>Confidentiel · Diffusion restreinte</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
