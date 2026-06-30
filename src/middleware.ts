@@ -18,7 +18,7 @@ const AUTH_SKIP_ROUTES = [
   "/api/ai/",               // All AI routes use their own x-api-key auth (chat, web-search, generate-*)
   "/api/linkedin/auth",     // Starts the LinkedIn OAuth flow (must be reachable pre-login)
   "/api/linkedin/callback", // LinkedIn OAuth callback (called by LinkedIn's redirect)
-  "/api/setup/",            // One-time setup endpoints (migration trigger, etc.) — protected by MIGRATION_KEY
+  "/api/setup/",            // One-time setup endpoints (migration trigger, ensure-user-columns, etc.)
   "/api/csp-report",        // Endpoint de reporting CSP (POST)
 ];
 
