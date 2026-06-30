@@ -249,3 +249,41 @@ Stage Summary:
   dropped by the overly broad 'test' gitignore pattern)
 - The 'Test' button in the Settings UI will work after the next Render
   deployment completes (~2-4 min)
+
+---
+Task ID: BUG-H5
+Agent: Main Agent
+Task: Fix persistent 401 on /api/linkedin/me (NEXTAUTH_SECRET mismatch)
+
+Work Log:
+- Investigated the 401 on /api/linkedin/me reported by the user
+- Found a secret mismatch between middleware and auth-config:
+  - src/middleware.ts:96 had a fallback 'hermes-dev-secret-change-in-production'
+  - src/lib/auth-config.ts:112 had NO fallback in production (undefined)
+- When NEXTAUTH_SECRET was unset on Render, NextAuth signed JWTs with one
+  secret but the middleware verified with another → token always null → 401
+- Removed the middleware's NEXTAUTH_SECRET fallback so both sides use
+  process.env.NEXTAUTH_SECRET directly (consistent behavior)
+- Added /api/linkedin/auth and /api/linkedin/callback to AUTH_SKIP_ROUTES
+  so the LinkedIn OAuth flow can start without an existing app session
+  (otherwise users could never connect LinkedIn)
+- Added useSession() check to LinkedInView's ConnexionTab component —
+  checkConnection() now only fires when status === 'authenticated',
+  eliminating the noisy 401 in the console when the user isn't logged in
+- Generated a secure NEXTAUTH_SECRET for the user: 'jb9zHn+4aOyGhOANGjTpz0jOnpbSmQppJ/a6Do6a5aL9uorYo7byV5GhRiisnkKv'
+- Verified locally with NEXTAUTH_SECRET set:
+  - /api/linkedin/auth     -> 307 (OAuth redirect, not blocked)
+  - /api/linkedin/callback -> 307 (OAuth callback, not blocked)
+  - /api/linkedin/me       -> 401 (correctly blocked without session)
+  - /api/auth/session      -> 200 {} (NextAuth native)
+  - /api/ai/test           -> 200 (ZAI server SDK works)
+- Committed and pushed to main (commit 0c1e51a)
+
+Stage Summary:
+- The NEXTAUTH_SECRET mismatch was the root cause of ALL the 401 errors
+  the user has been seeing on authenticated endpoints
+- The user MUST set NEXTAUTH_SECRET on Render for login to work
+- Suggested value: jb9zHn+4aOyGhOANGjTpz0jOnpbSmQppJ/a6Do6a5aL9uorYo7byV5GhRiisnkKv
+- The LinkedIn OAuth flow is now reachable without an existing session
+- The frontend no longer fires /api/linkedin/me on every page load when
+  the user isn't logged in
