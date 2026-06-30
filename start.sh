@@ -50,7 +50,23 @@ if [ $MIGRATE_EXIT -ne 0 ]; then
   echo "$PUSH_OUTPUT" | tail -30
   if [ $PUSH_EXIT -ne 0 ]; then
     echo ""
-    echo "❌ prisma db push also failed (exit $PUSH_EXIT). Starting app anyway — DB schema may be out of sync."
+    echo "❌ prisma db push also failed (exit $PUSH_EXIT)."
+    echo "🔧 Attempting direct SQL migration (ensure_user_columns)..."
+    # Run the ensure_user_columns migration SQL directly via prisma db execute
+    # This bypasses the migration history and forces the User columns to exist
+    SQL_FILE="prisma/migrations/20260701020000_ensure_user_columns/migration.sql"
+    if [ -f "$SQL_FILE" ]; then
+      SQL_OUTPUT=$(npx prisma db execute --file "$SQL_FILE" --schema prisma/schema.prisma 2>&1)
+      SQL_EXIT=$?
+      echo "$SQL_OUTPUT" | tail -20
+      if [ $SQL_EXIT -ne 0 ]; then
+        echo "❌ Direct SQL migration also failed. Starting app anyway — DB schema may be out of sync."
+      else
+        echo "✅ Direct SQL migration succeeded — User.passwordHash column should now exist."
+      fi
+    else
+      echo "❌ SQL file not found: $SQL_FILE"
+    fi
   else
     echo ""
     echo "✅ prisma db push succeeded — schema is now in sync."
