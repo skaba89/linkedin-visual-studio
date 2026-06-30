@@ -208,6 +208,18 @@ function ConnexionTab() {
 
   const handleConnect = async () => {
     setError(null);
+
+    // R-011 — Gate the LinkedIn OAuth flow on an active HERMÈS session.
+    // Without this, the user reaches the LinkedIn callback unauthenticated
+    // and gets a confusing "Connexion requis avant de lier votre compte
+    // LinkedIn" error after already granting LinkedIn permissions.
+    if (sessionStatus !== "authenticated") {
+      setError(
+        "Vous devez être connecté à HERMÈS avant de lier votre compte LinkedIn. Cliquez sur « Se connecter » en bas de la barre latérale.",
+      );
+      return;
+    }
+
     if (!linkedInConfig.clientId) {
       setError("Veuillez configurer votre Client ID LinkedIn dans les Paramètres avant de vous connecter.");
       return;

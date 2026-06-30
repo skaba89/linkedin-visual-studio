@@ -63,3 +63,8 @@ tool-results/
 server.log
 # Skills directory
 /skills/
+
+# User-uploaded debug artifacts (HAR files, screenshots, etc.)
+/upload/
+/agent-ctx/
+/audit-2026/

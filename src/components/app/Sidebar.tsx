@@ -20,6 +20,7 @@ import {
   Bell,
   Globe,
 } from "lucide-react";
+import UserMenu from "@/components/app/UserMenu";
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType; section?: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -123,13 +124,10 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-white/[0.06]">
-        <div className="flex items-center gap-2 text-[11px] text-[#7B8A9A]">
-          <Zap className="w-3 h-3 text-[#00D4FF]" />
-          <span>{agents.length} agents configurés</span>
-        </div>
-      </div>
+      {/* Footer — R-011: UserMenu replaces the static "agents configurés" line.
+          Without a visible login button, users had no way to authenticate,
+          so every LinkedIn OAuth attempt failed with "Connexion requis". */}
+      <UserMenu />
     </aside>
   );
 }

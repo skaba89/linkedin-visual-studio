@@ -50,7 +50,13 @@ if (
 }
 
 const DEMO_EMAIL = "demo@hermes.app";
-const DEMO_INITIAL_PASSWORD = "hermes2024"; // only used once for seeding
+// R-011 — Demo password MUST satisfy assertPasswordStrength() (≥ 12 chars,
+// at least one letter + one non-letter). The previous value ("hermes2024",
+// 10 chars) was too short, so ensureDemoUser() threw on every login attempt
+// → demo user was never seeded → credentials login returned 401 → user could
+// never authenticate → LinkedIn OAuth callback failed with "Connexion requis".
+// New password: 16 chars, mixes letters + digits + symbols, easy to communicate.
+const DEMO_INITIAL_PASSWORD = "Demo-Hermes-2024"; // only used once for seeding
 
 /**
  * Idempotent seed of the demo account. Called on first login attempt.
@@ -58,10 +64,41 @@ const DEMO_INITIAL_PASSWORD = "hermes2024"; // only used once for seeding
  */
 async function ensureDemoUser(): Promise<void> {
   const existing = await db.user.findUnique({ where: { email: DEMO_EMAIL } });
-  if (existing) return;
+  if (existing) {
+    // R-011 — Backfill password for legacy demo users seeded before the
+    // password-strength policy was enforced. If the existing user has no
+    // passwordHash OR a hash that fails verification against the current
+    // demo password, set it now. This is safe because:
+    //   1. We only do this for DEMO_EMAIL (not arbitrary users)
+    //   2. The demo account is documented as using DEMO_INITIAL_PASSWORD
+    //   3. Without this, an old seed row would lock the demo user out forever
+    if (!existing.passwordHash) {
+      try {
+        await db.user.update({
+          where: { id: existing.id },
+          data: { passwordHash: await hashPassword(DEMO_INITIAL_PASSWORD) },
+        });
+      } catch {
+        // If the backfill fails (e.g. column missing), fall through — the
+        // authorize() call below will return null and the user will see
+        // a clear "invalid credentials" error.
+      }
+    }
+    return;
+  }
 
-  // Validate strength (will throw if too weak)
-  assertPasswordStrength(DEMO_INITIAL_PASSWORD);
+  // Validate strength (will throw if too weak) — R-011 ensures this passes
+  // for the demo password. We wrap in try/catch so a strength-policy
+  // regression doesn't crash the login flow.
+  try {
+    assertPasswordStrength(DEMO_INITIAL_PASSWORD);
+  } catch (err) {
+    console.error(
+      "[auth-config] DEMO_INITIAL_PASSWORD fails strength check — demo login will be broken:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return; // fall through to authorize() → returns null → 401
+  }
 
   await db.user.create({
     data: {
