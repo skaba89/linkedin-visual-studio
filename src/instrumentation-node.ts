@@ -9,9 +9,14 @@
  * R-005: this is the safety net that catches errors which escape the
  * per-route try/catch blocks. Routes use `apiHandler()` for synchronous
  * error conversion; this catches async errors that fall through.
+ *
+ * R-011 deep v3: also runs the runtime User-column migration at boot,
+ * so the passwordHash column is ensured even if prisma migrate deploy
+ * failed and the startCommand fallbacks didn't run.
  */
 
 import { createLogger } from "@/lib/logger";
+import { ensureUserColumns } from "@/lib/runtime-migration";
 
 const log = createLogger("instrumentation");
 
@@ -51,3 +56,15 @@ if (
 ) {
   process.env.AUTH_TRUST_HOST = "true";
 }
+
+// R-011 deep v3 — Run runtime User-column migration at boot.
+// This ensures User.passwordHash exists even if prisma migrate deploy
+// failed (e.g., due to a failed JSONB conversion in the same migration file).
+// We do NOT await this — the server should boot immediately and the migration
+// will complete in the background. The first login attempt may fail if it
+// happens within the first ~100ms of boot, but subsequent attempts will work.
+ensureUserColumns().catch((err) => {
+  log.error("Runtime User-column migration failed at boot", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+});
