@@ -8,6 +8,7 @@
  */
 
 import { createLogger } from "@/lib/logger";
+import { getZai } from "@/lib/z-ai-bootstrap";
 
 const log = createLogger("server-ai-client");
 
@@ -42,15 +43,22 @@ export async function serverChatCompletion(
   log.info("AI request started", { model: requestedModel, temperature: options?.temperature ?? 0.7 });
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
+    const zai = await getZai();
 
-    const completion = await zai.chat.completions.create({
+    const completion = (await zai.chat.completions.create({
       messages,
       model: requestedModel !== "default" ? requestedModel : undefined,
       temperature: options?.temperature ?? 0.7,
       max_tokens: options?.maxTokens ?? 1024,
-    });
+    })) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      model?: string;
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      };
+    };
 
     const content = completion.choices?.[0]?.message?.content || "";
     const model = completion.model || options?.model || "zai";
