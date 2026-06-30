@@ -27,6 +27,59 @@ export interface AIProvider {
 }
 
 export const AI_PROVIDERS: AIProvider[] = [
+  // ─── Z.AI (built-in SDK provider) ──────────────────
+  // Special: uses the z-ai-web-dev-sdk. Can be configured via env vars
+  // (ZAI_BASE_URL + ZAI_API_KEY) on the server, OR via the UI by entering
+  // an API key below. The public endpoint is https://api.z.ai/v1.
+  {
+    id: "zai",
+    name: "Z.AI",
+    icon: "Sparkle",
+    color: "#1E88E5",
+    free: true,
+    apiKeyPlaceholder: "sk-... (clé API Z.AI) ou laissez vide pour utiliser ZAI_API_KEY serveur",
+    apiKeyPrefix: "",
+    docsUrl: "https://z.ai/docs/api-key",
+    baseUrl: "https://api.z.ai/v1",
+    models: [
+      {
+        id: "glm-4.6",
+        name: "GLM-4.6",
+        description: "Modèle flagship Z.AI, polyvalent et rapide",
+        contextWindow: 128000,
+        free: true,
+      },
+      {
+        id: "glm-4.5",
+        name: "GLM-4.5",
+        description: "Équilibre qualité/prix pour le contenu et la qualification",
+        contextWindow: 128000,
+        free: true,
+      },
+      {
+        id: "glm-4-plus",
+        name: "GLM-4-Plus",
+        description: "Modèle avancé pour les tâches de raisonnement",
+        contextWindow: 128000,
+        free: true,
+      },
+      {
+        id: "glm-4-air",
+        name: "GLM-4-Air",
+        description: "Ultra-rapide et économique pour la qualification",
+        contextWindow: 128000,
+        free: true,
+      },
+      {
+        id: "glm-4-flash",
+        name: "GLM-4-Flash",
+        description: "Le plus rapide, parfait pour les tâches simples",
+        contextWindow: 128000,
+        free: true,
+      },
+    ],
+  },
+
   // ─── FREE PROVIDERS ────────────────────────────────
   {
     id: "groq",
@@ -458,6 +511,10 @@ export function getProvidersByCategory() {
 /**
  * Map provider → OpenAI-compatible base URL for API routing.
  * Providers with OpenAI-compatible APIs can be called uniformly.
+ *
+ * Note: "zai" returns the public Z.AI endpoint. The actual chat completion
+ * goes through z-ai-web-dev-sdk (not raw fetch), so this URL is informational
+ * (used by /api/ai/test for direct connectivity checks).
  */
 export function getProviderBaseUrl(providerId: string): string {
   const provider = getProvider(providerId);
@@ -477,8 +534,9 @@ export function getProviderBaseUrl(providerId: string): string {
 
 /**
  * Check if a provider uses an OpenAI-compatible API format.
- * Most providers do, except Anthropic which has its own format.
+ * Z.AI and Anthropic both use their own SDK/format — all others are
+ * OpenAI-compatible.
  */
 export function isOpenAICompatible(providerId: string): boolean {
-  return providerId !== "anthropic";
+  return providerId !== "anthropic" && providerId !== "zai";
 }

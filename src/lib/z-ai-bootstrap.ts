@@ -138,3 +138,34 @@ export function _resetForTests(): void {
   cachedInstance = null;
   cachedError = null;
 }
+
+/**
+ * Build a fresh ZAI instance from a user-provided API key.
+ *
+ * Use case: when the operator selects "Z.AI" in the Settings UI and enters
+ * their own API key (instead of relying on ZAI_BASE_URL/ZAI_API_KEY env vars
+ * on the server), we instantiate a per-request ZAI object with that key.
+ *
+ * The base URL defaults to the public Z.AI endpoint (https://api.z.ai/v1)
+ * but can be overridden by setting ZAI_BASE_URL on the server.
+ *
+ * This function does NOT cache — each call returns a new instance.
+ */
+export async function createZaiFromApiKey(apiKey: string): Promise<ZaiInstance> {
+  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 8) {
+    throw new Error("Clé API Z.AI invalide ou manquante.");
+  }
+
+  const ZAIModule = (await import("z-ai-web-dev-sdk")) as unknown as ZaiModule;
+  const ZAI = ZAIModule.default;
+
+  const baseUrl = process.env.ZAI_BASE_URL ?? "https://api.z.ai/v1";
+
+  return new ZAI({
+    baseUrl,
+    apiKey: apiKey.trim(),
+    chatId: process.env.ZAI_CHAT_ID,
+    userId: process.env.ZAI_USER_ID,
+    token: process.env.ZAI_TOKEN,
+  });
+}

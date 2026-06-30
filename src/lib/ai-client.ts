@@ -37,8 +37,13 @@ export interface ChatResponse {
 
 /**
  * Preferred fallback order when the configured provider has no API key.
+ *
+ * Note: "zai" is intentionally first because it can work without a user-
+ * provided API key (falls back to server-configured ZAI via env vars or
+ * .z-ai-config file).
  */
 const PROVIDER_FALLBACK_ORDER = [
+  "zai",
   "groq",
   "openrouter",
   "google",
@@ -67,8 +72,9 @@ export async function chatCompletion(
   let model = options?.model || state.hermesConfig.model;
   let apiKey = state.hermesConfig.providerApiKeys[providerId];
 
-  // If no API key for the configured provider, try fallback providers
-  if (!apiKey) {
+  // ZAI is special: it can run without a user-provided API key (server-
+  // configured SDK fallback). Skip the fallback logic for ZAI.
+  if (providerId !== "zai" && !apiKey) {
     const fallbackProvider = PROVIDER_FALLBACK_ORDER.find(
       (p) => state.hermesConfig.providerApiKeys[p]
     );

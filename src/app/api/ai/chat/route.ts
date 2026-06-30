@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProviderBaseUrl, isOpenAICompatible } from "@/lib/providers";
 import { serverChatCompletion } from "@/lib/server-ai-client";
+import { createZaiFromApiKey } from "@/lib/z-ai-bootstrap";
 
 /**
  * POST /api/ai/chat
- * 
+ *
  * Universal AI chat completion endpoint that routes to the correct provider.
  * Uses OpenAI-compatible API format for most providers.
  * Supports streaming and non-streaming responses.
- * 
+ *
+ * Special providers:
+ *   - providerId === "zai": routes through z-ai-web-dev-sdk.
+ *     If `x-api-key` header is set, instantiates a per-request ZAI with that
+ *     key. Otherwise falls back to server-configured ZAI (env vars or
+ *     .z-ai-config file).
+ *
  * Body: {
  *   providerId: string;
  *   model: string;
@@ -28,6 +35,11 @@ export async function POST(req: NextRequest) {
         { error: "Missing required fields: providerId, model, messages" },
         { status: 400 }
       );
+    }
+
+    // ─── Special case: Z.AI via z-ai-web-dev-sdk ────────────────────────────
+    if (providerId === "zai") {
+      return handleZai(req, model, messages, temperature, max_tokens);
     }
 
     // Get API key from request header (client sends it from localStorage)
@@ -74,6 +86,73 @@ export async function POST(req: NextRequest) {
     console.error("[/api/ai/chat] Error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Handle Z.AI chat completion via z-ai-web-dev-sdk.
+ *
+ * Two paths:
+ *  1. User provided an API key in the `x-api-key` header → instantiate per-request ZAI
+ *  2. No user key → fall back to server-configured ZAI (env vars or .z-ai-config file)
+ */
+async function handleZai(
+  req: NextRequest,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  temperature: number,
+  max_tokens: number,
+) {
+  const userApiKey = req.headers.get("x-api-key");
+
+  try {
+    let zai;
+    let usedModel: string;
+
+    if (userApiKey && userApiKey.trim().length >= 8) {
+      console.log("[/api/ai/chat] Z.AI — using user-provided API key");
+      zai = await createZaiFromApiKey(userApiKey);
+      usedModel = model !== "default" ? model : "glm-4.6";
+    } else {
+      console.log("[/api/ai/chat] Z.AI — using server-configured SDK");
+      // Lazy-import to avoid circular deps with serverChatCompletion
+      const { getZai } = await import("@/lib/z-ai-bootstrap");
+      zai = await getZai();
+      usedModel = model !== "default" ? model : "glm-4.6";
+    }
+
+    const completion = (await zai.chat.completions.create({
+      messages: messages.map((m) => ({
+        role: m.role as "system" | "user" | "assistant",
+        content: m.content,
+      })),
+      model: usedModel,
+      temperature,
+      max_tokens,
+    })) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      model?: string;
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      };
+    };
+
+    const content = completion.choices?.[0]?.message?.content || "";
+    return NextResponse.json({
+      choices: [{ message: { role: "assistant", content } }],
+      model: completion.model || usedModel,
+      usage: completion.usage,
+    });
+  } catch (error: unknown) {
+    console.error("[/api/ai/chat] Z.AI error:", error);
+    const msg = error instanceof Error ? error.message : "Z.AI service unavailable";
+    const status = msg.includes("not configured") || msg.includes("invalide") ? 503 : 500;
+    return NextResponse.json(
+      { error: `Z.AI : ${msg}` },
+      { status }
+    );
   }
 }
 
