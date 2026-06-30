@@ -9,6 +9,7 @@ import {
 } from "@/lib/linkedin-token";
 import { requireUser } from "@/lib/session";
 import { createLogger } from "@/lib/logger";
+import { appUrl, appUrlFor } from "@/lib/app-url";
 
 const log = createLogger("linkedin-callback");
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -37,13 +38,13 @@ export async function GET(request: NextRequest) {
     if (error) {
       const errorDesc = searchParams.get("error_description") || error;
       return NextResponse.redirect(
-        new URL(`/?linkedin=error&message=${encodeURIComponent(errorDesc)}`, request.url)
+        appUrlFor(request, `/?linkedin=error&message=${encodeURIComponent(errorDesc)}`)
       );
     }
 
     if (!code || !state) {
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=Code+ou+state+manquant", request.url)
+        appUrlFor(request, "/?linkedin=error&message=Code+ou+state+manquant")
       );
     }
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const storedState = await getStateFromCookies();
     if (state !== storedState) {
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=State+invalide", request.url)
+        appUrlFor(request, "/?linkedin=error&message=State+invalide")
       );
     }
 
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
         error: err instanceof Error ? err.message : String(err),
       });
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=Connexion+requis+avant+de+lier+votre+compte+LinkedIn", request.url)
+        appUrlFor(request, "/?linkedin=error&message=Connexion+requis+avant+de+lier+votre+compte+LinkedIn")
       );
     }
 
@@ -75,13 +76,15 @@ export async function GET(request: NextRequest) {
 
     if (!clientId) {
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=Client+ID+manquant", request.url)
+        appUrlFor(request, "/?linkedin=error&message=Client+ID+manquant")
       );
     }
 
     // Use the exact same redirect_uri that was used in the auth request (stored in cookie)
+    // IMPORTANT: use the public app URL, NOT request.nextUrl.host which resolves to
+    // the internal bind address (0.0.0.0:10000) on Render.
     const storedRedirectUri = cookieStore.get("li_redirect_uri_used")?.value;
-    const defaultRedirectUri = `${request.nextUrl.protocol}//${request.nextUrl.host}/api/linkedin/callback`;
+    const defaultRedirectUri = `${appUrl(request)}/api/linkedin/callback`;
     const redirectUri = storedRedirectUri ? decodeURIComponent(storedRedirectUri) : defaultRedirectUri;
 
     // Exchange authorization code for access token
@@ -105,7 +108,7 @@ export async function GET(request: NextRequest) {
       const errorData = await tokenResponse.text();
       console.error("LinkedIn token exchange failed:", errorData);
       return NextResponse.redirect(
-        new URL(`/?linkedin=error&message=${encodeURIComponent("Échec de l'échange de token")}`, request.url)
+        appUrlFor(request, `/?linkedin=error&message=${encodeURIComponent("Échec de l'échange de token")}`)
       );
     }
 
@@ -117,7 +120,7 @@ export async function GET(request: NextRequest) {
 
     if (!accessToken) {
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=Token+d'accès+non+reçu", request.url)
+        appUrlFor(request, "/?linkedin=error&message=Token+d'accès+non+reçu")
       );
     }
 
@@ -156,7 +159,7 @@ export async function GET(request: NextRequest) {
 
     // Redirect to the app with success
     const response = NextResponse.redirect(
-      new URL("/?linkedin=connected", request.url)
+      appUrlFor(request, "/?linkedin=connected")
     );
 
     // Store the access token in an httpOnly cookie (encrypted)
@@ -173,7 +176,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("LinkedIn callback error:", error);
     return NextResponse.redirect(
-      new URL("/?linkedin=error&message=Erreur+interne", request.url)
+      appUrlFor(request, "/?linkedin=error&message=Erreur+interne")
     );
   }
 }

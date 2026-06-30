@@ -436,3 +436,54 @@ Stage Summary:
 - TypeScript : 0 erreur
 - Tests : 208/208 passent (9 fichiers)
 - Le déploiement Render devrait maintenant réussir sans erreur de build ni erreur runtime NextAuth
+
+---
+Task ID: R-010
+Agent: Main Agent
+Task: R-010 — Fix LinkedIn OAuth redirect to 0.0.0.0:10000 + "Connexion requis" error on Render
+
+Work Log:
+- Symptômes rapportés par l'utilisateur :
+  - URL d'erreur : `https://0.0.0.0:10000/?linkedin=error&message=Connexion+requis+avant+de+lier+votre+compte+LinkedIn`
+  - Browser : `ERR_ADDRESS_INVALID`
+- Deux bugs distincts identifiés :
+
+BUG 1 : `0.0.0.0:10000` dans les URLs de redirect
+- Cause : Les routes LinkedIn utilisaient `new URL(path, request.url)` et `${request.nextUrl.protocol}//${request.nextUrl.host}` pour construire les URLs de redirect
+- Sur Render, le serveur Next.js bind sur `0.0.0.0:10000` derrière un reverse proxy. `request.url` et `request.nextUrl.host` reflètent l'adresse interne, pas l'URL publique
+- Conséquence : tous les redirects (erreur ET succès) pointaient vers `https://0.0.0.0:10000/...` → le browser ne peut pas résoudre cette adresse → ERR_ADDRESS_INVALID
+- Fix : Créé `src/lib/app-url.ts` avec deux helpers :
+  - `appUrl(request)` — résout l'URL publique avec priorité : NEXTAUTH_URL env > NEXT_PUBLIC_APP_URL env > X-Forwarded-Host header > request.nextUrl (fallback dev)
+  - `appUrlFor(request, path)` — construit une URL absolue à partir d'un path
+- Migré `src/app/api/linkedin/callback/route.ts` (11 occurrences) :
+  - Tous les `new URL("/?linkedin=error&...", request.url)` → `appUrlFor(request, "/?linkedin=error&...")`
+  - `defaultRedirectUri = \`${request.nextUrl.protocol}//${request.nextUrl.host}/api/linkedin/callback\`` → `\`${appUrl(request)}/api/linkedin/callback\``
+- Migré `src/app/api/linkedin/auth/route.ts` (4 occurrences) :
+  - `origin` fallback → `appUrl(request)` au lieu de `\`${request.nextUrl.protocol}//${request.nextUrl.host}\``
+  - Tous les `new URL(..., request.url)` → `appUrlFor(request, ...)`
+
+BUG 2 : "Connexion requis avant de lier votre compte LinkedIn"
+- Cause : `requireUser()` échouait sur le callback LinkedIn car `getServerSession()` retournait null
+- Investigation : NextAuth v4.24.13 `detectOrigin()` dans `node_modules/next-auth/utils/detect-origin.js` :
+  ```js
+  if (process.env.VERCEL ?? process.env.AUTH_TRUST_HOST)
+    return `${protocol}://${forwardedHost}`;  // trust X-Forwarded-Host
+  return process.env.NEXTAUTH_URL;            // fallback to env var
+  ```
+- Sur Render : `VERCEL` n'est pas set, `AUTH_TRUST_HOST` n'était pas set non plus
+- Si `NEXTAUTH_URL` était manquant ou mal configuré dans le dashboard Render, NextAuth ne pouvait pas déterminer l'origine → session cookie mal set → `getServerSession()` retourne null sur le callback LinkedIn
+- Fix : Ajouté `AUTH_TRUST_HOST=true` à `render.yaml` (env var au runtime)
+  - Provoque NextAuth à utiliser `X-Forwarded-Host` header (set par Render's proxy à l'URL publique)
+  - Plus robuste que NEXTAUTH_URL seule : fonctionne même si NEXTAUTH_URL a un typo ou est manquant
+  - `NEXTAUTH_URL` reste nécessaire pour le helper `appUrl()` (routes LinkedIn) — les deux sont complémentaires
+- Note : `trustHost: true` dans auth-config.ts ne fonctionne PAS en v4 (c'est une option v5/Auth.js). Retiré après vérification TypeScript.
+
+Stage Summary:
+- R-010 COMPLÉTÉ — les deux bugs LinkedIn OAuth sur Render sont fixés
+- Bug 1 (0.0.0.0:10000) : résolu via helper `appUrl()`/`appUrlFor()` qui préfère NEXTAUTH_URL env var
+- Bug 2 (Connexion requis) : résolu via `AUTH_TRUST_HOST=true` qui permet à NextAuth de lire X-Forwarded-Host
+- Build : ✓ Compiled successfully in 5.4s, 49/49 static pages
+- TypeScript : 0 erreur
+- Tests : 208/208 passent
+- render.yaml mis à jour avec AUTH_TRUST_HOST=true (sera appliqué au prochain déploiement Render)
+- ATTENTION : l'utilisateur doit vérifier que NEXTAUTH_URL est bien set dans le dashboard Render (sync: false = manuel)

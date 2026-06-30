@@ -25,6 +25,11 @@ services:
         sync: false         # openssl rand -base64 32
       - key: NEXTAUTH_URL
         sync: false         # https://linkedin-visual-studio.onrender.com
+      - key: AUTH_TRUST_HOST
+        value: "true"       # NextAuth v4: trust X-Forwarded-Host header from Render's proxy
+                            # Without this, getServerSession() returns null on cross-origin
+                            # redirects (e.g. LinkedIn OAuth callback) because NextAuth
+                            # falls back to the internal bind address (0.0.0.0:10000).
       - key: GROQ_API_KEY
         sync: false
       - key: OPENAI_API_KEY

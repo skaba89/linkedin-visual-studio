@@ -4,6 +4,7 @@ import {
   generateState,
   setStateCookie,
 } from "@/lib/linkedin-token";
+import { appUrl, appUrlFor } from "@/lib/app-url";
 
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 
@@ -98,7 +99,9 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const origin = searchParams.get("origin") || request.headers.get("origin") || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+    // Use the public app URL (NEXTAUTH_URL on Render) instead of request.nextUrl.host
+    // which resolves to the internal bind address (0.0.0.0:10000) behind Render's proxy.
+    const origin = searchParams.get("origin") || request.headers.get("origin") || appUrl(request);
 
     // client_id can come from URL (it's public) or from cookie (set by POST)
     const clientIdFromUrl = searchParams.get("client_id");
@@ -109,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     if (!clientId) {
       return NextResponse.redirect(
-        new URL("/?linkedin=error&message=Client+ID+introuvable.+R%C3%A9essayez+la+connexion.", request.url)
+        appUrlFor(request, "/?linkedin=error&message=Client+ID+introuvable.+R%C3%A9essayez+la+connexion.")
       );
     }
 
@@ -117,7 +120,7 @@ export async function GET(request: NextRequest) {
     const validationError = validateClientId(clientId);
     if (validationError) {
       return NextResponse.redirect(
-        new URL(`/?linkedin=error&message=${encodeURIComponent(validationError)}`, request.url)
+        appUrlFor(request, `/?linkedin=error&message=${encodeURIComponent(validationError)}`)
       );
     }
 
@@ -159,7 +162,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("LinkedIn auth error:", error);
     return NextResponse.redirect(
-      new URL("/?linkedin=error&message=Erreur+interne+lors+de+l'authentification.", request.url)
+      appUrlFor(request, "/?linkedin=error&message=Erreur+interne+lors+de+l'authentification.")
     );
   }
 }
