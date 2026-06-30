@@ -487,3 +487,46 @@ Stage Summary:
 - Tests : 208/208 passent
 - render.yaml mis à jour avec AUTH_TRUST_HOST=true (sera appliqué au prochain déploiement Render)
 - ATTENTION : l'utilisateur doit vérifier que NEXTAUTH_URL est bien set dans le dashboard Render (sync: false = manuel)
+
+---
+Task ID: R-010-deep
+Agent: Main Agent
+Task: R-010 deep — Force AUTH_TRUST_HOST + Host header fallback (after R-010 v1 was insufficient on Render)
+
+Work Log:
+- Symptôme : utilisateur rapporte toujours l'erreur `https://0.0.0.0:10000/?linkedin=error&message=Connexion+requis+avant+de+lier+votre+compte+LinkedIn` après le déploiement de R-010 v1 (commit cd786bb)
+- Investigation : R-010 v1 a ajouté `AUTH_TRUST_HOST=true` à render.yaml, mais Render n'applique PAS les changements de render.yaml aux services EXISTANTS (seulement aux nouveaux services créés depuis le blueprint). Donc le service en production n'avait toujours pas AUTH_TRUST_HOST.
+- Cascade d'échecs identifiée :
+  1. NextAuth `detectOrigin()` tombe sur `AUTH_TRUST_HOST` non set → fallback à `NEXTAUTH_URL` env var
+  2. `NEXTAUTH_URL` non set sur Render dashboard (sync: false = manuel)
+  3. → `getServerSession()` retourne null sur le callback LinkedIn
+  4. → `requireUser()` throw → callback redirect vers `/?linkedin=error&...`
+  5. → `appUrl()` n'avait ni env var, ni `X-Forwarded-Host` → fallback à `request.nextUrl.host` = `0.0.0.0:10000`
+  6. → Browser reçoit `Location: https://0.0.0.0:10000/?linkedin=error&...`
+  7. → `ERR_ADDRESS_INVALID`
+
+- Fix triple (défense en profondeur — fonctionne même si le dashboard Render est mal configuré) :
+
+  1. `src/lib/auth-config.ts` — force-set `process.env.AUTH_TRUST_HOST = "true"` en production au chargement du module. NextAuth v4 `detectOrigin()` lit cette env var à runtime, donc la setter programmatiquement avant l'init NextAuth fait marcher la session sur le proxy Render quel que soit le config du dashboard.
+
+  2. `src/lib/app-url.ts` — ajout du header `Host` comme fallback entre `X-Forwarded-Host` et `request.nextUrl`. Ajout de `isInternalHost()` pour skip les hosts internes (0.0.0.0, 127.0.0.1, 10.x, 192.168.x, etc.) afin de ne jamais utiliser l'adresse interne Render par accident.
+
+  3. `src/instrumentation.ts` + `src/instrumentation-node.ts` — restauré le filet de sécurité R-005 (perdu lors d'un sync git précédent) + log des env vars critiques au boot pour faciliter le debug depuis les logs Render.
+
+  4. `src/app/api/linkedin/callback/route.ts` — log diagnostic info (env vars, headers, nextUrl) quand `requireUser()` échoue, pour identifier la cause exacte depuis les logs Render sans SSH.
+
+  5. `src/lib/__tests__/app-url.test.ts` — nouvelle suite de tests (10 tests) couvrant tous les niveaux de priorité et l'invariant critique 'ne jamais retourner 0.0.0.0'.
+
+- Vérifications :
+  - tsc --noEmit : 0 erreur
+  - next build : ✓ Compiled successfully in 5.6s, 49/49 static pages
+  - vitest : 218/218 tests passent (208 existants + 10 nouveaux)
+  - Push : commit 29cd0c1 poussé sur origin/main (Render va auto-déployer)
+
+Stage Summary:
+- R-010 deep COMPLÉTÉ — trois couches de défense pour l'OAuth LinkedIn sur Render
+- Layer 1 (code) : AUTH_TRUST_HOST force-set en production → NextAuth trust X-Forwarded-Host quel que soit le dashboard
+- Layer 2 (code) : appUrl() utilise Host header en fallback + skip internal hosts → jamais de 0.0.0.0:10000 dans les redirects
+- Layer 3 (code) : instrumentation restaurée + logs diagnostic au boot et dans le callback
+- L'utilisateur N'A PAS BESOIN de configurer NEXTAUTH_URL ou AUTH_TRUST_HOST sur le dashboard Render pour que ça marche (mais c'est recommandé pour la robustesse)
+- Action utilisateur requise : attendre le déploiement Render (2-3 min), puis réessayer la connexion LinkedIn
