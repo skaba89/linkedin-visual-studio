@@ -7,14 +7,18 @@ import { hashPassword, verifyPassword, assertPasswordStrength } from "@/lib/pass
  *
  * Diagnostic + repair endpoint for the demo user.
  *
+ * R-011 deep v6: also fixes the `role` column type mismatch.
+ *   The role column was created as Role enum, but Prisma expects String/TEXT.
+ *   This causes "Error converting field role of expected non-nullable type
+ *   String, found incompatible value of USER" on every findUnique().
+ *
  * This endpoint is UNPROTECTED (no auth required) because:
- *   1. The User table columns now exist (R-011 deep v4 deployed)
- *   2. But login still fails with CredentialsSignin → authorize() returns null
- *   3. We need to diagnose WHY: is the demo user missing? passwordHash null?
- *      password verification failing?
- *   4. The user can't log in to use a protected endpoint
+ *   1. Login is broken → no one can authenticate
+ *   2. We need to diagnose and repair the DB schema + demo user
+ *   3. The user can't log in to use a protected endpoint
  *
  * What this endpoint does:
+ *   0. Fix the role column type (enum → text) if needed
  *   1. Checks if demo@hermes.app exists in the DB
  *   2. If not, tries to create it and reports any error
  *   3. If yes, checks if passwordHash is set
@@ -43,6 +47,77 @@ type DemoUser = {
 export async function GET() {
   const steps: Step[] = [];
   let user: DemoUser | null = null;
+
+  // Step 0: Fix the role column type (R-011 deep v6)
+  // The role column may have been created as Role enum instead of TEXT.
+  // This causes Prisma to throw on every findUnique().
+  try {
+    // Check the current data_type of the role column
+    const colInfo = await db.$queryRaw<Array<{ data_type: string }>>`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'User' AND column_name = 'role'
+    `;
+    const roleType = colInfo[0]?.data_type ?? "(column missing)";
+    steps.push({
+      step: "check role column type",
+      ok: true,
+      detail: `role column type = ${roleType}`,
+    });
+
+    if (roleType === "USER-DEFINED") {
+      // The column is an enum type — convert it to TEXT
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "User" ALTER COLUMN "role" TYPE TEXT USING "role"::text;`,
+      );
+      steps.push({
+        step: "convert role enum → TEXT",
+        ok: true,
+        detail: "role column converted from Role enum to TEXT",
+      });
+    } else if (roleType === "(column missing)") {
+      // Column doesn't exist — create it as TEXT
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "User" ADD COLUMN "role" TEXT NOT NULL DEFAULT 'USER';`,
+      );
+      steps.push({
+        step: "create role column as TEXT",
+        ok: true,
+        detail: "role column created as TEXT",
+      });
+    } else {
+      steps.push({
+        step: "role column type OK",
+        ok: true,
+        detail: `role is already ${roleType} — no conversion needed`,
+      });
+    }
+
+    // Ensure role has correct default and NOT NULL constraint
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "User" ALTER COLUMN "role" SET DEFAULT 'USER';`,
+    );
+    await db.$executeRawUnsafe(
+      `UPDATE "User" SET "role" = 'USER' WHERE "role" IS NULL;`,
+    );
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "User" ALTER COLUMN "role" SET NOT NULL;`,
+    );
+
+    // Drop the now-unused Role enum type (best effort)
+    try {
+      await db.$executeRawUnsafe(`DROP TYPE IF EXISTS "Role";`);
+    } catch {
+      // Ignore — the enum type may still be referenced by a constraint
+    }
+  } catch (err) {
+    steps.push({
+      step: "fix role column type",
+      ok: false,
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return NextResponse.json({ ok: false, steps }, { status: 500 });
+  }
 
   // Step 1: Verify password strength check passes
   try {
