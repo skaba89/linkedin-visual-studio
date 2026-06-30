@@ -16,6 +16,8 @@ const AUTH_SKIP_ROUTES = [
   "/api/auth",             // NextAuth endpoints (sign-in, sign-out, callbacks, session)
   "/api/health",           // Health check for Render/monitoring
   "/api/ai/",              // All AI routes use their own x-api-key auth (chat, web-search, generate-*)
+  "/api/linkedin/auth",    // Starts the LinkedIn OAuth flow (must be reachable pre-login)
+  "/api/linkedin/callback", // LinkedIn OAuth callback (called by LinkedIn's redirect)
   "/api/csp-report",       // Endpoint de reporting CSP (POST)
 ];
 
@@ -91,9 +93,12 @@ export async function middleware(request: NextRequest) {
     }
 
     // Check for a NextAuth JWT session cookie
+    // NOTE: do NOT add a fallback secret here — auth-config.ts has no fallback
+    // in production, so a mismatch would cause every request to be rejected
+    // with 401. If NEXTAUTH_SECRET is unset, both sides fail consistently.
     const token = await getToken({
       req: request,
-      secret: process.env.NEXTAUTH_SECRET ?? "hermes-dev-secret-change-in-production",
+      secret: process.env.NEXTAUTH_SECRET,
     });
 
     if (!token) {

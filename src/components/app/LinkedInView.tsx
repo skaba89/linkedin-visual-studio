@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSession } from "next-auth/react";
 import { useAppStore, type LinkedInPost, type ScheduledPost } from "@/store/appStore";
 import {
   generatePostSuggestions,
@@ -147,6 +148,7 @@ export default function LinkedInView() {
 
 /* ========== CONNEXION TAB ========== */
 function ConnexionTab() {
+  const { status: sessionStatus } = useSession();
   const {
     linkedInConnected,
     setLinkedInConnected,
@@ -160,7 +162,13 @@ function ConnexionTab() {
   const [error, setError] = useState<string | null>(null);
   const [checkingConnection, setCheckingConnection] = useState(false);
 
-  useEffect(() => { checkConnection(); }, []);
+  // Only check LinkedIn connection when the user is authenticated.
+  // Calling /api/linkedin/me without a session returns 401 and spams the console.
+  useEffect(() => {
+    if (sessionStatus === "authenticated") {
+      checkConnection();
+    }
+  }, [sessionStatus]);
 
   const checkConnection = async () => {
     setCheckingConnection(true);
