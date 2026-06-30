@@ -287,3 +287,39 @@ Stage Summary:
 - The LinkedIn OAuth flow is now reachable without an existing session
 - The frontend no longer fires /api/linkedin/me on every page load when
   the user isn't logged in
+
+---
+Task ID: BUG-H6
+Agent: Main Agent
+Task: Fix Prisma migration not applied on Render (root cause of all 401s)
+
+Work Log:
+- Tested the full NextAuth login flow on Render via scripts/test-render-auth.sh
+- Discovered the real root cause: login fails with Prisma error
+  "The column User.passwordHash does not exist in the current database"
+- The migration 20260630000000_add_password_hash_and_role was committed to git
+  but NEVER applied to the Render production database
+- Root cause: build.sh runs 'npx prisma migrate deploy' at BUILD time, but
+  DATABASE_URL is a runtime-only secret on Render — not available during build
+- Fix 1: Changed render.yaml startCommand to
+    'npx prisma migrate deploy && npm run start'
+  so migrations run at START time when DATABASE_URL is available
+- Fix 2: Created POST /api/setup/migrate endpoint — one-time UNPROTECTED
+  endpoint that runs 'npx prisma migrate deploy' on demand. Protected by
+  MIGRATION_KEY env var (query parameter must match)
+- Fix 3: Added /api/setup/ to AUTH_SKIP_ROUTES in middleware so the migration
+  endpoint isn't blocked by auth (would be catch-22 since login is broken)
+- Fix 4: Created scripts/migrate-render-db.sh for running migrations locally
+  against the production database by passing DATABASE_URL as argument
+- Committed and pushed to main (commit ae278a7)
+
+Stage Summary:
+- The Prisma migration was the ROOT CAUSE of all the 401 errors — login was
+  broken because the User table was missing passwordHash, passwordSalt, and
+  role columns
+- The user MUST trigger a redeploy on Render after setting NEXTAUTH_SECRET
+  and verifying DATABASE_URL is present
+- The startCommand change will automatically apply migrations on every
+  deploy/restart, preventing this class of bug in the future
+- If the startCommand times out, the user can use /api/setup/migrate with
+  MIGRATION_KEY set, or run scripts/migrate-render-db.sh locally
