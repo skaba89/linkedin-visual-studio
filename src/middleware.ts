@@ -13,11 +13,10 @@ import {
 
 // ─── Routes that skip auth entirely ────────────────────────────────────────────
 const AUTH_SKIP_ROUTES = [
-  "/api/auth",           // NextAuth endpoints (sign-in, sign-out, callbacks)
-  "/api/health",         // Health check for Render/monitoring
-  "/api/ai/chat",        // Uses its own API key auth
-  "/api/ai/web-search",  // Uses its own API key auth
-  "/api/csp-report",     // Endpoint de reporting CSP (POST)
+  "/api/auth",             // NextAuth endpoints (sign-in, sign-out, callbacks, session)
+  "/api/health",           // Health check for Render/monitoring
+  "/api/ai/",              // All AI routes use their own x-api-key auth (chat, web-search, generate-*)
+  "/api/csp-report",       // Endpoint de reporting CSP (POST)
 ];
 
 function shouldSkipAuth(pathname: string): boolean {

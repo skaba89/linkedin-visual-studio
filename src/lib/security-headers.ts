@@ -125,7 +125,9 @@ export function buildCsp(nonce: string, reportOnly = false): string {
     `frame-ancestors 'none'`,
     `upgrade-insecure-requests`,
     `block-all-mixed-content`,
-    `require-trusted-types-for 'script'`,
+    // NOTE: `require-trusted-types-for 'script'` was removed because it breaks
+    // NextAuth's client-side session polling and Next.js 16's RSC payload
+    // injection. Re-enable only after defining a Trusted Types policy.
   ];
 
   // Reporting endpoint (à configurer dans next.config.ts headers)
