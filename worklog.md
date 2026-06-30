@@ -222,3 +222,30 @@ Stage Summary:
   or in dev where /etc/.z-ai-config exists)
 - The 'Test' button now works for all providers (was 404 before)
 - Render will auto-deploy from main; user should hard-refresh after deploy
+
+---
+Task ID: BUG-H4
+Agent: Main Agent
+Task: Fix /api/ai/test returning 404 on Render
+
+Work Log:
+- User reported 404 on /api/ai/test after the previous ZAI provider commit
+- Investigated: git log showed commit 078916e was pushed, but
+  `git ls-files src/app/api/ai/` did NOT include test/route.ts
+- Ran `git check-ignore -v src/app/api/ai/test/route.ts` and found:
+  `.gitignore:56:test` — a bare 'test' entry that matches ANY file or
+  directory named 'test' anywhere in the project
+- This caused the test route file to be silently ignored by git, so it
+  was never committed or pushed to Render
+- Fixed .gitignore: replaced the bare 'test' pattern with conventional
+  test file patterns (*.test.ts, *.test.tsx, *.spec.ts, *.spec.tsx,
+  __tests__/) that don't match API route directories
+- Staged and committed the previously-untracked test/route.ts
+- Verified: build output now includes '├ ƒ /api/ai/test' in the route list
+- Pushed fix to main (commit 245d247)
+
+Stage Summary:
+- The /api/ai/test route will now be deployed to Render (was being silently
+  dropped by the overly broad 'test' gitignore pattern)
+- The 'Test' button in the Settings UI will work after the next Render
+  deployment completes (~2-4 min)
