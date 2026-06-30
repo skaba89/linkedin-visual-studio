@@ -530,3 +530,78 @@ Stage Summary:
 - Layer 3 (code) : instrumentation restaurée + logs diagnostic au boot et dans le callback
 - L'utilisateur N'A PAS BESOIN de configurer NEXTAUTH_URL ou AUTH_TRUST_HOST sur le dashboard Render pour que ça marche (mais c'est recommandé pour la robustesse)
 - Action utilisateur requise : attendre le déploiement Render (2-3 min), puis réessayer la connexion LinkedIn
+
+---
+Task ID: R-011-deep-v4
+Agent: Main Agent
+Task: R-011 deep v4 — Synchronous migration at boot + self-healing login (after confirming production DB is missing User.passwordHash)
+
+Work Log:
+- User shared Render settings screenshot showing:
+  - Pre-Deploy Command: locked (not editable from UI)
+  - Start Command: `npm run start` (NOT `bash start.sh` from render.yaml)
+  - Auto-Deploy: On Commit
+- This means Render was set up MANUALLY (not from render.yaml blueprint), so
+  render.yaml's `startCommand: bash start.sh` is NOT applied to the existing
+  service. Migrations never run on Render because `npm run start` just runs
+  `next start` directly.
+
+- Confirmed production DB state via direct login test:
+  POST /api/auth/callback/credentials with demo@hermes.app / Demo-Hermes-2024
+  → HTTP 401 with error: "The column `User.passwordHash` does not exist in
+    the current database"
+  → Prisma crashes when querying a non-existent column
+  → No session cookie is ever set
+  → LinkedIn OAuth callback → requireUser() → null → "Connexion requis"
+
+- Confirmed Render auto-deploy is STUCK:
+  - Latest commit on GitHub: 1c9d4d0 (pushed)
+  - /api/setup/ensure-user-columns → HTTP 404 (endpoint doesn't exist on prod)
+  - /api/health → no DB schema diagnostics (older version deployed)
+  - The deployed version is somewhere between 5ff2a30 (R-011 demo password fix)
+    and e13a0ec (R-011 deep v3 — health diagnostics)
+
+- Confirmed MIGRATION_KEY env var is NOT set on Render:
+  POST /api/setup/migrate → 503 "MIGRATION_KEY env var not set"
+  → The deployed /api/setup/migrate endpoint is useless without the key
+
+- FIXES (3 layers of defense-in-depth):
+
+  1. instrumentation-node.ts — make migration SYNCHRONOUS (awaited)
+     - Was: ensureUserColumns().catch(...)  (fire-and-forget)
+     - Now: await ensureUserColumns() inside initInstrumentation()
+     - register() in instrumentation.ts now AWAITS initInstrumentation()
+     - Result: Next.js will NOT accept requests until schema is ready
+     - Eliminates the race condition where first login at boot failed
+
+  2. auth-config.ts ensureDemoUser() — self-healing migration
+     - If findUnique() throws 'column does not exist', run
+       ensureUserColumns() and retry the query once
+
+  3. auth-config.ts authorize() — self-healing migration on login
+     - Same pattern: if user lookup throws 'column does not exist',
+       run ensureUserColumns() and retry once
+     - This is the LAST line of defense — even if instrumentation AND
+       ensureDemoUser both failed, the login will self-heal
+
+- Verified:
+  - tsc --noEmit: 0 errors
+  - next build: Compiled successfully, 49/49 pages
+  - vitest: 224/224 tests pass
+  - Push: commit 1c9d4d0 pushed to origin/main
+
+Stage Summary:
+- R-011 deep v4 COMPLÉTÉ — 3 layers of self-healing migration
+- After this commit deploys, login will work even if the DB is missing
+  User columns — the first login attempt will trigger the migration
+- USER ACTION REQUIRED (auto-deploy is stuck):
+  1. Go to Render dashboard → hermes-app service
+  2. Click "Manual Deploy" → "Deploy latest commit"
+  3. Wait 2-5 minutes for the build to complete
+  4. Try to log in with demo@hermes.app / Demo-Hermes-2024
+  5. Then try to connect LinkedIn
+- RECOMMENDED (for future deploys):
+  - Change Start Command from `npm run start` to `bash start.sh`
+    (so prisma migrate deploy runs on every future deploy)
+  - OR set NEXTAUTH_URL=https://linkedin-visual-studio.onrender.com
+    and AUTH_TRUST_HOST=true on the Render dashboard (belt + suspenders)
