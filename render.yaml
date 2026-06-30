@@ -11,7 +11,7 @@ services:
     region: frankfurt
     branch: main
     buildCommand: bash build.sh
-    startCommand: npx prisma migrate deploy && npm run start
+    startCommand: bash start.sh
     envVars:
       - key: DATABASE_URL
         sync: false         # Neon PostgreSQL connection string
