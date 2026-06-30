@@ -682,3 +682,30 @@ Stage Summary:
 - Three-layer enforcement: prompt-level (instruction), sanitizer-level (output processing), API-level (last line of defense)
 - Policy applies to: LinkedIn posts, LinkedIn comments, LinkedIn DMs (prospection/nurturing), connection notes, carousel slides, market briefings, performance insights
 - Even if the AI model disobeys the prompt, the sanitizer guarantees zero emojis in stored or published content
+
+---
+
+Task ID: R-011-deep-v7-workflow-json-fix
+Agent: main (Claude)
+Task: Fix production crash `TypeError: e.nodes.map is not a function` and `429 Too Many Requests` on /api/auth/_log and /api/auth/session.
+
+Work Log:
+- Searched codebase for `.nodes.map(` calls — found 3 sites in WorkflowView.tsx and 1 in workflow-engine.ts
+- Inspected `prismaToWorkflow()` and `prismaToExecution()` in src/lib/workflow/workflow-engine.ts
+- Identified root cause: both functions used TypeScript `as` casts on Prisma String columns (e.g. `(row.nodes as WorkflowNode[]) ?? []`). The cast does NOT parse JSON at runtime — the API returned JSON-encoded strings, not arrays, so the client crashed on `.map()`.
+- Same bug in `updateWorkflow()`: it wrote arrays directly to Prisma String columns (would have thrown a Prisma type mismatch on every PUT).
+- Inspected src/lib/rate-limit.ts: the `auth` category was set to 10 req/min. NextAuth's client polls /api/auth/session every ~60s per tab and POSTs every client-side error to /api/auth/_log. When the nodes.map crash fired on every render, the NextAuth client spammed error logs, blew the 10/min budget, and blocked ALL /api/auth/* calls (session refresh, login) with 429.
+
+Stage Summary:
+- src/lib/workflow/workflow-engine.ts:
+  - prismaToWorkflow: use parseJsonField() for nodes/edges/tags
+  - prismaToExecution: use parseJsonField() for data/steps
+  - updateWorkflow: use stringifyJsonField() before writing
+- src/components/app/WorkflowView.tsx:
+  - Added normalizeWorkflow() defense-in-depth helper that guarantees array-typed fields even if a future regression sends strings
+  - All setSelectedWorkflow(data.workflow) call sites now wrap with normalizeWorkflow()
+- src/lib/rate-limit.ts:
+  - Raised `auth` limit from 10/min to 60/min (NextAuth needs headroom for session polling + error logging)
+- Verification: `npx tsc --noEmit` passes clean; `npx vitest run` — all 252 tests across 12 suites pass
+- Commit: f46eb70 `fix(workflows): parse JSON fields + raise auth rate limit`
+- NOT YET DEPLOYED on Render — user needs to Manual Deploy to take effect
