@@ -1,4 +1,16 @@
-// ─── Notification Engine (Prisma-backed) ─────────────────────────────
+// ─── Notification Engine (Prisma-backed, multi-tenant) ───────────────
+//
+// HERMÈS — R-002 deep — Refactored to be multi-tenant safe.
+//
+// Every method now requires an explicit `userId` parameter (obtained from
+// `requireUser()` in the route handler). The previous version hardcoded
+// `DEFAULT_USER_ID = "default"`, which meant every user saw the same
+// shared notification feed — a multi-tenant data leak.
+//
+// Methods that mutate a single notification by id (`getNotification`,
+// `markAsRead`, `dismiss`) additionally verify ownership before
+// returning/modifying, closing an IDOR gap (a user could otherwise read
+// or dismiss another user's notification by guessing its id).
 
 import {
   Notification,
@@ -8,8 +20,9 @@ import {
   NotificationStats,
   DEFAULT_NOTIFICATION_PREFERENCES,
 } from "./types";
-import { db, DEFAULT_USER_ID } from "@/lib/db";
+import { db } from "@/lib/db";
 import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
+import { HttpError } from "@/lib/http-error";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -69,12 +82,19 @@ function mapDbPrefToTs(row: DbNotificationPreference): NotificationPreference {
 
 class NotificationEngine {
   private listeners: Array<(notification: Notification) => void> = [];
-  private preferencesSeeded = false;
+  /**
+   * Per-user preference-seed flag. Replaces the previous boolean which
+   * assumed a single shared user. Now we track which users have already
+   * been seeded in this process to avoid repeated DB checks.
+   */
+  private preferencesSeeded = new Set<string>();
 
   /**
-   * Create and dispatch a new notification
+   * Create and dispatch a new notification for the given user.
+   *
+   * @param userId — the authenticated user's id (from `requireUser()`)
    */
-  async notify(input: {
+  async notify(userId: string, input: {
     title: string;
     message: string;
     category: NotificationCategory;
@@ -86,18 +106,19 @@ class NotificationEngine {
     metadata?: Record<string, unknown>;
     expiresAt?: string;
   }): Promise<Notification> {
+    if (!userId) throw new HttpError(401, "userId is required", "AUTH_REQUIRED");
     const priority = input.priority ?? "medium";
 
     // Check if this notification should be suppressed by preferences
     const pref = await db.notificationPreference.findUnique({
-      where: { userId_category: { userId: DEFAULT_USER_ID, category: input.category } },
+      where: { userId_category: { userId, category: input.category } },
     });
 
     if (pref && (!pref.enabled || PRIORITY_RANK[priority] < PRIORITY_RANK[pref.minPriority as NotificationPriority])) {
       // Still create it but mark as dismissed (suppressed)
       const suppressed = await db.notification.create({
         data: {
-          userId: DEFAULT_USER_ID,
+          userId,
           title: input.title,
           message: input.message,
           category: input.category,
@@ -132,7 +153,7 @@ class NotificationEngine {
         // Queue for after quiet hours (in real app), for now just create
         const notif = await db.notification.create({
           data: {
-            userId: DEFAULT_USER_ID,
+            userId,
             title: input.title,
             message: input.message,
             category: input.category,
@@ -153,7 +174,7 @@ class NotificationEngine {
 
     const row = await db.notification.create({
       data: {
-        userId: DEFAULT_USER_ID,
+        userId,
         title: input.title,
         message: input.message,
         category: input.category,
@@ -194,16 +215,19 @@ class NotificationEngine {
   }
 
   /**
-   * Get all notifications with optional filters
+   * Get all notifications for the given user with optional filters.
+   *
+   * @param userId — the authenticated user's id
    */
-  async getNotifications(filters?: {
+  async getNotifications(userId: string, filters?: {
     category?: NotificationCategory;
     priority?: NotificationPriority;
     unreadOnly?: boolean;
     limit?: number;
   }): Promise<Notification[]> {
+    if (!userId) return [];
     const where: Record<string, unknown> = {
-      userId: DEFAULT_USER_ID,
+      userId,
       dismissed: false,
     };
 
@@ -231,36 +255,56 @@ class NotificationEngine {
   }
 
   /**
-   * Get a single notification by ID
+   * Get a single notification by ID, scoped to the given user.
+   * Returns `null` if the notification doesn't exist OR belongs to another
+   * user (no existence leak).
+   *
+   * @param userId — the authenticated user's id
+   * @param id     — the notification id
    */
-  async getNotification(id: string): Promise<Notification | null> {
-    const row = await db.notification.findUnique({ where: { id } });
+  async getNotification(userId: string, id: string): Promise<Notification | null> {
+    if (!userId || !id) return null;
+    const row = await db.notification.findFirst({
+      where: { id, userId },
+    });
     if (!row) return null;
     return mapDbNotificationToTs(row);
   }
 
   /**
-   * Mark a notification as read
+   * Mark a notification as read.
+   * Only succeeds if the notification belongs to the given user.
+   *
+   * @param userId — the authenticated user's id
+   * @param id     — the notification id
    */
-  async markAsRead(id: string): Promise<Notification | null> {
+  async markAsRead(userId: string, id: string): Promise<Notification | null> {
+    if (!userId || !id) return null;
     try {
-      const row = await db.notification.update({
-        where: { id },
+      // Use updateMany with userId filter so we don't leak existence
+      // (returns count=0 if the notification belongs to someone else)
+      const result = await db.notification.updateMany({
+        where: { id, userId },
         data: { read: true, readAt: new Date() },
       });
-      return mapDbNotificationToTs(row);
+      if (result.count === 0) return null;
+      const row = await db.notification.findUnique({ where: { id } });
+      return row ? mapDbNotificationToTs(row) : null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Mark all notifications as read
+   * Mark all notifications as read for the given user.
+   *
+   * @param userId — the authenticated user's id
    */
-  async markAllAsRead(): Promise<number> {
+  async markAllAsRead(userId: string): Promise<number> {
+    if (!userId) return 0;
     const result = await db.notification.updateMany({
       where: {
-        userId: DEFAULT_USER_ID,
+        userId,
         read: false,
         dismissed: false,
       },
@@ -270,27 +314,35 @@ class NotificationEngine {
   }
 
   /**
-   * Dismiss a notification
+   * Dismiss a notification.
+   * Only succeeds if the notification belongs to the given user.
+   *
+   * @param userId — the authenticated user's id
+   * @param id     — the notification id
    */
-  async dismiss(id: string): Promise<boolean> {
+  async dismiss(userId: string, id: string): Promise<boolean> {
+    if (!userId || !id) return false;
     try {
-      await db.notification.update({
-        where: { id },
+      const result = await db.notification.updateMany({
+        where: { id, userId },
         data: { dismissed: true },
       });
-      return true;
+      return result.count > 0;
     } catch {
       return false;
     }
   }
 
   /**
-   * Dismiss all notifications
+   * Dismiss all notifications for the given user.
+   *
+   * @param userId — the authenticated user's id
    */
-  async dismissAll(): Promise<number> {
+  async dismissAll(userId: string): Promise<number> {
+    if (!userId) return 0;
     const result = await db.notification.updateMany({
       where: {
-        userId: DEFAULT_USER_ID,
+        userId,
         dismissed: false,
       },
       data: { dismissed: true },
@@ -299,12 +351,22 @@ class NotificationEngine {
   }
 
   /**
-   * Get notification statistics
+   * Get notification statistics for the given user.
+   *
+   * @param userId — the authenticated user's id
    */
-  async getStats(): Promise<NotificationStats> {
+  async getStats(userId: string): Promise<NotificationStats> {
+    if (!userId) {
+      return {
+        total: 0, unread: 0,
+        byCategory: { agent: 0, lead: 0, deal: 0, email: 0, linkedin: 0, compliance: 0, workflow: 0, system: 0 },
+        byPriority: { low: 0, medium: 0, high: 0, critical: 0 },
+        todayCount: 0,
+      };
+    }
     const active = await db.notification.findMany({
       where: {
-        userId: DEFAULT_USER_ID,
+        userId,
         dismissed: false,
       },
     });
@@ -340,20 +402,24 @@ class NotificationEngine {
   }
 
   /**
-   * Ensure preferences are seeded for the default user
+   * Ensure preferences are seeded for the given user.
+   * Idempotent — only inserts if no preferences exist yet for this user.
+   *
+   * @param userId — the authenticated user's id
    */
-  private async ensurePreferencesSeeded(): Promise<void> {
-    if (this.preferencesSeeded) return;
+  private async ensurePreferencesSeeded(userId: string): Promise<void> {
+    if (!userId) return;
+    if (this.preferencesSeeded.has(userId)) return;
 
     const existing = await db.notificationPreference.findMany({
-      where: { userId: DEFAULT_USER_ID },
+      where: { userId },
     });
 
     if (existing.length === 0) {
       // Seed from defaults
       await db.notificationPreference.createMany({
         data: DEFAULT_NOTIFICATION_PREFERENCES.map((p) => ({
-          userId: DEFAULT_USER_ID,
+          userId,
           category: p.category,
           enabled: p.enabled,
           minPriority: p.minPriority,
@@ -364,30 +430,39 @@ class NotificationEngine {
       });
     }
 
-    this.preferencesSeeded = true;
+    this.preferencesSeeded.add(userId);
   }
 
   /**
-   * Get notification preferences
+   * Get notification preferences for the given user.
+   *
+   * @param userId — the authenticated user's id
    */
-  async getPreferences(): Promise<NotificationPreference[]> {
-    await this.ensurePreferencesSeeded();
+  async getPreferences(userId: string): Promise<NotificationPreference[]> {
+    if (!userId) return [];
+    await this.ensurePreferencesSeeded(userId);
 
     const rows = await db.notificationPreference.findMany({
-      where: { userId: DEFAULT_USER_ID },
+      where: { userId },
     });
 
     return rows.map(mapDbPrefToTs);
   }
 
   /**
-   * Update a notification preference
+   * Update a notification preference for the given user.
+   *
+   * @param userId   — the authenticated user's id
+   * @param category — the preference category to update
+   * @param updates  — partial preference updates
    */
   async updatePreference(
+    userId: string,
     category: NotificationCategory,
     updates: Partial<Omit<NotificationPreference, "category">>
   ): Promise<NotificationPreference | null> {
-    await this.ensurePreferencesSeeded();
+    if (!userId) return null;
+    await this.ensurePreferencesSeeded(userId);
 
     const data: Record<string, unknown> = {};
     if (updates.enabled !== undefined) data.enabled = updates.enabled;
@@ -398,10 +473,10 @@ class NotificationEngine {
 
     try {
       const row = await db.notificationPreference.upsert({
-        where: { userId_category: { userId: DEFAULT_USER_ID, category } },
+        where: { userId_category: { userId, category } },
         update: data,
         create: {
-          userId: DEFAULT_USER_ID,
+          userId,
           category,
           enabled: updates.enabled ?? true,
           minPriority: updates.minPriority ?? "low",
@@ -417,11 +492,14 @@ class NotificationEngine {
   }
 
   /**
-   * Clear all notifications
+   * Clear all notifications for the given user.
+   *
+   * @param userId — the authenticated user's id
    */
-  async clearAll(): Promise<void> {
+  async clearAll(userId: string): Promise<void> {
+    if (!userId) return;
     await db.notification.deleteMany({
-      where: { userId: DEFAULT_USER_ID },
+      where: { userId },
     });
   }
 }

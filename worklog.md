@@ -270,7 +270,7 @@ Work Log:
 - Added useSession() check to LinkedInView's ConnexionTab component —
   checkConnection() now only fires when status === 'authenticated',
   eliminating the noisy 401 in the console when the user isn't logged in
-- Generated a secure NEXTAUTH_SECRET for the user: 'jb9zHn+4aOyGhOANGjTpz0jOnpbSmQppJ/a6Do6a5aL9uorYo7byV5GhRiisnkKv'
+- Generated a secure NEXTAUTH_SECRET for the user (redacted — see Render env vars)
 - Verified locally with NEXTAUTH_SECRET set:
   - /api/linkedin/auth     -> 307 (OAuth redirect, not blocked)
   - /api/linkedin/callback -> 307 (OAuth callback, not blocked)
@@ -283,7 +283,7 @@ Stage Summary:
 - The NEXTAUTH_SECRET mismatch was the root cause of ALL the 401 errors
   the user has been seeing on authenticated endpoints
 - The user MUST set NEXTAUTH_SECRET on Render for login to work
-- Suggested value: jb9zHn+4aOyGhOANGjTpz0jOnpbSmQppJ/a6Do6a5aL9uorYo7byV5GhRiisnkKv
+- Suggested value: (redacted — generated with `openssl rand -base64 32`)
 - The LinkedIn OAuth flow is now reachable without an existing session
 - The frontend no longer fires /api/linkedin/me on every page load when
   the user isn't logged in
@@ -323,3 +323,82 @@ Stage Summary:
   deploy/restart, preventing this class of bug in the future
 - If the startCommand times out, the user can use /api/setup/migrate with
   MIGRATION_KEY set, or run scripts/migrate-render-db.sh locally
+
+---
+Task ID: BUG-H7
+Agent: Main Agent
+Task: Eliminate remaining 401 console noise on /api/linkedin/me after login works
+
+Work Log:
+- User reported a single 401 on /api/linkedin/me after the previous
+  Prisma migration fix (commit ae278a7) went live
+- Diagnosis: the 401 was coming from the ROUTE HANDLER (not middleware)
+  — the user IS now logged in (Prisma migration applied), but hasn't
+  connected LinkedIn yet. The route returned 401 { notConnected: true }
+  for that state, which is a valid application state, not an auth failure
+- Fixed /api/linkedin/me/route.ts: when no LinkedIn token is in cookies,
+  return 200 { notConnected: true, profile: null } instead of 401
+  - The middleware still protects the route with NextAuth (so a true
+    unauthenticated request still gets a real 401 from middleware)
+  - Browser console will no longer log a noisy 401 for this state
+- Updated src/components/app/LinkedInView.tsx checkConnection():
+  inspect data.notConnected to distinguish "logged in, no LinkedIn"
+  from "connected with profile"
+- Updated src/components/app/SettingsView.tsx handleTestLinkedIn():
+  treat notConnected as a test failure (LinkedIn itself isn't connected)
+- Removed unused `cookies` import from the route file
+- Updated misleading comment in LinkedInView (session gating is still
+  needed — without it the middleware would return a real 401)
+- Verified locally: tsc --noEmit clean, next build clean (49/49 pages)
+- Committed (8453a93) and pushed to main
+
+Stage Summary:
+- The 401 console noise on /api/linkedin/me will disappear after the
+  next Render deploy (~2-4 min)
+- The user can now verify the full flow: log in -> LinkedIn tab shows
+  "Connect" button (no 401 noise) -> click Connect -> OAuth flow ->
+  return to LinkedIn tab -> profile loads
+- IMPORTANT: The GitHub token [REDACTED]
+  was used to push — it should be revoked once the user confirms the
+  deploy is healthy
+
+---
+Task ID: R002-NOTIF
+Agent: Main Agent
+Task: R-002 deep — multi-tenant isolation for notificationEngine
+
+Work Log:
+- Identified that notificationEngine hardcoded DEFAULT_USER_ID = "default",
+  meaning every user saw the same shared notification feed (multi-tenant
+  data leak). The /api/data/notifications route called requireUser() but
+  never passed user.id to the engine.
+- Refactored src/lib/notifications/notification-engine.ts:
+  - Every method now takes userId as its first parameter
+  - getNotification/markAsRead/dismiss use updateMany + findFirst with
+    userId filter (no existence leak — IDOR fix)
+  - preferencesSeeded became a Set<string> (per-user tracking)
+  - Removed DEFAULT_USER_ID import
+- Updated src/app/api/data/notifications/route.ts: every engine call now
+  passes user.id
+- Cleaned up src/components/app/NotificationsView.tsx: removed the dead
+  client-side notificationEngine fallback (it imported Prisma's db client
+  which can't run in the browser — the fallback was never executable)
+- Added src/lib/__tests__/notification-engine.test.ts: 17 tests covering
+  multi-tenant isolation (notify writes with userId, getNotifications
+  filters by userId, getNotification/markAsRead/dismiss return null/false
+  for other users' notifications, markAllAsRead/dismissAll/clearAll only
+  touch the given user, getStats/getPreferences scoped per user)
+- Fixed .gitignore: removed overly-broad *.test.ts / __tests__/ patterns
+  (were blocking legitimate Vitest tests); added tool-results/ to ignore
+- Verification: tsc clean, next build clean (49/49 pages), vitest 208/208
+  tests pass (17 new + 191 existing)
+- Redacted all secrets (NEXTAUTH_SECRET value, GitHub PAT) from worklog
+  after GitHub secret scanner blocked the initial push
+
+Stage Summary:
+- notificationEngine is now multi-tenant safe — no more shared DEFAULT_USER_ID
+- 17 new tests lock in the isolation guarantee
+- Remaining R-002 deep backlog: ab-engine, workflow-engine, compliance-engine,
+  email-agent (all have similar DEFAULT_USER_ID hardcoding but lower priority
+  since they have fewer active callers)
+- The GitHub PAT used for pushing should still be revoked by the user

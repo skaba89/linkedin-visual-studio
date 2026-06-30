@@ -14,7 +14,6 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NotificationPreference,
 } from "@/lib/notifications/types";
-import { notificationEngine } from "@/lib/notifications";
 import {
   Bell,
   BellOff,
@@ -35,6 +34,12 @@ import {
   Clock,
 } from "lucide-react";
 
+// NOTE: This component used to import `notificationEngine` directly as a
+// client-side fallback when the fetch() to /api/data/notifications failed.
+// That fallback was dead code — the engine imports Prisma's `db` client
+// (server-only), so it could never run in the browser. The API route is
+// the only correct path. Removed in R-002 deep refactor.
+
 type TabType = "all" | "preferences";
 
 export default function NotificationsView() {
@@ -51,26 +56,27 @@ export default function NotificationsView() {
       if (filterCategory !== "all") params.set("category", filterCategory);
       if (filterUnread) params.set("unreadOnly", "true");
       const res = await fetch(`/api/data/notifications?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setNotifications(data.notifications ?? []);
       setStats(data.stats ?? { total: 0, unread: 0, byCategory: {}, byPriority: {}, todayCount: 0 });
     } catch {
-      const notifs = await notificationEngine.getNotifications({
-        category: filterCategory !== "all" ? filterCategory : undefined,
-        unreadOnly: filterUnread || undefined,
-      });
-      setNotifications(notifs);
-      setStats(await notificationEngine.getStats());
+      // Network/API error — keep current state, don't crash the UI.
+      // The server is the source of truth; there is no client-side fallback.
+      setNotifications([]);
+      setStats({ total: 0, unread: 0, byCategory: {}, byPriority: {}, todayCount: 0 });
     }
   }, [filterCategory, filterUnread]);
 
   const fetchPreferences = useCallback(async () => {
     try {
       const res = await fetch("/api/data/notifications?preferences=true");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPreferences(data.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES);
     } catch {
-      setPreferences(await notificationEngine.getPreferences());
+      // Keep defaults on error — no client-side fallback.
+      setPreferences(DEFAULT_NOTIFICATION_PREFERENCES);
     }
   }, []);
 
@@ -86,8 +92,7 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "markRead", id }),
       });
-    } catch { /* fallback */ }
-    notificationEngine.markAsRead(id);
+    } catch { /* network error — keep乐观 UI */ }
     fetchData();
   };
 
@@ -98,8 +103,7 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "markAllRead" }),
       });
-    } catch { /* fallback */ }
-    notificationEngine.markAllAsRead();
+    } catch { /* network error */ }
     fetchData();
   };
 
@@ -110,8 +114,7 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "dismiss", id }),
       });
-    } catch { /* fallback */ }
-    notificationEngine.dismiss(id);
+    } catch { /* network error */ }
     fetchData();
   };
 
@@ -122,8 +125,7 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "dismissAll" }),
       });
-    } catch { /* fallback */ }
-    notificationEngine.dismissAll();
+    } catch { /* network error */ }
     fetchData();
   };
 
@@ -134,8 +136,7 @@ export default function NotificationsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "updatePreference", category, updates }),
       });
-    } catch { /* fallback */ }
-    notificationEngine.updatePreference(category, updates);
+    } catch { /* network error */ }
     fetchPreferences();
   };
 

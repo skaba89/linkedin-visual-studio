@@ -53,13 +53,12 @@ local-*
 *.log
 dev.log
 dev.out.log
-# Ignore test files (not API route directories named "test")
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-__tests__/
+# NOTE: previously had bare `test` (matched any file/dir named "test" — blocked
+# src/app/api/ai/test/ route directory) and `__tests__/` + `*.test.ts` (blocked
+# legitimate Vitest tests in src/lib/__tests__/). All removed. If you need to
+# ignore specific test artifacts, scope patterns precisely (e.g. /test-results/).
 prompt
+tool-results/
 
 server.log
 # Skills directory
