@@ -150,8 +150,14 @@ export const authOptions: NextAuthOptions = {
         if (email === DEMO_EMAIL) {
           try {
             await ensureDemoUser();
-          } catch {
-            // Seed failures fall through to normal auth (will return null)
+          } catch (err) {
+            // R-011 deep v4 — log the error so we can diagnose from Render logs.
+            // Previously this was a silent catch, which made it impossible to
+            // know why the demo user wasn't being seeded.
+            console.error(
+              "[auth-config] ensureDemoUser() threw during login — login will likely fail",
+              err instanceof Error ? err.message : String(err),
+            );
           }
         }
 
