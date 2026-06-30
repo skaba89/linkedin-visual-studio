@@ -21,6 +21,34 @@ import { verifyPassword, hashPassword, assertPasswordStrength } from "@/lib/pass
  *  - After migration, replace this seed with proper /api/auth/register usage.
  */
 
+// ─── R-010 deep — Force-set AUTH_TRUST_HOST in production ────────────────────
+// NextAuth v4's `detectOrigin()` reads `process.env.AUTH_TRUST_HOST` to decide
+// whether to trust the `X-Forwarded-Host` header. On Render (and most PaaS),
+// the Next.js server binds to `0.0.0.0:10000` behind a reverse proxy; without
+// AUTH_TRUST_HOST, NextAuth falls back to `NEXTAUTH_URL` env var, which is
+// often missing or stale on Render's dashboard (render.yaml `sync: false`
+// requires manual setup, and `value:` entries are NOT re-applied to existing
+// services when render.yaml changes).
+//
+// Setting it programmatically here is a defense-in-depth: even if the env var
+// is missing from the Render dashboard, NextAuth will still trust the proxy
+// headers and `getServerSession()` will work in cross-origin OAuth callbacks.
+//
+// We only do this in production to keep local dev behavior unchanged (local
+// dev has no proxy, so X-Forwarded-Host is never set anyway).
+//
+// Refs:
+//  - node_modules/next-auth/utils/detect-origin.js (v4.24.x)
+//  - https://render.com/docs/web-services (reverse proxy headers)
+if (
+  process.env.NODE_ENV === "production" &&
+  !process.env.AUTH_TRUST_HOST &&
+  // Don't override an explicit `false` from the operator
+  process.env.AUTH_TRUST_HOST !== "false"
+) {
+  process.env.AUTH_TRUST_HOST = "true";
+}
+
 const DEMO_EMAIL = "demo@hermes.app";
 const DEMO_INITIAL_PASSWORD = "hermes2024"; // only used once for seeding
 

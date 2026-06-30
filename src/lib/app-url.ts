@@ -11,7 +11,8 @@
  *   1. `NEXTAUTH_URL` env var  (always set on Render — see render.yaml)
  *   2. `NEXT_PUBLIC_APP_URL` env var
  *   3. `X-Forwarded-Proto` + `X-Forwarded-Host` headers (set by Render's proxy)
- *   4. `request.nextUrl.protocol` + `request.nextUrl.host` (last resort —
+ *   4. `X-Forwarded-Proto` + `Host` header (Render sometimes sets Host but not X-Forwarded-Host)
+ *   5. `request.nextUrl.protocol` + `request.nextUrl.host` (last resort —
  *      will be the internal address on Render, but works in local dev)
  *
  * Usage in API routes:
@@ -25,6 +26,27 @@
  */
 
 import type { NextRequest } from "next/server";
+
+/**
+ * True if a host string looks like an internal bind address (not a real
+ * hostname a browser could reach). Used to skip fallbacks that would
+ * produce ERR_ADDRESS_INVALID.
+ */
+function isInternalHost(host: string | null | undefined): host is string {
+  if (!host) return false;
+  // 0.0.0.0, 0.0.0.0:10000, [::], [::1], 127.0.0.1, localhost:port
+  return (
+    host.startsWith("0.0.0.0") ||
+    host === "[::]" ||
+    host === "[::1]" ||
+    host.startsWith("127.0.0.1") ||
+    host.startsWith("localhost") ||
+    // Render internal addresses sometimes look like "10.x.x.x:10000"
+    /^10\.\d+\.\d+\.\d+/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^192\.168\./.test(host)
+  );
+}
 
 /**
  * Resolve the public base URL of the app (no trailing slash).
@@ -41,24 +63,33 @@ export function appUrl(request?: NextRequest): string {
     return envUrl.replace(/\/+$/, ""); // trim trailing slashes
   }
 
-  // 2. X-Forwarded-* headers (set by Render's reverse proxy)
   if (request) {
+    // Resolve protocol — prefer X-Forwarded-Proto (set by Render's proxy to "https")
     const forwardedProto =
       request.headers.get("x-forwarded-proto") ||
       request.nextUrl.protocol.replace(":", "");
+
+    // 2. X-Forwarded-Host (the canonical proxy header)
     const forwardedHost = request.headers.get("x-forwarded-host");
-    if (forwardedHost) {
+    if (forwardedHost && !isInternalHost(forwardedHost)) {
       return `${forwardedProto}://${forwardedHost}`;
+    }
+
+    // 3. Host header (Render's proxy sometimes preserves the original Host
+    //    even when X-Forwarded-Host is missing). Skip if it looks internal.
+    const hostHeader = request.headers.get("host");
+    if (hostHeader && !isInternalHost(hostHeader)) {
+      return `${forwardedProto}://${hostHeader}`;
     }
   }
 
-  // 3. Last resort: request.nextUrl (will be internal address on Render,
+  // 4. Last resort: request.nextUrl (will be internal address on Render,
   //    but works fine in local dev where there's no proxy)
   if (request) {
     return `${request.nextUrl.protocol}//${request.nextUrl.host}`;
   }
 
-  // 4. Absolute fallback (should never happen in practice)
+  // 5. Absolute fallback (should never happen in practice)
   return "http://localhost:3000";
 }
 

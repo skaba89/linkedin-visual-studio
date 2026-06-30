@@ -61,8 +61,23 @@ export async function GET(request: NextRequest) {
     try {
       user = await requireUser();
     } catch (err) {
+      // R-010 deep: log diagnostic info so we can debug the root cause.
+      // The two usual causes are:
+      //  (a) NEXTAUTH_URL env var missing on Render → appUrl() falls back to 0.0.0.0:10000
+      //  (b) AUTH_TRUST_HOST not set → NextAuth can't read X-Forwarded-Host → session cookie mis-set
       log.warn("LinkedIn callback called without authenticated user", {
         error: err instanceof Error ? err.message : String(err),
+        // Diagnostic: which URL resolver path is being taken?
+        nextauthUrl: process.env.NEXTAUTH_URL ?? "(not set)",
+        nextPublicAppUrl: process.env.NEXT_PUBLIC_APP_URL ?? "(not set)",
+        authTrustHost: process.env.AUTH_TRUST_HOST ?? "(not set)",
+        nodeEnv: process.env.NODE_ENV,
+        // What does the proxy tell us?
+        forwardedHost: request.headers.get("x-forwarded-host") ?? "(not set)",
+        forwardedProto: request.headers.get("x-forwarded-proto") ?? "(not set)",
+        hostHeader: request.headers.get("host") ?? "(not set)",
+        // What Next.js sees as the request URL (internal address on Render)
+        nextUrlHost: request.nextUrl.host,
       });
       return NextResponse.redirect(
         appUrlFor(request, "/?linkedin=error&message=Connexion+requis+avant+de+lier+votre+compte+LinkedIn")
