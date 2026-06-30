@@ -656,3 +656,29 @@ Stage Summary:
   3. Dans HERMÈS → onglet LinkedIn → saisir Client ID + Secret
   4. Cliquer "Connecter LinkedIn"
 - Rapport complet : /home/z/my-project/download/audit-e2e-2026-06-30.md
+
+---
+Task ID: R-012
+Agent: main
+Task: User requested no emojis in AI-generated posts and comments.
+
+Work Log:
+- Audited all AI text-generation entry points across src/lib/ (linkedin-ai.ts, agent-runner.ts, ai-client.ts, carousel-generator.ts) and src/scripts/gen_post.ts. Found 3 layers of emoji leakage: prompts that encouraged emojis ("Ajouter des émojis pertinents"), missing "Pas d'émoji" rules in 6 prompts, and 4 hardcoded emojis in carousel SVG defaults (📌 POST, 💬 Commentez, 🔔 Suivez-moi, 📌 CARROUSEL).
+- Created src/lib/sanitize-text.ts with stripEmojis() and stripEmojisFromFields(). Regex covers \p{Extended_Pictographic}, regional-indicator pairs (flags), skin-tone modifiers (U+1F3FB–U+1F3FF), ZWJ (U+200D), and variation selectors (U+FE0F/U+FE0E). Preserves math symbols (× ÷ ± ≤ ≥ √ ∑ ∫ π), arrows (→ ←), and accented Latin chars. Collapses resulting whitespace but preserves newlines.
+- Wrote 28 unit tests in src/lib/__tests__/sanitize-text.test.ts covering: single emoji, multiple emojis, ZWJ sequences (👨‍👩‍👧), skin-tone (👍🏽), flag pairs (🇫🇷), preservation of math/arrows/accents, newline preservation, whitespace collapse, edge cases (null, undefined, empty, whitespace-only), realistic LinkedIn post fixtures.
+- Updated linkedin-ai.ts: added "AUCUN émoji" rule to generatePostSuggestions, generateFallbackSuggestions, generateCommentSuggestions, improvePost, generateExpertPosts, generateCarouselContent prompts. Replaced "Ajouter des émojis pertinents (avec parcimonie)" in improvePost with "AUCUN émoji". Applied stripEmojis() to all text fields returned from AI: post.text/topic/hook, comment.text, trending.topic/angle/suggestedHook, bestTime.reason, analysis.styleProfile/topTopics/etc, carousel.headline/body/accent/bullets/stat. Replaced hardcoded 📌 and 💬 emojis in fallback carousel with plain text.
+- Updated agent-runner.ts (already had "Pas d'émoji" in 4 prompts): applied stripEmojis() to post.text + publishToLinkedIn call (runContenuAgent), message.content (runProspectionAgent), comment.comment (runEngagementAgent), action.content (runNurturingAgent), note (runReseauAgent). Also added stripEmojis() to Veille briefing (title/summary/trends/opportunities/competitors) and Analyse insights (metric/value/recommendation).
+- Updated ai-client.ts: applied stripEmojis() to generateLinkedInPost() return value + added "AUCUN émoji" rule to its system prompt.
+- Updated carousel-generator.ts: replaced "📌 POST" default with "POST", "💬 Commentez ci-dessous" with "Commentez ci-dessous", "🔔 Suivez-moi pour plus de contenu Data & IA" with "Suivez-moi pour plus de contenu Data & IA". Updated comment on accent field to reflect no-emoji policy.
+- Updated scripts/gen_post.ts: removed contradictory "Pas d'émojis excessifs (2-3 max)" line, replaced with "Aucun émoji (politique R-012)".
+- Updated src/app/api/linkedin/post/route.ts and src/app/api/linkedin/comment/route.ts: applied stripEmojis() to incoming text as last line of defense before forwarding to LinkedIn's v2 API. This catches emojis in hand-typed content too.
+
+Stage Summary:
+- Commit: 7c63199 (pushed to origin/main)
+- Files changed: 9 (2 new, 7 modified)
+- 443 insertions, 53 deletions
+- All 252 tests pass (28 new for sanitizer)
+- TypeScript clean, Next.js build clean
+- Three-layer enforcement: prompt-level (instruction), sanitizer-level (output processing), API-level (last line of defense)
+- Policy applies to: LinkedIn posts, LinkedIn comments, LinkedIn DMs (prospection/nurturing), connection notes, carousel slides, market briefings, performance insights
+- Even if the AI model disobeys the prompt, the sanitizer guarantees zero emojis in stored or published content
