@@ -151,3 +151,39 @@ Stage Summary:
 - 9 new Prisma models added with proper indexes
 - All engines converted to async DB-backed operations
 - Build passes cleanly with no errors
+
+---
+Task ID: BUG-H3
+Agent: Main Agent
+Task: Fix frontend API errors (CLIENT_FETCH_ERROR, 401/503/500 cascade) after the 500 fix
+
+Work Log:
+- Investigated the next-auth CLIENT_FETCH_ERROR on /api/auth/session
+- Discovered a custom /api/auth/session/route.ts that was shadowing NextAuth's
+  built-in [...nextauth] catch-all route
+- The custom route returned 401 with {authenticated:false} for unauthenticated
+  users, but next-auth's client expects 200 with an empty body — this mismatch
+  triggered CLIENT_FETCH_ERROR on every page load
+- Removed the custom /api/auth/session/route.ts file (let NextAuth handle it)
+- Removed 'require-trusted-types-for \"script\"' from the CSP — this strict
+  directive breaks NextAuth's client-side session polling and Next.js 16 RSC
+  payload injection in production
+- Widened AUTH_SKIP_ROUTES from explicit /api/ai/chat + /api/ai/web-search
+  to /api/ai/ so all AI routes (including generate-carousel, generate-image)
+  skip the middleware auth check (they use their own x-api-key header auth)
+- Verified locally with `npm run build && PORT=3003 NODE_ENV=production npm run start`:
+  - GET / -> 200
+  - GET /api/auth/session -> 200 {} (was 401 — root cause of CLIENT_FETCH_ERROR)
+  - GET /api/health -> 200
+  - GET /api/linkedin/me -> 401 (expected — user not logged in)
+  - POST /api/ai/chat -> 200 locally (will be 503 on Render until ZAI_* env vars set)
+- Committed and pushed to main (commit e54e13b)
+
+Stage Summary:
+- CLIENT_FETCH_ERROR root cause identified and fixed: shadow route + strict CSP
+- Remaining 401 on /api/linkedin/me is EXPECTED behavior (user must log in first)
+- Remaining 503 on /api/ai/chat is EXPECTED behavior on Render until operator
+  sets ZAI_BASE_URL and ZAI_API_KEY env vars (or user configures an LLM API key
+  in the Settings UI)
+- Render will auto-deploy from main; user should hard-refresh the page after
+  deployment completes (~2-4 min)
