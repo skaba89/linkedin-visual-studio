@@ -402,3 +402,37 @@ Stage Summary:
   email-agent (all have similar DEFAULT_USER_ID hardcoding but lower priority
   since they have fewer active callers)
 - The GitHub PAT used for pushing should still be revoked by the user
+
+---
+Task ID: R-009-bis
+Agent: Main Agent
+Task: R-009-bis — Fix production build failure on origin/main (Prisma client out of sync + missing emailVerified migration)
+
+Work Log:
+- Aligné le local sur origin/main (commit 9129eee) — récupère les 98 commits remote critiques (R-003, R-004, R-005/R-008, R-007, R-002, fixes production linkedin/me, migrations DB, NEXTAUTH_SECRET, etc.)
+- Diagnostic build : `next build` échouait avec 30 erreurs TypeScript :
+  - "Type 'string | null' is not assignable to type 'NullableJsonNullValueInput | InputJsonValue | undefined'" sur ab-engine, notification-engine, webhook-engine, event-bus
+  - "Object literal may only specify known properties, and 'emailVerified' does not exist in type 'UserSelect'" sur auth-config.ts et session.ts
+  - "Argument of type 'JsonValue' is not assignable to parameter of type 'string'" sur email-agent, workflow-engine
+- Cause racine : le client Prisma généré dans node_modules/.prisma/client était obsolète
+  - Le schema Prisma déclarait `emailVerified DateTime?` sur User (ajouté dans R-001 pour NextAuth)
+  - Mais le client généré ne contenait PAS `emailVerified` (généré avant l'ajout du champ)
+  - Le client généré avait aussi `metadata: JsonValue | null` pour ExperimentResult alors que le schema dit `metadata String?` (génération à partir d'un état intermédiaire du schema)
+  - Conséquence : types mismatch partout → build casse
+- Fix 1 : `npx prisma generate` — régénère le client depuis le schema actuel
+  - Vérifié : `emailVerified: Date | null` présent, `metadata: FieldRef<"ExperimentResult", 'String'>` correct
+  - Résultat : `tsc --noEmit` → 0 erreur, `next build` → ✓ Compiled successfully
+- Fix 2 : Créé la migration SQL manquante `prisma/migrations/20260701000000_add_email_verified/migration.sql`
+  - Raison : le champ `emailVerified` était dans le schema Prisma mais PAS dans les migrations SQL
+  - Le `startCommand` de render.yaml fait `npx prisma migrate deploy` au démarrage, mais cette commande n'applique que les migrations existantes
+  - Sans cette migration, la DB Neon n'aurait jamais eu la colonne `emailVerified`, et NextAuth aurait crashé à runtime en prod
+  - La migration est idempotente (`ADD COLUMN IF NOT EXISTS`) — safe à re-run
+
+Stage Summary:
+- R-009-bis COMPLÉTÉ — le build de production passe sur origin/main
+- Le client Prisma est régénéré (local + postinstall hook sur Render)
+- La migration `emailVerified` est créée — sera appliquée au prochain déploiement Render via `prisma migrate deploy`
+- Build : ✓ Compiled successfully in 6.0s, 49/49 static pages
+- TypeScript : 0 erreur
+- Tests : 208/208 passent (9 fichiers)
+- Le déploiement Render devrait maintenant réussir sans erreur de build ni erreur runtime NextAuth
