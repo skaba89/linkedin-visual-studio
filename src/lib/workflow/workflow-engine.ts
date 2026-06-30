@@ -17,7 +17,16 @@ import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-/** Convert a Prisma Workflow row to our Workflow type */
+/**
+ * Convert a Prisma Workflow row to our Workflow type.
+ *
+ * CRITICAL: `nodes`, `edges`, and `tags` are stored as `String` columns
+ * (JSON-encoded) in the database — see prisma/schema.prisma. We MUST parse
+ * them with `parseJsonField()` rather than casting with `as`, otherwise
+ * they remain strings at runtime, get serialized as JSON strings in the
+ * API response, and crash the client with `TypeError: e.nodes.map is not
+ * a function` when React tries to render them.
+ */
 function prismaToWorkflow(
   row: {
     id: string;
@@ -39,9 +48,9 @@ function prismaToWorkflow(
     name: row.name,
     description: row.description,
     status: row.status as WorkflowStatus,
-    nodes: (row.nodes as WorkflowNode[]) ?? [],
-    edges: (row.edges as WorkflowEdge[]) ?? [],
-    tags: (row.tags as string[]) ?? [],
+    nodes: parseJsonField<WorkflowNode[]>(row.nodes as string | null | undefined, []),
+    edges: parseJsonField<WorkflowEdge[]>(row.edges as string | null | undefined, []),
+    tags: parseJsonField<string[]>(row.tags as string | null | undefined, []),
     version: row.version,
     lastExecutionAt: row.lastExecutionAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -50,7 +59,12 @@ function prismaToWorkflow(
   };
 }
 
-/** Convert a Prisma WorkflowExecution row to our WorkflowExecution type */
+/**
+ * Convert a Prisma WorkflowExecution row to our WorkflowExecution type.
+ *
+ * Same JSON-string caveat as `prismaToWorkflow`: `data` and `steps` are
+ * stored as `String` columns and must be parsed, not cast.
+ */
 function prismaToExecution(row: {
   id: string;
   workflowId: string;
@@ -72,8 +86,8 @@ function prismaToExecution(row: {
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     error: row.error,
-    data: (row.data as Record<string, unknown>) ?? {},
-    steps: (row.steps as WorkflowExecutionStep[]) ?? [],
+    data: parseJsonField<Record<string, unknown>>(row.data as string | null | undefined, {}),
+    steps: parseJsonField<WorkflowExecutionStep[]>(row.steps as string | null | undefined, []),
   };
 }
 
@@ -220,6 +234,11 @@ class WorkflowEngine {
 
   /**
    * Update a workflow
+   *
+   * CRITICAL: `nodes`, `edges`, and `tags` are stored as `String` columns
+   * in Prisma. The client sends them as arrays (POST/PUT body), so we must
+   * `stringifyJsonField()` them before passing to Prisma — otherwise
+   * Prisma throws a type mismatch error and the update silently fails.
    */
   async updateWorkflow(
     id: string,
@@ -231,9 +250,9 @@ class WorkflowEngine {
     const data: Record<string, unknown> = {};
     if (updates.name !== undefined) data.name = updates.name;
     if (updates.description !== undefined) data.description = updates.description;
-    if (updates.nodes !== undefined) data.nodes = updates.nodes;
-    if (updates.edges !== undefined) data.edges = updates.edges;
-    if (updates.tags !== undefined) data.tags = updates.tags;
+    if (updates.nodes !== undefined) data.nodes = stringifyJsonField(updates.nodes);
+    if (updates.edges !== undefined) data.edges = stringifyJsonField(updates.edges);
+    if (updates.tags !== undefined) data.tags = stringifyJsonField(updates.tags);
 
     const row = await db.workflow.update({
       where: { id },

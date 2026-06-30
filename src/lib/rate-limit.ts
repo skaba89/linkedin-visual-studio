@@ -68,8 +68,13 @@ export interface RateLimitStore {
 // ─── Configuration per category ──────────────────────────────────────────────
 
 const CATEGORIES: Record<RateLimitCategory, RateLimitConfig> = {
-  // Login attempts — strict to prevent brute-force
-  auth: { limit: 10, windowMs: 60_000 }, // 10/min
+  // Auth — login attempts, session polling, /api/auth/_log error reporter.
+  // NextAuth's client polls /api/auth/session every ~60s per tab and POSTs
+  // each client-side error to /api/auth/_log. A 10/min limit gets blown
+  // instantly when a render error triggers repeated error logs (which is
+  // exactly what happened with the `nodes.map` crash). 60/min leaves
+  // headroom for legitimate traffic while still blocking brute-force.
+  auth: { limit: 60, windowMs: 60_000 }, // 60/min
   // Account creation — strict to prevent spam
   register: { limit: 5, windowMs: 60_000 }, // 5/min
   // AI generation — expensive, strict

@@ -32,6 +32,37 @@ import {
 
 type TabType = "workflows" | "builder" | "templates" | "executions";
 
+/**
+ * Defense-in-depth: ensure a workflow object always has array-typed
+ * `nodes`, `edges`, `tags`, and `executions` — even if the API returns
+ * them as JSON strings, null, undefined, or any other malformed shape.
+ *
+ * The Prisma schema stores these as `String` (JSON-encoded) columns. The
+ * server-side `prismaToWorkflow()` helper is supposed to parse them, but
+ * if a regression ever sends them as strings again, the client would
+ * crash with `TypeError: e.nodes.map is not a function`. This helper
+ * guarantees the component is robust against that failure mode.
+ */
+function normalizeWorkflow(w: unknown): Workflow {
+  const obj = (w ?? {}) as Record<string, unknown>;
+  const asArray = <T,>(v: unknown): T[] =>
+    Array.isArray(v) ? (v as T[]) : [];
+  return {
+    id: String(obj.id ?? ""),
+    name: String(obj.name ?? "Sans titre"),
+    description: String(obj.description ?? ""),
+    status: (obj.status as Workflow["status"]) ?? "draft",
+    nodes: asArray<WorkflowNode>(obj.nodes),
+    edges: asArray<WorkflowEdge>(obj.edges),
+    tags: asArray<string>(obj.tags),
+    executions: asArray<Workflow["executions"][number]>(obj.executions),
+    lastExecutionAt: obj.lastExecutionAt ? String(obj.lastExecutionAt) : null,
+    createdAt: obj.createdAt ? String(obj.createdAt) : new Date(0).toISOString(),
+    updatedAt: obj.updatedAt ? String(obj.updatedAt) : new Date(0).toISOString(),
+    version: typeof obj.version === "number" ? obj.version : 1,
+  };
+}
+
 export default function WorkflowView() {
   const [activeTab, setActiveTab] = useState<TabType>("workflows");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -47,7 +78,8 @@ export default function WorkflowView() {
     try {
       const res = await fetch("/api/data/workflows");
       const data = await res.json();
-      setWorkflows(data.workflows ?? []);
+      const rawList = Array.isArray(data?.workflows) ? data.workflows : [];
+      setWorkflows(rawList.map(normalizeWorkflow));
     } catch {
       // Fallback unavailable — engine is server-only
     }
@@ -67,7 +99,7 @@ export default function WorkflowView() {
       });
       const data = await res.json();
       if (data.workflow) {
-        setSelectedWorkflow(data.workflow);
+        setSelectedWorkflow(normalizeWorkflow(data.workflow));
         setActiveTab("builder");
         fetchWorkflows();
       }
@@ -86,7 +118,7 @@ export default function WorkflowView() {
       });
       const data = await res.json();
       if (data.workflow) {
-        setSelectedWorkflow(data.workflow);
+        setSelectedWorkflow(normalizeWorkflow(data.workflow));
         setActiveTab("builder");
         fetchWorkflows();
         setShowCreateDialog(false);
@@ -157,7 +189,7 @@ export default function WorkflowView() {
         body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes }),
       });
       const data = await res.json();
-      if (data.workflow) setSelectedWorkflow(data.workflow);
+      if (data.workflow) setSelectedWorkflow(normalizeWorkflow(data.workflow));
     } catch { /* keep optimistic */ }
   };
 
@@ -323,7 +355,7 @@ export default function WorkflowView() {
                         body: JSON.stringify({ id: selectedWorkflow.id, name: newNameVal }),
                       }).then(async (res) => {
                         const data = await res.json();
-                        if (data.workflow) setSelectedWorkflow(data.workflow);
+                        if (data.workflow) setSelectedWorkflow(normalizeWorkflow(data.workflow));
                       }).catch(() => {});
                     }}
                     className="bg-transparent text-white text-sm font-semibold outline-none border-b border-transparent hover:border-white/20 focus:border-[#00D4FF] pb-0.5"
@@ -388,7 +420,7 @@ export default function WorkflowView() {
                                     body: JSON.stringify({ id: selectedWorkflow.id, nodes: optimistic.nodes, edges: optimistic.edges }),
                                   });
                                   const data = await res.json();
-                                  if (data.workflow) setSelectedWorkflow(data.workflow);
+                                  if (data.workflow) setSelectedWorkflow(normalizeWorkflow(data.workflow));
                                 } catch { /* keep optimistic */ }
                               }}
                               className="absolute -top-2 -right-2 w-5 h-5 bg-[#E5263A] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
