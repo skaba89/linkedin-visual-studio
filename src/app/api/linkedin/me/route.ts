@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { getTokenFromCookies, clearTokenCookie } from "@/lib/linkedin-token";
-import { cookies } from "next/headers";
 
 export async function GET() {
   try {
     const token = await getTokenFromCookies();
 
     if (!token) {
+      // The user is logged in to the app (middleware verified the NextAuth
+      // session before reaching here) but hasn't connected their LinkedIn
+      // account yet. Returning 200 with `notConnected: true` instead of 401
+      // avoids noisy browser console errors on every page load — this is a
+      // valid state, not an authentication failure. The frontend treats
+      // `notConnected` as "show the Connect button" rather than an error.
       return NextResponse.json(
-        { error: "Non authentifié. Connectez votre compte LinkedIn.", notConnected: true },
-        { status: 401 }
+        { notConnected: true, profile: null },
+        { status: 200 }
       );
     }
 

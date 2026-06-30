@@ -133,7 +133,15 @@ export default function SettingsView() {
     try {
       const res = await fetch("/api/linkedin/me");
       if (res.ok) {
-        setLinkedInTestResult("success");
+        const data = await res.json();
+        // 200 + notConnected means the user is logged in to the app but
+        // hasn't connected LinkedIn yet — for the "Test LinkedIn" button
+        // this is a failure (LinkedIn itself isn't connected).
+        if (data.notConnected) {
+          setLinkedInTestResult("error");
+        } else {
+          setLinkedInTestResult("success");
+        }
       } else {
         setLinkedInTestResult("error");
       }

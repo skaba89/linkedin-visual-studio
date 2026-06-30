@@ -163,7 +163,9 @@ function ConnexionTab() {
   const [checkingConnection, setCheckingConnection] = useState(false);
 
   // Only check LinkedIn connection when the user is authenticated.
-  // Calling /api/linkedin/me without a session returns 401 and spams the console.
+  // Without a NextAuth session, the middleware returns 401 on /api/linkedin/me
+  // (the route is auth-protected) — gating on `sessionStatus === "authenticated"`
+  // prevents that 401 from spamming the console on every page load.
   useEffect(() => {
     if (sessionStatus === "authenticated") {
       checkConnection();
@@ -176,14 +178,22 @@ function ConnexionTab() {
       const res = await fetch("/api/linkedin/me");
       if (res.ok) {
         const data = await res.json();
-        setLinkedInConnected(true);
-        setLinkedInProfile({
-          id: data.id,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          profilePictureUrl: data.profilePictureUrl || null,
-          headline: data.headline || null,
-        });
+        // The API returns 200 + { notConnected: true } when the user is
+        // logged in to the app but hasn't connected LinkedIn yet — treat
+        // that as "not connected" rather than an error.
+        if (data.notConnected) {
+          setLinkedInConnected(false);
+          setLinkedInProfile(null);
+        } else {
+          setLinkedInConnected(true);
+          setLinkedInProfile({
+            id: data.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            profilePictureUrl: data.profilePictureUrl || null,
+            headline: data.headline || null,
+          });
+        }
       } else {
         setLinkedInConnected(false);
         setLinkedInProfile(null);
