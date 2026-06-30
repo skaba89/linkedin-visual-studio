@@ -8,6 +8,7 @@
 
 import { useAppStore, type Lead, type ActivityLog, type GeneratedComment, type MarketBriefing, type NurturingAction, type PerformanceInsight, type ConnectionRequest } from "@/store/appStore";
 import { chatCompletion, type ChatMessage } from "@/lib/ai-client";
+import { stripEmojis } from "@/lib/sanitize-text";
 
 // ─── Helpers ──────────────────────────────────────────────
 function generateId(): string {
@@ -289,7 +290,7 @@ Règles :
 
     const post: GeneratedPost = {
       id: generateId(),
-      text: response.content,
+      text: stripEmojis(response.content),
       topic,
       createdAt: new Date().toISOString(),
       model: response.model,
@@ -307,7 +308,7 @@ Règles :
 
     // Publish to LinkedIn if connected
     if (state.linkedInConnected) {
-      const publishResult = await publishToLinkedIn(response.content, requestCookies);
+      const publishResult = await publishToLinkedIn(stripEmojis(response.content), requestCookies);
       if (publishResult.success) {
         post.publishedToLinkedIn = true;
         post.linkedInPostId = publishResult.postId;
@@ -683,7 +684,7 @@ Règles OBLIGATOIRES:
         leadId: lead.id,
         leadName: lead.prenom,
         leadEntreprise: lead.entreprise,
-        content: response.content,
+        content: stripEmojis(response.content),
         timing: "J+0",
         createdAt: new Date().toISOString(),
         model: response.model,
@@ -839,7 +840,7 @@ Extrait: "${post.excerpt}"`,
         maxTokens: 120,
       });
 
-      const commentText = response.content;
+      const commentText = stripEmojis(response.content);
 
       const comment: GeneratedComment = {
         id: generateId(),
@@ -981,11 +982,11 @@ Identifie les tendances, opportunités de contenu et mouvements concurrentiels e
         const parsed = JSON.parse(jsonMatch[0]);
         briefing = {
           id: generateId(),
-          title: parsed.title || `Briefing du ${today}`,
-          summary: parsed.summary || "",
-          trends: parsed.trends || [],
-          opportunities: parsed.opportunities || [],
-          competitors: parsed.competitors || [],
+          title: stripEmojis(parsed.title || `Briefing du ${today}`),
+          summary: stripEmojis(parsed.summary || ""),
+          trends: Array.isArray(parsed.trends) ? parsed.trends.map((s: unknown) => stripEmojis(String(s))) : [],
+          opportunities: Array.isArray(parsed.opportunities) ? parsed.opportunities.map((s: unknown) => stripEmojis(String(s))) : [],
+          competitors: Array.isArray(parsed.competitors) ? parsed.competitors.map((s: unknown) => stripEmojis(String(s))) : [],
           createdAt: new Date().toISOString(),
           model: response.model,
         };
@@ -996,7 +997,7 @@ Identifie les tendances, opportunités de contenu et mouvements concurrentiels e
       briefing = {
         id: generateId(),
         title: `Briefing du ${today}`,
-        summary: response.content.slice(0, 300),
+        summary: stripEmojis(response.content.slice(0, 300)),
         trends: [],
         opportunities: [],
         competitors: [],
@@ -1106,7 +1107,7 @@ Règles OBLIGATOIRES:
         leadName: lead.prenom,
         leadEntreprise: lead.entreprise,
         type,
-        content: response.content,
+        content: stripEmojis(response.content),
         createdAt: new Date().toISOString(),
         model: response.model,
       });
@@ -1196,9 +1197,9 @@ Produis 3 à 5 recommandations maximum, classées par priorité.`,
           insights.push({
             id: generateId(),
             category: ri.category || "contenu",
-            metric: ri.metric || "",
-            value: ri.value || "",
-            recommendation: ri.recommendation || "",
+            metric: stripEmojis(ri.metric || ""),
+            value: stripEmojis(ri.value || ""),
+            recommendation: stripEmojis(ri.recommendation || ""),
             priority: ri.priority || "medium",
             createdAt: new Date().toISOString(),
             model: response.model,
@@ -1212,7 +1213,7 @@ Produis 3 à 5 recommandations maximum, classées par priorité.`,
         category: "contenu",
         metric: "Analyse globale",
         value: "Voir détails",
-        recommendation: response.content.slice(0, 300),
+        recommendation: stripEmojis(response.content.slice(0, 300)),
         priority: "medium",
         createdAt: new Date().toISOString(),
         model: response.model,
@@ -1415,7 +1416,7 @@ Règles OBLIGATOIRES:
         prospectName: prospect.prenom,
         prospectPoste: prospect.poste,
         prospectEntreprise: prospect.entreprise,
-        note: response.content.slice(0, 300),
+        note: stripEmojis(response.content).slice(0, 300),
         status: "pending",
         createdAt: new Date().toISOString(),
         model: response.model,

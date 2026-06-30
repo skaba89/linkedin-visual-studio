@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
+import { stripEmojis } from "@/lib/sanitize-text";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +14,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { text, visibility = "PUBLIC", linkedinId } = body;
+    // R-012 — sanitize emojis BEFORE sending to LinkedIn, even if the text
+    // was hand-typed by the user. This is the last line of defense.
+    const text = stripEmojis(body.text);
+    const visibility = body.visibility || "PUBLIC";
+    const linkedinId = body.linkedinId;
 
     if (!text || !text.trim()) {
       return NextResponse.json(

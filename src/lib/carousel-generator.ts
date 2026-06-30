@@ -21,7 +21,7 @@ export interface CarouselSlide {
   type: "cover" | "content" | "stat" | "list" | "quote" | "cta";
   headline: string;
   body: string;
-  accent?: string;    // emoji or short accent text
+  accent?: string;    // short accent text (no emoji per R-012 policy)
   bullets?: string[]; // for list slides
   stat?: {           // for stat slides
     value: string;
@@ -141,7 +141,7 @@ function generateCoverSVG(slide: CarouselSlide, data: CarouselData): string {
   
   <!-- Top accent badge -->
   <rect x="80" y="120" width="120" height="36" rx="18" fill="${data.primaryColor}" opacity="0.15" />
-  <text x="140" y="143" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="14" fill="${data.primaryColor}" text-anchor="middle" font-weight="bold">${escapeXml(slide.accent || "📌 POST")}</text>
+  <text x="140" y="143" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="14" fill="${data.primaryColor}" text-anchor="middle" font-weight="bold">${escapeXml(slide.accent || "POST")}</text>
   
   <!-- Main Headline -->
   ${headlineLines.map((line, i) => `
@@ -382,7 +382,7 @@ function generateCTASVG(slide: CarouselSlide, data: CarouselData, slideNum: numb
   
   <!-- CTA Button -->
   <rect x="${SLIDE_W / 2 - 200}" y="${350 + headlineLines.length * 68 + 30}" width="400" height="70" rx="35" fill="url(#ctaBtn)" />
-  <text x="${SLIDE_W / 2}" y="${350 + headlineLines.length * 68 + 73}" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="24" fill="#FFFFFF" text-anchor="middle" font-weight="bold">${escapeXml(slide.accent || "💬 Commentez ci-dessous")}</text>
+  <text x="${SLIDE_W / 2}" y="${350 + headlineLines.length * 68 + 73}" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="24" fill="#FFFFFF" text-anchor="middle" font-weight="bold">${escapeXml(slide.accent || "Commentez ci-dessous")}</text>
   
   <!-- Body text -->
   ${bodyLines.map((line, i) => `
@@ -395,7 +395,7 @@ function generateCTASVG(slide: CarouselSlide, data: CarouselData, slideNum: numb
   <text x="${SLIDE_W / 2 - 40}" y="${SLIDE_H - 145}" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="15" fill="${p.subtext}">${escapeXml(data.authorTitle || "")}</text>
   
   <!-- Follow prompt -->
-  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 80}" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="16" fill="${data.primaryColor}" text-anchor="middle">🔔 Suivez-moi pour plus de contenu Data &amp; IA</text>
+  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 80}" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="16" fill="${data.primaryColor}" text-anchor="middle">Suivez-moi pour plus de contenu Data &amp; IA</text>
 </svg>`;
 }
 

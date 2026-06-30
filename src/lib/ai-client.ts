@@ -7,6 +7,7 @@
 
 import { useAppStore } from "@/store/appStore";
 import { createLogger } from "@/lib/logger";
+import { stripEmojis } from "@/lib/sanitize-text";
 
 const log = createLogger("ai-client");
 
@@ -185,7 +186,8 @@ Tu rédiges des posts LinkedIn percutants avec cette structure :
 - Hook (ligne 1 — doit forcer le "voir plus")
 - Corps (3 à 4 paragraphes courts, max 3 lignes chacun)
 - CTA (question ouverte ou instruction "commentez X")
-Longueur : 150 à 220 mots.`,
+Longueur : 150 à 220 mots.
+AUCUN émoji dans le post (jamais).`,
     },
     {
       role: "user",
@@ -200,7 +202,7 @@ Longueur : 150 à 220 mots.`,
     maxTokens: 500,
   });
 
-  return response.content;
+  return stripEmojis(response.content);
 }
 
 /**

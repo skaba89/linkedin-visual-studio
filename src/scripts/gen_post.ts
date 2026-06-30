@@ -15,7 +15,7 @@ async function main() {
 - Utilise des chiffres concrets et des exemples réels
 - Inclus 3-5 hashtags pertinents en fin de post
 - Longueur: 180-250 mots
-- Pas d'émojis excessifs (2-3 max)
+- Aucun émoji (politique R-012 : aucun émoji dans les posts générés par l'IA)
 - Le post doit parler d'un cas réel/constat business concret sur la data architecture`
       },
       {

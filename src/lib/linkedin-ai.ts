@@ -13,6 +13,7 @@
 
 import { chatCompletion, type ChatMessage } from "./ai-client";
 import { useAppStore } from "@/store/appStore";
+import { stripEmojis } from "@/lib/sanitize-text";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -139,7 +140,9 @@ ${searchContext}`,
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+          return parsed
+            .map((s: BestTimeSlot) => ({ ...s, reason: stripEmojis(s.reason || "") }))
+            .sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
         }
       }
     }
@@ -177,7 +180,9 @@ Langue : français`,
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
+        return parsed
+          .map((s: BestTimeSlot) => ({ ...s, reason: stripEmojis(s.reason || "") }))
+          .sort((a: BestTimeSlot, b: BestTimeSlot) => b.score - a.score);
       }
     }
   } catch (error) {
@@ -273,6 +278,7 @@ Règles :
 - CTA : question ouverte ou "commentez X"
 - Varie les formats : ${formats.join(", ")}
 - Adapte au contexte HERMÈS et à l'actualité IA/B2B
+- AUCUN émoji dans le texte du post (jamais)
 ${topic ? `- Le sujet demandé doit être au cœur de chaque suggestion avec un angle expert data` : ""}
 - Langue : français`,
     },
@@ -295,9 +301,9 @@ ${topic ? `- Le sujet demandé doit être au cœur de chaque suggestion avec un 
       const parsed = JSON.parse(jsonMatch[0]);
       return parsed.map((p: Record<string, string>, i: number) => ({
         id: `sug-${Date.now()}-${i}`,
-        text: p.text || "",
-        topic: p.topic || "",
-        hook: p.hook || "",
+        text: stripEmojis(p.text || ""),
+        topic: stripEmojis(p.topic || ""),
+        hook: stripEmojis(p.hook || ""),
         estimatedEngagement: p.estimatedEngagement || "medium",
         bestTime: `${nextBest.day} ${nextBest.time}`,
         format: p.format || formats[i % formats.length],
@@ -359,9 +365,9 @@ async function generateFallbackSuggestions(
             : (formats[i % formats.length] as LinkedInPostSuggestion["format"]);
           return {
             id: `sug-fallback-${Date.now()}-${i}`,
-            text: p.text || "",
-            topic: p.topic || "",
-            hook: p.hook || "",
+            text: stripEmojis(p.text || ""),
+            topic: stripEmojis(p.topic || ""),
+            hook: stripEmojis(p.hook || ""),
             estimatedEngagement: engagement,
             bestTime: `${nextBest.day} ${nextBest.time}`,
             format,
@@ -402,6 +408,7 @@ Règles pour les commentaires :
 - Pas de flagrance promo
 - Termine par une question pour ouvrir la discussion
 - Ton direct mais bienveillant
+- AUCUN émoji dans le commentaire (jamais)
 - Langue : français
 
 Génère ${count} variantes de commentaires en JSON strict :
@@ -432,7 +439,7 @@ Post : "${postText.slice(0, 500)}"`,
       const parsed = JSON.parse(jsonMatch[0]);
       return parsed.map((c: Record<string, string>, i: number) => ({
         id: `comment-${Date.now()}-${i}`,
-        text: c.text || "",
+        text: stripEmojis(c.text || ""),
         postExcerpt: postText.slice(0, 80) + "...",
         tone: c.tone || "value-add",
       }));
@@ -507,14 +514,21 @@ Langue : français`,
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Deduplicate by topic
+          // Deduplicate by topic + strip emojis from all text fields
           const seen = new Set<string>();
-          return parsed.filter((t: TrendingTopic) => {
-            const key = t.topic?.toLowerCase().trim();
-            if (!key || seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
+          return parsed
+            .map((t: TrendingTopic) => ({
+              ...t,
+              topic: stripEmojis(t.topic || ""),
+              angle: stripEmojis(t.angle || ""),
+              suggestedHook: stripEmojis(t.suggestedHook || ""),
+            }))
+            .filter((t: TrendingTopic) => {
+              const key = t.topic?.toLowerCase().trim();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
         }
       }
     }
@@ -558,7 +572,15 @@ Langue : français`,
 
     const jsonMatch = response.content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        return parsed.map((t: TrendingTopic) => ({
+          ...t,
+          topic: stripEmojis(t.topic || ""),
+          angle: stripEmojis(t.angle || ""),
+          suggestedHook: stripEmojis(t.suggestedHook || ""),
+        }));
+      }
     }
   } catch (error) {
     console.error("LLM trending topics error:", error);
@@ -593,7 +615,7 @@ Améliore ce brouillon de post LinkedIn. Réponds en JSON strict :
 Règles d'amélioration :
 - Renforcer le hook si nécessaire
 - Raccourcir les phrases trop longues
-- Ajouter des émojis pertinents (avec parcimonie)
+- AUCUN émoji dans le post amélioré (jamais)
 - Améliorer le CTA
 - Vérifier la structure hook-corps-CTA
 - Garder 150-220 mots`,
@@ -612,13 +634,17 @@ Règles d'amélioration :
 
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        improved: stripEmojis(parsed.improved || draftText),
+        suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.map((s: unknown) => stripEmojis(String(s))) : [],
+      };
     }
   } catch (error) {
     console.error("AI improve post error:", error);
   }
 
-  return { improved: draftText, suggestions: ["Configurez une clé API pour activer l'amélioration IA"] };
+  return { improved: stripEmojis(draftText), suggestions: ["Configurez une clé API pour activer l'amélioration IA"] };
 }
 
 // ─── Expert Data Mode ──────────────────────────────────────────
@@ -684,7 +710,18 @@ ${postsSummary}`,
 
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Strip emojis from all text fields returned by the AI
+      return {
+        ...parsed,
+        styleProfile: stripEmojis(parsed.styleProfile || ""),
+        topTopics: Array.isArray(parsed.topTopics) ? parsed.topTopics.map((s: unknown) => stripEmojis(String(s))) : [],
+        topFormats: Array.isArray(parsed.topFormats) ? parsed.topFormats.map((s: unknown) => stripEmojis(String(s))) : [],
+        avgEngagement: stripEmojis(parsed.avgEngagement || ""),
+        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.map((s: unknown) => stripEmojis(String(s))) : [],
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map((s: unknown) => stripEmojis(String(s))) : [],
+        weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map((s: unknown) => stripEmojis(String(s))) : [],
+      };
     }
   } catch (error) {
     console.error("AI post analysis error:", error);
@@ -747,6 +784,7 @@ Règles :
 - Paragraphes de 2-3 lignes max
 - CTA : question ouverte ou "commentez X"
 - Angle expert data avec des insights chiffrés
+- AUCUN émoji dans le texte du post (jamais)
 - Langue : français`,
     },
     {
@@ -768,9 +806,9 @@ Règles :
       const parsed = JSON.parse(jsonMatch[0]);
       return parsed.map((p: Record<string, string>, i: number) => ({
         id: `expert-${Date.now()}-${i}`,
-        text: p.text || "",
-        topic: p.topic || "",
-        hook: p.hook || "",
+        text: stripEmojis(p.text || ""),
+        topic: stripEmojis(p.topic || ""),
+        hook: stripEmojis(p.hook || ""),
         estimatedEngagement: p.estimatedEngagement || "high",
         bestTime: `${nextBest.day} ${nextBest.time}`,
         format: p.format || "data",
@@ -822,7 +860,7 @@ ${context}
     "type": "cover|content|stat|list|quote|cta",
     "headline": "titre de la slide (court, percutant)",
     "body": "texte principal de la slide",
-    "accent": "emoji ou texte court d'accentuation (optionnel)",
+    "accent": "texte court d'accentuation (optionnel, PAS d'émoji)",
     "bullets": ["point 1", "point 2"] (uniquement pour type "list"),
     "stat": { "value": "chiffre", "label": "label", "context": "contexte" } (uniquement pour type "stat")
   }
@@ -836,6 +874,7 @@ Règles de structure :
 - Titres courts (max 8 mots)
 - Corps de texte concis (max 60 mots par slide)
 - Statistiques chiffrées quand pertinent
+- AUCUN émoji dans aucun champ (headline, body, accent, bullets, stat)
 - Langue : français`,
     },
     {
@@ -856,7 +895,24 @@ Règles de structure :
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed) && parsed.length >= 3) {
-        return parsed;
+        // Sanitize every text field of each slide (defense-in-depth against
+        // any emoji the model may have inserted despite the prompt).
+        return parsed.map((slide: Record<string, unknown>): CarouselSlideData => ({
+          type: (slide.type as CarouselSlideData["type"]) || "content",
+          headline: stripEmojis(String(slide.headline ?? "")),
+          body: stripEmojis(String(slide.body ?? "")),
+          accent: slide.accent ? stripEmojis(String(slide.accent)) : undefined,
+          bullets: Array.isArray(slide.bullets)
+            ? slide.bullets.map((b: unknown) => stripEmojis(String(b)))
+            : undefined,
+          stat: slide.stat && typeof slide.stat === "object"
+            ? {
+                value: stripEmojis(String((slide.stat as Record<string, unknown>).value ?? "")),
+                label: stripEmojis(String((slide.stat as Record<string, unknown>).label ?? "")),
+                context: stripEmojis(String((slide.stat as Record<string, unknown>).context ?? "")),
+              }
+            : undefined,
+        }));
       }
     }
   } catch (error) {
@@ -872,7 +928,7 @@ Règles de structure :
       type: "cover",
       headline: topicTitle || "Impact & Données",
       body: words.slice(0, 20).join(" ") + "...",
-      accent: "📌 CARROUSEL",
+      accent: "CARROUSEL",
     },
     {
       type: "content",
@@ -888,7 +944,7 @@ Règles de structure :
       type: "cta",
       headline: "Et vous ?",
       body: "Commentez ci-dessous pour partager votre expérience",
-      accent: "💬 Commentez",
+      accent: "Commentez",
     },
   ];
 }
