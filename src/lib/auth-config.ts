@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
 import { verifyPassword, hashPassword, assertPasswordStrength } from "@/lib/password";
+import { ensureUserColumns } from "@/lib/runtime-migration";
 
 /**
  * HERMÈS — R-001 — NextAuth configuration (DB-backed)
@@ -61,9 +62,28 @@ const DEMO_INITIAL_PASSWORD = "Demo-Hermes-2024"; // only used once for seeding
 /**
  * Idempotent seed of the demo account. Called on first login attempt.
  * In production this should be replaced by an explicit registration flow.
+ *
+ * R-011 deep v4: wrapped in a self-healing migration. If the User table
+ * is missing required columns, the query will throw — we catch that, run
+ * ensureUserColumns(), and retry once.
  */
 async function ensureDemoUser(): Promise<void> {
-  const existing = await db.user.findUnique({ where: { email: DEMO_EMAIL } });
+  let existing: Awaited<ReturnType<typeof db.user.findUnique>> | null;
+  try {
+    existing = await db.user.findUnique({ where: { email: DEMO_EMAIL } });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (/does not exist|Unknown column/i.test(errMsg)) {
+      console.warn(
+        "[auth-config] ensureDemoUser: User table missing columns — running ensureUserColumns()",
+        { error: errMsg.substring(0, 200) },
+      );
+      await ensureUserColumns();
+      existing = await db.user.findUnique({ where: { email: DEMO_EMAIL } });
+    } else {
+      throw err;
+    }
+  }
   if (existing) {
     // R-011 — Backfill password for legacy demo users seeded before the
     // password-strength policy was enforced. If the existing user has no
@@ -135,17 +155,63 @@ export const authOptions: NextAuthOptions = {
           }
         }
 
-        const user = await db.user.findUnique({
-          where: { email },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            avatarUrl: true,
-            passwordHash: true,
-            role: true,
-          },
-        });
+        // R-011 deep v4 — Resilient user lookup with self-healing migration.
+        // If the User table is missing required columns (passwordHash, role,
+        // emailVerified), the first query will throw a Prisma error. We catch
+        // that, run ensureUserColumns() to add the missing columns, then retry
+        // the query once. This is defense-in-depth: the instrumentation hook
+        // already runs ensureUserColumns() at boot, but if that failed (e.g.,
+        // because the DB was temporarily unreachable), this retry will fix it.
+        type SelectedUser = {
+          id: string;
+          email: string;
+          name: string | null;
+          avatarUrl: string | null;
+          passwordHash: string | null;
+          role: string;
+        };
+        const selectUser = {
+          id: true,
+          email: true,
+          name: true,
+          avatarUrl: true,
+          passwordHash: true,
+          role: true,
+        } as const;
+        let user: SelectedUser | null = null;
+        try {
+          user = await db.user.findUnique({
+            where: { email },
+            select: selectUser,
+          });
+        } catch (queryErr) {
+          const errMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+          // Detect "column does not exist" errors (PostgreSQL / Prisma)
+          if (/does not exist|Unknown column/i.test(errMsg)) {
+            console.warn(
+              "[auth-config] User table missing columns — running ensureUserColumns() and retrying",
+              { error: errMsg.substring(0, 200) },
+            );
+            try {
+              await ensureUserColumns();
+              // Retry the query after migration
+              user = await db.user.findUnique({
+                where: { email },
+                select: selectUser,
+              });
+            } catch (retryErr) {
+              console.error(
+                "[auth-config] ensureUserColumns() failed during login retry",
+                retryErr instanceof Error ? retryErr.message : String(retryErr),
+              );
+              return null;
+            }
+          } else {
+            // Different error (e.g., DB connection) — don't retry
+            console.error("[auth-config] User lookup failed", errMsg);
+            return null;
+          }
+        }
 
         // No user OR no passwordHash (OAuth-only account) → reject
         if (!user || !user.passwordHash) return null;
