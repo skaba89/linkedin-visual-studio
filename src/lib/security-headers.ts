@@ -19,15 +19,22 @@
  */
 
 import type { NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
 
 // ─── Nonce CSP ──────────────────────────────────────────────────────────────
 /**
  * Génère un nonce base64 de 16 octets pour la CSP.
  * Doit être appelé à chaque requête dans le middleware.
+ *
+ * Implementation note: this file is imported by src/middleware.ts which runs
+ * in the Edge Runtime. The Edge Runtime does NOT support `node:crypto`, so we
+ * use the Web Crypto API (`globalThis.crypto.getRandomValues`) instead, which
+ * is available in both Edge and Node.js runtimes.
  */
 export function generateNonce(): string {
-  return randomBytes(16).toString("base64url");
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  // Buffer is polyfilled in the Edge Runtime by Next.js.
+  return Buffer.from(bytes).toString("base64url");
 }
 
 // ─── Allowed origins (à ajuster selon l'environnement) ───────────────────────
