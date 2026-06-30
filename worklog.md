@@ -187,3 +187,38 @@ Stage Summary:
   in the Settings UI)
 - Render will auto-deploy from main; user should hard-refresh the page after
   deployment completes (~2-4 min)
+
+---
+Task ID: FEAT-ZAI-PROVIDER
+Agent: Main Agent
+Task: Add Z.AI as a configurable provider in the Settings UI
+
+Work Log:
+- Added Z.AI entry to AI_PROVIDERS in src/lib/providers.ts with 5 GLM models
+  (glm-4.6, glm-4.5, glm-4-plus, glm-4-air, glm-4-flash) and baseUrl
+  https://api.z.ai/v1
+- Updated isOpenAICompatible() to exclude 'zai' (uses its own SDK format)
+- Added createZaiFromApiKey() in src/lib/z-ai-bootstrap.ts — builds a fresh
+  per-request ZAI instance from a user-provided API key (no caching)
+- Updated src/app/api/ai/chat/route.ts with handleZai() — routes ZAI requests
+  through z-ai-web-dev-sdk; uses user key if provided, otherwise falls back
+  to server-configured SDK (env vars or .z-ai-config file)
+- Created missing src/app/api/ai/test/route.ts — was 404 in the Settings UI
+  when clicking 'Test'; now tests ZAI, Anthropic, and all OpenAI-compatible
+  providers with a minimal 'ping' request
+- Updated src/lib/ai-client.ts: added 'zai' to PROVIDER_FALLBACK_ORDER (first
+  position since it works without a user key); skipped fallback logic when
+  providerId === 'zai' (otherwise it would switch to another provider)
+- Verified locally with `npm run build && PORT=3004 NODE_ENV=production npm run start`:
+  - POST /api/ai/test {providerId:'zai', apiKey:''}  -> 200 {ok:true}
+  - POST /api/ai/chat {providerId:'zai', model:'glm-4-flash', messages:[...]}  -> 200
+  - POST /api/ai/test {providerId:'groq', apiKey:''}  -> 400 (Clé API manquante)
+- Committed and pushed to main (commit 078916e)
+
+Stage Summary:
+- Z.AI is now visible in the "Fournisseurs IA" page as a 11th provider card
+- Users can enter a Z.AI API key OR leave it empty (server-configured SDK
+  fallback works on Render if ZAI_BASE_URL + ZAI_API_KEY env vars are set,
+  or in dev where /etc/.z-ai-config exists)
+- The 'Test' button now works for all providers (was 404 before)
+- Render will auto-deploy from main; user should hard-refresh after deploy
