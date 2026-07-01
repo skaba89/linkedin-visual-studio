@@ -513,18 +513,21 @@ model EmailSequence {
 }
 
 model EmailMessage {
-  id         String    @id @default(cuid())
-  userId     String
-  contactId  String
-  sequenceId String?
-  subject    String
-  body       String
-  status     String    @default("draft")
-  sentAt     DateTime?
-  openedAt   DateTime?
-  clickedAt  DateTime?
-  repliedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id                String    @id @default(cuid())
+  userId            String
+  contactId         String
+  sequenceId        String?
+  subject           String
+  body              String
+  status            String    @default("draft")
+  sentAt            DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  repliedAt         DateTime?
+  // Email provider integration (R-013 — real email delivery)
+  providerMessageId String?   // ID returned by Resend/SendGrid/etc.
+  errorMessage      String?   // Set when status = "failed"
+  createdAt         DateTime  @default(now())
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact  Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)

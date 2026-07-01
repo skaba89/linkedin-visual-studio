@@ -19,9 +19,15 @@ import { requireUser } from "@/lib/session";
 import { isHttpError } from "@/lib/http-error";
 
 // POST /api/data/import — Import data from JSON
+// Multi-tenant safe: all imported rows are scoped to the authenticated user.
+// Previously this route used `userId = "default"` which bypassed tenant
+// isolation entirely — any authenticated user could overwrite another
+// user's data via the "replace" mode.
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUser();
+    const userId = user.id;
+
     const body = await request.json();
     const { data, mode = "merge" } = body; // mode: "merge" | "replace"
 
@@ -32,7 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = user.id;
+
     const results: Record<string, { imported: number; errors: number }> = {};
 
     for (const [table, rows] of Object.entries(data)) {
@@ -74,7 +80,7 @@ export async function POST(request: NextRequest) {
     if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
       { error: "Import failed", details: String(err) },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

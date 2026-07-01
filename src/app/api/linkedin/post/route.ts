@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
 import { stripEmojis } from "@/lib/sanitize-text";
+import {
+  guardLinkedInAction,
+  complianceBlockedResponse,
+} from "@/lib/linkedin/compliance-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,6 +15,21 @@ export async function POST(request: NextRequest) {
         { error: "Non authentifié. Connectez votre compte LinkedIn." },
         { status: 401 }
       );
+    }
+
+    // ─── Compliance pre-flight check ───────────────────────────────────
+    // Block the call BEFORE hitting LinkedIn if the user has reached their
+    // daily post limit. Prevents LinkedIn from flagging the account as
+    // automated spam and banning it.
+    const guard = await guardLinkedInAction("post");
+    if (!guard.allowed) {
+      if (guard.reason === "AUTH_REQUIRED") {
+        return NextResponse.json(
+          { error: "Authentification HERMÈS requise" },
+          { status: 401 },
+        );
+      }
+      return complianceBlockedResponse(guard.reason ?? "Limite quotidienne atteinte");
     }
 
     const body = await request.json();
@@ -77,6 +96,14 @@ export async function POST(request: NextRequest) {
     }
 
     const responseData = await postResponse.json();
+
+    // ─── Compliance: record successful action ──────────────────────────
+    // Increment the per-user daily post counter so the next call can be
+    // checked against the limit. Fire-and-forget — don't block the response
+    // on a DB write. Errors are logged but not surfaced to the client.
+    guard.record().catch((err) => {
+      console.error("[compliance] Failed to record post action:", err);
+    });
 
     return NextResponse.json({
       success: true,

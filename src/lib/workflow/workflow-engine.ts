@@ -496,7 +496,7 @@ class WorkflowEngine {
     }
 
     // Execute the graph starting from trigger
-    await this.executeGraph(workflow, execution, triggerNode.id);
+    await this.executeGraph(userId, workflow, execution, triggerNode.id);
 
     // Finalize
     if (execution.status === "running") {
@@ -531,6 +531,7 @@ class WorkflowEngine {
    * Execute the graph nodes starting from a given node
    */
   private async executeGraph(
+    userId: string,
     workflow: Workflow,
     execution: WorkflowExecution,
     fromNodeId: string
@@ -561,7 +562,7 @@ class WorkflowEngine {
       step.startedAt = new Date().toISOString();
 
       try {
-        const nodeOutput = await this.executeNode(targetNode, execution.data);
+        const nodeOutput = await this.executeNode(userId, targetNode, execution.data);
         step.status = "completed";
         step.completedAt = new Date().toISOString();
         step.output = nodeOutput;
@@ -580,7 +581,7 @@ class WorkflowEngine {
       }
 
       // Continue traversing
-      await this.executeGraph(workflow, execution, targetNode.id);
+      await this.executeGraph(userId, workflow, execution, targetNode.id);
     }
   }
 
@@ -588,6 +589,7 @@ class WorkflowEngine {
    * Execute a single node
    */
   private async executeNode(
+    userId: string,
     node: WorkflowNode,
     data: Record<string, unknown>
   ): Promise<Record<string, unknown> | null> {
@@ -612,7 +614,7 @@ class WorkflowEngine {
       }
 
       case "action": {
-        return this.executeAction(node, data);
+        return this.executeAction(userId, node, data);
       }
 
       case "webhook": {
@@ -655,9 +657,31 @@ class WorkflowEngine {
   }
 
   /**
-   * Execute an action node
+   * Execute an action node — REAL implementation (R-014).
+   *
+   * Previously, every action returned a fake `{xxxSent: true}` object without
+   * doing anything. This made the entire workflow feature a demo, not a
+   * product. The following actions are now wired to real side effects:
+   *
+   *   - send_email          → real email via Resend (or dev mode log)
+   *   - create_lead         → db.lead.create
+   *   - update_lead_status  → db.lead.update
+   *   - create_contact      → db.contact.create
+   *   - create_deal         → db.deal.create
+   *   - update_deal_stage   → db.deal.update
+   *   - add_note            → db.activityLog.create
+   *   - log_activity        → db.activityLog.create
+   *   - notify_slack        → real Slack incoming webhook (if SLACK_WEBHOOK_URL set)
+   *   - notify_discord      → real Discord webhook (if URL configured on node)
+   *   - send_webhook        → real HTTP POST (already was real)
+   *   - run_agent           → agent-runner invocation (deferred — agents are
+   *                            long-running and should be queued, not awaited)
+   *
+   * Actions that cannot be implemented in-process (send_linkedin_message,
+   * wait) return a clear "not implemented" status instead of lying.
    */
   private async executeAction(
+    userId: string,
     node: WorkflowNode,
     data: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
@@ -669,34 +693,183 @@ class WorkflowEngine {
         const recipient = String(data.lead_email ?? data.email ?? node.config.recipient ?? "");
         const subject = String(node.config.subject ?? "Notification HERMÈS");
         const body = String(node.config.body ?? "Action déclenchée par workflow HERMÈS");
-        return { emailSent: true, recipient, subject };
+
+        if (!recipient) {
+          return { emailSent: false, error: "No recipient configured" };
+        }
+
+        try {
+          const { sendEmail } = await import("@/lib/email/send");
+          const result = await sendEmail({
+            to: recipient,
+            subject,
+            html: body,
+            text: body,
+            tag: `workflow-${node.id}`,
+          });
+          return {
+            emailSent: result.success,
+            recipient,
+            subject,
+            messageId: result.messageId,
+            provider: result.provider,
+            error: result.error,
+          };
+        } catch (err) {
+          return {
+            emailSent: false,
+            recipient,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "send_linkedin_message": {
+        // LinkedIn Conversation API requires Marketing Developer Platform
+        // access — not achievable for most apps. Return honest status.
         const leadName = String(data.lead_name ?? data.prenom ?? "Prospect");
-        return { linkedInMessageSent: true, to: leadName };
+        return {
+          linkedInMessageSent: false,
+          to: leadName,
+          error: "LinkedIn DM API requires MDP vetting — not implemented",
+        };
       }
 
       case "create_lead": {
-        return { leadCreated: true, name: data.lead_name ?? "New Lead" };
+        // Lead model is intentionally minimal (prenom + entreprise + score +
+        // statut). For rich data (email, poste, etc.), create a Contact instead.
+        const prenom = String(data.prenom ?? data.lead_name ?? data.name ?? "New");
+        const entreprise = String(data.entreprise ?? data.company ?? "");
+        try {
+          const lead = await db.lead.create({
+            data: {
+              userId,
+              prenom,
+              entreprise,
+              poste: String(data.poste ?? data.title ?? ""),
+              secteur: String(data.secteur ?? ""),
+              score: typeof data.score === "number" ? data.score : 0,
+              statut: "new",
+              dateCollected: new Date().toISOString(),
+            },
+          });
+          return { leadCreated: true, leadId: lead.id, name: prenom };
+        } catch (err) {
+          return {
+            leadCreated: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "update_lead_status": {
         const newStatus = String(node.config.status ?? "contacted");
-        return { leadStatusUpdated: true, newStatus };
+        const leadId = String(data.lead_id ?? node.config.leadId ?? "");
+        if (!leadId) {
+          return { leadStatusUpdated: false, error: "No lead_id in context" };
+        }
+        try {
+          // Verify ownership before updating
+          const existing = await db.lead.findFirst({
+            where: { id: leadId, userId },
+          });
+          if (!existing) {
+            return { leadStatusUpdated: false, error: "Lead not found or not owned" };
+          }
+          await db.lead.update({
+            where: { id: leadId },
+            data: { statut: newStatus },
+          });
+          return { leadStatusUpdated: true, leadId, newStatus };
+        } catch (err) {
+          return {
+            leadStatusUpdated: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "create_deal": {
-        return { dealCreated: true, value: node.config.value ?? 0 };
+        const value = Number(node.config.value ?? data.deal_value ?? 0);
+        const title = String(node.config.title ?? data.deal_name ?? "Nouveau deal");
+        const contactId = String(data.contact_id ?? node.config.contactId ?? "");
+
+        if (!contactId) {
+          return { dealCreated: false, error: "No contact_id in context" };
+        }
+        try {
+          const contact = await db.contact.findFirst({
+            where: { id: contactId, userId },
+          });
+          if (!contact) {
+            return { dealCreated: false, error: "Contact not found or not owned" };
+          }
+          const deal = await db.deal.create({
+            data: {
+              userId,
+              contactId,
+              titre: title,
+              valeur: value,
+              stage: "prospect",
+              probabilite: 10,
+            },
+          });
+          return { dealCreated: true, dealId: deal.id, title, value };
+        } catch (err) {
+          return {
+            dealCreated: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "update_deal_stage": {
         const newStage = String(node.config.stage ?? "proposal");
-        return { dealStageUpdated: true, newStage };
+        const dealId = String(data.deal_id ?? node.config.dealId ?? "");
+        if (!dealId) {
+          return { dealStageUpdated: false, error: "No deal_id in context" };
+        }
+        try {
+          const existing = await db.deal.findFirst({
+            where: { id: dealId, userId },
+          });
+          if (!existing) {
+            return { dealStageUpdated: false, error: "Deal not found or not owned" };
+          }
+          await db.deal.update({
+            where: { id: dealId },
+            data: { stage: newStage },
+          });
+          return { dealStageUpdated: true, dealId, newStage };
+        } catch (err) {
+          return {
+            dealStageUpdated: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "create_contact": {
-        return { contactCreated: true, name: data.contact_name ?? data.lead_name ?? "New Contact" };
+        const name = String(data.contact_name ?? data.lead_name ?? "New Contact");
+        try {
+          const contact = await db.contact.create({
+            data: {
+              userId,
+              nom: String(data.nom ?? name),
+              prenom: String(data.prenom ?? ""),
+              email: String(data.email ?? data.contact_email ?? ""),
+              entreprise: String(data.entreprise ?? data.company ?? ""),
+              poste: String(data.poste ?? data.title ?? ""),
+              source: "workflow",
+            },
+          });
+          return { contactCreated: true, contactId: contact.id, name };
+        } catch (err) {
+          return {
+            contactCreated: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "send_webhook": {
@@ -718,33 +891,149 @@ class WorkflowEngine {
 
       case "run_agent": {
         const agentId = String(node.config.agentId ?? "contenu");
-        return { agentTriggered: true, agentId };
+        // Agent runs are long-lived (LLM calls) and shouldn't block the
+        // workflow execution. We log the trigger and let the agent pick
+        // it up asynchronously. A full implementation would enqueue a job
+        // via Inngest/Trigger.dev.
+        await db.activityLog.create({
+          data: {
+            userId,
+            agentId,
+            agentName: `Workflow Trigger → ${agentId}`,
+            type: "info",
+            message: `Workflow a déclenché l'agent ${agentId}`,
+            details: `Node: ${node.label} | Workflow data: ${JSON.stringify(data).slice(0, 200)}`,
+          },
+        });
+        return {
+          agentTriggered: true,
+          agentId,
+          note: "Agent trigger logged — async execution requires a job queue (Inngest/Trigger.dev)",
+        };
       }
 
       case "add_tag": {
         const tag = String(node.config.tag ?? "workflow-tag");
-        return { tagAdded: true, tag };
+        const contactId = String(data.contact_id ?? node.config.contactId ?? "");
+        if (!contactId) {
+          return { tagAdded: false, error: "No contact_id in context" };
+        }
+        try {
+          const contact = await db.contact.findFirst({ where: { id: contactId, userId } });
+          if (!contact) {
+            return { tagAdded: false, error: "Contact not found or not owned" };
+          }
+          // Contact.tags is a Json column — accept arrays or strings
+          const rawTags = contact.tags;
+          const existingTags: string[] = Array.isArray(rawTags)
+            ? (rawTags as string[])
+            : typeof rawTags === "string"
+              ? fromJson<string[]>(rawTags as unknown as JsonValue, [])
+              : [];
+          if (!existingTags.includes(tag)) {
+            existingTags.push(tag);
+            await db.contact.update({
+              where: { id: contactId },
+              data: { tags: toJson(existingTags) },
+            });
+          }
+          return { tagAdded: true, contactId, tag };
+        } catch (err) {
+          return {
+            tagAdded: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "add_note": {
         const note = String(node.config.note ?? "");
-        return { noteAdded: true, note };
+        const contactId = String(data.contact_id ?? node.config.contactId ?? "");
+        if (!contactId || !note) {
+          return { noteAdded: false, error: "contact_id and note are required" };
+        }
+        try {
+          await db.activityLog.create({
+            data: {
+              userId,
+              agentId: "workflow",
+              agentName: "Workflow Note",
+              type: "info",
+              message: `Note ajoutée: ${note}`,
+              details: `Contact: ${contactId}`,
+            },
+          });
+          return { noteAdded: true, contactId, note };
+        } catch (err) {
+          return {
+            noteAdded: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "notify_slack": {
-        const channel = String(node.config.channel ?? "#hermes-alerts");
         const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
-        return { slackNotified: true, channel, message };
+        const webhookUrl = process.env.SLACK_WEBHOOK_URL ?? String(node.config.webhookUrl ?? "");
+        if (!webhookUrl) {
+          return { slackNotified: false, error: "SLACK_WEBHOOK_URL not configured" };
+        }
+        try {
+          const res = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: message }),
+          });
+          return { slackNotified: res.ok, status: res.status, message };
+        } catch (err) {
+          return {
+            slackNotified: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "notify_discord": {
-        const webhookUrl = String(node.config.webhookUrl ?? "");
         const message = String(node.config.message ?? `Alerte HERMÈS: ${node.label}`);
-        return { discordNotified: true, webhookUrl: webhookUrl ? "***" : "not configured", message };
+        const webhookUrl = String(node.config.webhookUrl ?? "");
+        if (!webhookUrl) {
+          return { discordNotified: false, error: "Discord webhook URL not configured on node" };
+        }
+        try {
+          const res = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: message }),
+          });
+          return { discordNotified: res.ok, status: res.status, message };
+        } catch (err) {
+          return {
+            discordNotified: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "log_activity": {
-        return { activityLogged: true, message: node.config.message ?? `Workflow action: ${node.label}` };
+        const message = String(node.config.message ?? `Workflow action: ${node.label}`);
+        try {
+          await db.activityLog.create({
+            data: {
+              userId,
+              agentId: "workflow",
+              agentName: "Workflow",
+              type: "info",
+              message,
+              details: `Workflow data: ${JSON.stringify(data).slice(0, 200)}`,
+            },
+          });
+          return { activityLogged: true, message };
+        } catch (err) {
+          return {
+            activityLogged: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
 
       case "wait": {

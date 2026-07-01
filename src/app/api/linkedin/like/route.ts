@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromCookies } from "@/lib/linkedin-token";
+import {
+  guardLinkedInAction,
+  complianceBlockedResponse,
+} from "@/lib/linkedin/compliance-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +14,18 @@ export async function POST(request: NextRequest) {
         { error: "Non authentifié. Connectez votre compte LinkedIn." },
         { status: 401 }
       );
+    }
+
+    // ─── Compliance pre-flight check ───────────────────────────────────
+    const guard = await guardLinkedInAction("like");
+    if (!guard.allowed) {
+      if (guard.reason === "AUTH_REQUIRED") {
+        return NextResponse.json(
+          { error: "Authentification HERMÈS requise" },
+          { status: 401 },
+        );
+      }
+      return complianceBlockedResponse(guard.reason ?? "Limite quotidienne atteinte");
     }
 
     const body = await request.json();
@@ -55,6 +71,11 @@ export async function POST(request: NextRequest) {
         { status: likeResponse.status }
       );
     }
+
+    // ─── Compliance: record successful action ──────────────────────────
+    guard.record().catch((err) => {
+      console.error("[compliance] Failed to record like action:", err);
+    });
 
     return NextResponse.json({
       success: true,

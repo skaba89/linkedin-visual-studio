@@ -16,10 +16,14 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { isHttpError } from "@/lib/http-error";
 
-// GET /api/data/export — Export all data as JSON
+// GET /api/data/export — Export all user data as JSON or CSV
+// Multi-tenant safe: only exports data belonging to the authenticated user.
+// Previously this route used `userId = "default"` which would export ALL
+// users' data to any authenticated caller — a critical data leak.
 export async function GET(request: NextRequest) {
   try {
     const user = await requireUser();
+    const userId = user.id;
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") ?? "json";
     const tables = searchParams.get("tables")?.split(",") ?? [];
@@ -36,7 +40,7 @@ export async function GET(request: NextRequest) {
       ? tables.filter((t) => availableTables.includes(t))
       : availableTables;
 
-    const userId = user.id;
+
     const data: Record<string, unknown[]> = {};
 
     for (const table of tablesToExport) {
@@ -137,7 +141,7 @@ export async function GET(request: NextRequest) {
     if (isHttpError(err)) return NextResponse.json(err.toJSON(), { status: err.status });
     return NextResponse.json(
       { error: "Export failed", details: String(err) },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

@@ -20,6 +20,7 @@ const AUTH_SKIP_ROUTES = [
   "/api/linkedin/callback", // LinkedIn OAuth callback (called by LinkedIn's redirect)
   "/api/setup/",            // One-time setup endpoints (migration trigger, ensure-user-columns, etc.)
   "/api/csp-report",        // Endpoint de reporting CSP (POST)
+  "/api/email/track",       // Public email tracking endpoint (open pixel + click redirect)
 ];
 
 function shouldSkipAuth(pathname: string): boolean {
