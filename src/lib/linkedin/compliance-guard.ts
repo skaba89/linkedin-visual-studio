@@ -70,7 +70,12 @@ export async function guardLinkedInAction(
     };
   }
 
-  const check = await linkedInCompliance.canPerformAction(userId, action);
+  // Switch the singleton's tenant context to the authenticated user.
+  // This is what makes compliance multi-tenant safe — without it, every
+  // user's actions would be counted against DEFAULT_USER_ID's quota.
+  await linkedInCompliance.initializedForUserId(userId);
+
+  const check = await linkedInCompliance.canPerformAction(action);
   if (!check.allowed) {
     return {
       allowed: false,
@@ -83,7 +88,12 @@ export async function guardLinkedInAction(
 
   return {
     allowed: true,
-    record: () => linkedInCompliance.recordAction(userId, action),
+    record: async () => {
+      // Re-establish tenant context in case another request has used the
+      // singleton between the pre-flight check and the post-action record.
+      await linkedInCompliance.initializedForUserId(userId);
+      await linkedInCompliance.recordAction(action);
+    },
   };
 }
 

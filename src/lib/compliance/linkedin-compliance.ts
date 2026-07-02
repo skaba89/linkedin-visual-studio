@@ -44,10 +44,29 @@ export class LinkedInComplianceManager {
     this.limits = { ...DEFAULT_LIMITS.moderate };
   }
 
+  /**
+   * Switch the singleton's tenant context to a specific user.
+   * Required before calling canPerformAction / recordAction in a multi-tenant
+   * request — without this, all calls operate on DEFAULT_USER_ID and one user
+   * could consume another user's compliance quota.
+   *
+   * Resets `initialized` so the next ensureLoaded() reloads from DB for the
+   * new userId.
+   */
+  async initializedForUserId(userId: string): Promise<void> {
+    if (this.userId !== userId) {
+      this.userId = userId;
+      this.initialized = false;
+      // Reset in-memory state so we don't accidentally use the previous user's
+      // usage counters between the userId switch and the next ensureLoaded().
+      this.usage = { ...DEFAULT_USAGE };
+      this.weeklyInvitations = 0;
+      this.violations = [];
+    }
+  }
+
   /** Load state from DB. Must be called before using the manager. */
   async initialize(): Promise<void> {
-    await ensureDefaultUser();
-
     const row = await db.complianceState.findUnique({
       where: { userId: this.userId },
     });

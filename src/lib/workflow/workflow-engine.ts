@@ -407,7 +407,8 @@ class WorkflowEngine {
   async executeWorkflow(
     workflowId: string,
     triggerData: Record<string, unknown> = {},
-    triggerNodeOverride?: string
+    triggerNodeOverride?: string,
+    userId: string = DEFAULT_USER_ID,
   ): Promise<WorkflowExecution> {
     const existing = await db.workflow.findUnique({ where: { id: workflowId } });
     if (!existing) {
@@ -462,7 +463,7 @@ class WorkflowEngine {
 
     const executionRow = await db.workflowExecution.create({
       data: {
-        userId: DEFAULT_USER_ID,
+        userId,
         workflowId,
         status: "running",
         triggerNode: triggerNode.id,
@@ -923,18 +924,14 @@ class WorkflowEngine {
           if (!contact) {
             return { tagAdded: false, error: "Contact not found or not owned" };
           }
-          // Contact.tags is a Json column — accept arrays or strings
-          const rawTags = contact.tags;
-          const existingTags: string[] = Array.isArray(rawTags)
-            ? (rawTags as string[])
-            : typeof rawTags === "string"
-              ? fromJson<string[]>(rawTags as unknown as JsonValue, [])
-              : [];
+          // Contact.tags is a String column holding a JSON array.
+          const rawTags: string = typeof contact.tags === "string" ? contact.tags : "[]";
+          const existingTags: string[] = parseJsonField<string[]>(rawTags, []);
           if (!existingTags.includes(tag)) {
             existingTags.push(tag);
             await db.contact.update({
               where: { id: contactId },
-              data: { tags: toJson(existingTags) },
+              data: { tags: stringifyJsonField(existingTags) },
             });
           }
           return { tagAdded: true, contactId, tag };

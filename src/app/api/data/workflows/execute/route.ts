@@ -10,7 +10,7 @@ import { isHttpError } from "@/lib/http-error";
 // POST /api/data/workflows/execute — Execute a workflow
 export async function POST(request: NextRequest) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const body = await request.json();
     const { workflowId, triggerData } = body;
 
@@ -21,7 +21,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const execution = await workflowEngine.executeWorkflow(workflowId, triggerData ?? {});
+    const execution = await workflowEngine.executeWorkflow(
+      workflowId,
+      triggerData ?? {},
+      undefined,
+      user.id,
+    );
 
     return NextResponse.json({ execution });
   } catch (err) {
