@@ -29,7 +29,9 @@ export type ViewType =
   | "integrations"
   | "engagement"
   | "billing"
-  | "team";
+  | "team"
+  | "experiments"
+  | "calendar";
 
 export interface Agent {
   id: string;

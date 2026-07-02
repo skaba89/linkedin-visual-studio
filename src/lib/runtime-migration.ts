@@ -118,12 +118,17 @@ export async function ensureUserColumns(force: boolean = false): Promise<void> {
     // /api/data/reactors, /api/data/profile-visitors, /api/data/trending,
     // /api/data/engagement-settings right after a fresh deploy).
 
-    // 6. UserSettings engagement columns (Phase 3)
+    // 6. UserSettings engagement columns (Phase 3 + Phase 6.1)
     `ALTER TABLE "UserSettings"
        ADD COLUMN IF NOT EXISTS "engagementAutoReply"       BOOLEAN NOT NULL DEFAULT false,
        ADD COLUMN IF NOT EXISTS "engagementMaxDailyComments" INTEGER NOT NULL DEFAULT 3,
        ADD COLUMN IF NOT EXISTS "engagementTone"            TEXT    NOT NULL DEFAULT 'expert',
        ADD COLUMN IF NOT EXISTS "engagementMinHoursBetween" DOUBLE PRECISION NOT NULL DEFAULT 2;`,
+    // Phase 6.1 — Voice fingerprint + humanization toggle
+    `ALTER TABLE "UserSettings"
+       ADD COLUMN IF NOT EXISTS "engagementVoiceSamples"    TEXT    NOT NULL DEFAULT '[]';`,
+    `ALTER TABLE "UserSettings"
+       ADD COLUMN IF NOT EXISTS "engagementHumanization"    BOOLEAN NOT NULL DEFAULT true;`,
 
     // 7. LinkedInReactor table (Phase 3)
     `CREATE TABLE IF NOT EXISTS "LinkedInReactor" (

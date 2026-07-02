@@ -14,8 +14,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { handleRouteError } from "@/lib/http-error";
+import { parseJsonField, stringifyJsonField } from "@/lib/json-field";
+import { stripEmojis } from "@/lib/sanitize-text";
 
 const VALID_TONES = ["expert", "analytical", "contrarian", "casual"];
+const MAX_VOICE_SAMPLES = 5;
+const MIN_VOICE_SAMPLE_LENGTH = 20;
+const MAX_VOICE_SAMPLE_LENGTH = 500;
 
 export async function GET() {
   try {
@@ -31,6 +36,8 @@ export async function GET() {
       engagementMaxDailyComments: settings.engagementMaxDailyComments,
       engagementTone: settings.engagementTone,
       engagementMinHoursBetween: settings.engagementMinHoursBetween,
+      engagementVoiceSamples: parseJsonField<string[]>(settings.engagementVoiceSamples, []),
+      engagementHumanization: settings.engagementHumanization,
     });
   } catch (err) {
     return handleRouteError(err);
@@ -63,6 +70,21 @@ export async function PUT(req: NextRequest) {
       data.engagementMinHoursBetween = Math.max(1, Math.min(24, body.engagementMinHoursBetween));
     }
 
+    // Phase 6.1 — Voice fingerprint samples
+    if (Array.isArray(body.engagementVoiceSamples)) {
+      const cleaned = body.engagementVoiceSamples
+        .filter((s: unknown): s is string => typeof s === "string")
+        .map((s) => stripEmojis(s).trim())
+        .filter((s) => s.length >= MIN_VOICE_SAMPLE_LENGTH && s.length <= MAX_VOICE_SAMPLE_LENGTH)
+        .slice(0, MAX_VOICE_SAMPLES);
+      data.engagementVoiceSamples = stringifyJsonField(cleaned);
+    }
+
+    // Phase 6.1 — Humanization toggle
+    if (typeof body.engagementHumanization === "boolean") {
+      data.engagementHumanization = body.engagementHumanization;
+    }
+
     const settings = await db.userSettings.upsert({
       where: { userId: user.id },
       create: { userId: user.id, ...data },
@@ -74,6 +96,8 @@ export async function PUT(req: NextRequest) {
       engagementMaxDailyComments: settings.engagementMaxDailyComments,
       engagementTone: settings.engagementTone,
       engagementMinHoursBetween: settings.engagementMinHoursBetween,
+      engagementVoiceSamples: parseJsonField<string[]>(settings.engagementVoiceSamples, []),
+      engagementHumanization: settings.engagementHumanization,
     });
   } catch (err) {
     return handleRouteError(err);

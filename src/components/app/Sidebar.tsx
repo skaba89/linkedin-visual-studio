@@ -22,6 +22,8 @@ import {
   Sparkles,
   CreditCard,
   Users as UsersIcon,
+  FlaskConical,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import UserMenu from "@/components/app/UserMenu";
 import { CommandPaletteTrigger } from "@/components/app/CommandPalette";
@@ -45,6 +47,8 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "linkedin", label: "LinkedIn", icon: Linkedin, section: "CANAUX" },
   { id: "email", label: "Email", icon: Mail },
   { id: "engagement", label: "Engagement IA", icon: Sparkles, section: "INTELLIGENCE" },
+  { id: "calendar", label: "Calendrier éditorial", icon: CalendarIcon, section: "INTELLIGENCE" },
+  { id: "experiments", label: "Labo A/B", icon: FlaskConical, section: "INTELLIGENCE" },
   { id: "billing", label: "Facturation", icon: CreditCard, section: "INTELLIGENCE" },
   { id: "team", label: "Équipe", icon: UsersIcon, section: "INTELLIGENCE" },
   { id: "monitoring", label: "Monitoring", icon: BarChart3, section: "SYSTÈME" },

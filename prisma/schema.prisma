@@ -88,6 +88,14 @@ model UserSettings {
   engagementMaxDailyComments Int    @default(3)      // hard cap (also bounded by compliance dailyComments)
   engagementTone            String  @default("expert") // expert | analytical | contrarian | casual
   engagementMinHoursBetween Float  @default(2)       // min hours between two AI-posted comments
+  // Phase 6.1 — Voice fingerprint for AI comment humanization
+  // Stores 3-5 real user comments as JSON-encoded array. Used to extract
+  // a voice signature (avg sentence length, openers, vocabulary) and inject
+  // it into the comment generation prompt.
+  engagementVoiceSamples    String   @default("[]")   // JSON-encoded string[]
+  // Phase 6.1 — Multi-pass humanization (recommended on, can be disabled
+  // by power users who want raw single-pass generation for speed)
+  engagementHumanization    Boolean  @default(true)
   // Phase 4.2 — Billing & Subscription
   // Stored on UserSettings because every user has exactly one settings row
   // (1-to-1 with User). Avoids a separate Subscription table join on every

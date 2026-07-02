@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-type Tab = "roi" | "ab-testing" | "feedback";
+type Tab = "roi" | "ab-testing" | "feedback" | "leads";
 
 interface ROIData {
   totalCost: number;
@@ -192,6 +192,7 @@ export default function AnalyticsView() {
     { id: "roi", label: "ROI", icon: BarChart3 },
     { id: "ab-testing", label: "A/B Testing", icon: FlaskConical },
     { id: "feedback", label: "Feedback Loop", icon: Heart },
+    { id: "leads", label: "Lead Trends", icon: TrendingUp },
   ];
 
   if (loading) {
@@ -556,6 +557,349 @@ export default function AnalyticsView() {
           </div>
         </div>
       )}
+
+      {/* Lead Trends Tab — Phase 6.4 */}
+      {tab === "leads" && (
+        <LeadTrendsTab />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Phase 6.4 — LeadTrendsTab
+ *
+ * Visualizes the /api/data/analytics endpoint with 6 chart blocks:
+ *   1. Score distribution histogram (5 buckets)
+ *   2. Source breakdown (horizontal bars)
+ *   3. Weekly acquisition trend (12 weeks line chart)
+ *   4. Conversion funnel (5 stages)
+ *   5. Engagement trend (8 weeks — likes + comments)
+ *   6. Top performing posts (table)
+ *
+ * All charts are pure CSS/SVG (no chart library dependency), keeping the
+ * bundle lean and the visuals on-brand.
+ */
+function LeadTrendsTab() {
+  const [data, setData] = useState<LeadTrendsData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/data/analytics");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error("Échec du chargement des analytics", {
+            description: err instanceof Error ? err.message : "Erreur inconnue",
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading || !data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="w-6 h-6 text-[#00D4FF] animate-spin" />
+      </div>
+    );
+  }
+
+  const maxScoreCount = Math.max(...data.scoreDistribution.map((b) => b.count), 1);
+  const maxSourceCount = Math.max(...data.sourceBreakdown.map((b) => b.count), 1);
+  const maxWeeklyCount = Math.max(...data.weeklyAcquisition.map((w) => w.count), 1);
+  const maxEngagement = Math.max(
+    ...data.engagementTrend.map((w) => Math.max(w.likes, w.comments)),
+    1,
+  );
+  const funnelMax = data.funnel.contacts || 1;
+  const SOURCE_LABELS: Record<string, string> = {
+    manual: "Manuel",
+    profile_visitor: "Visiteur profil",
+    reactor: "Réacteur",
+    linkedin: "LinkedIn",
+    email: "Email",
+    referral: "Référence",
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <SummaryCard label="Total contacts" value={data.summary.totalContacts} accent="text-[#00D4FF]" />
+        <SummaryCard label="Score moyen" value={data.summary.avgScore} accent="text-emerald-400" />
+        <SummaryCard label="Qualifiés (60+)" value={data.summary.qualifiedContacts} accent="text-yellow-400" />
+        <SummaryCard label="Hot leads (80+)" value={data.summary.hotContacts} accent="text-red-400" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Score distribution */}
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-[#00D4FF]" />
+            Distribution des scores
+          </h3>
+          <div className="space-y-3">
+            {data.scoreDistribution.map((bucket) => (
+              <div key={bucket.label}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-[#7B8A9A]">{bucket.label}</span>
+                  <span className="text-[#F0F4F8] font-medium">{bucket.count}</span>
+                </div>
+                <div className="h-2 bg-[#1F2937] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#00D4FF] to-[#00C48C] rounded-full transition-all"
+                    style={{ width: `${(bucket.count / maxScoreCount) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Source breakdown */}
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4 flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#00D4FF]" />
+            Sources des contacts
+          </h3>
+          {data.sourceBreakdown.length === 0 ? (
+            <p className="text-xs text-[#7B8A9A] text-center py-8">Aucune donnée</p>
+          ) : (
+            <div className="space-y-2">
+              {data.sourceBreakdown.map((src) => (
+                <div key={src.source} className="flex items-center gap-3">
+                  <span className="text-xs text-[#7B8A9A] w-28 flex-shrink-0">
+                    {SOURCE_LABELS[src.source] ?? src.source}
+                  </span>
+                  <div className="flex-1 h-2 bg-[#1F2937] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#00D4FF] rounded-full"
+                      style={{ width: `${(src.count / maxSourceCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-[#F0F4F8] w-8 text-right">{src.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Weekly acquisition trend */}
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-[#00D4FF]" />
+            Acquisition hebdomadaire (12 sem)
+          </h3>
+          {maxWeeklyCount === 0 ? (
+            <p className="text-xs text-[#7B8A9A] text-center py-8">Aucune acquisition récente</p>
+          ) : (
+            <svg viewBox="0 0 320 120" className="w-full h-32">
+              <polyline
+                points={data.weeklyAcquisition
+                  .map((w, i) => {
+                    const x = (i / (data.weeklyAcquisition.length - 1)) * 300 + 10;
+                    const y = 110 - (w.count / maxWeeklyCount) * 90;
+                    return `${x},${y}`;
+                  })
+                  .join(" ")}
+                fill="none"
+                stroke="#00D4FF"
+                strokeWidth="2"
+              />
+              {data.weeklyAcquisition.map((w, i) => {
+                const x = (i / (data.weeklyAcquisition.length - 1)) * 300 + 10;
+                const y = 110 - (w.count / maxWeeklyCount) * 90;
+                return (
+                  <g key={i}>
+                    <circle cx={x} cy={y} r="3" fill="#00D4FF" />
+                    {w.count > 0 && (
+                      <text x={x} y={y - 8} textAnchor="middle" className="fill-[#F0F4F8]" fontSize="9">
+                        {w.count}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+        </div>
+
+        {/* Conversion funnel */}
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-[#00D4FF]" />
+            Entonnoir de conversion
+          </h3>
+          <div className="space-y-2">
+            {[
+              { label: "Contacts", value: data.funnel.contacts, color: "#00D4FF" },
+              { label: "Leads", value: data.funnel.leads, color: "#00B8D9" },
+              { label: "Contactés", value: data.funnel.contacted, color: "#00C48C" },
+              { label: "Ont répondu", value: data.funnel.replied, color: "#F4A100" },
+              { label: "RDV obtenus", value: data.funnel.booked, color: "#FF6B6B" },
+              { label: "Gagnés", value: data.funnel.won, color: "#00FF88" },
+            ].map((stage) => (
+              <div key={stage.label} className="flex items-center gap-3">
+                <span className="text-xs text-[#7B8A9A] w-24 flex-shrink-0">{stage.label}</span>
+                <div className="flex-1 h-6 bg-[#1F2937] rounded-md overflow-hidden relative">
+                  <div
+                    className="h-full rounded-md flex items-center px-2"
+                    style={{
+                      width: `${(stage.value / funnelMax) * 100}%`,
+                      backgroundColor: stage.color,
+                      minWidth: stage.value > 0 ? "32px" : "0",
+                    }}
+                  >
+                    <span className="text-[10px] font-bold text-black">{stage.value}</span>
+                  </div>
+                </div>
+                <span className="text-xs text-[#7B8A9A] w-12 text-right">
+                  {data.funnel.contacts > 0 ? ((stage.value / data.funnel.contacts) * 100).toFixed(0) : 0}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Engagement trend (full width) */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-[#F0F4F8] mb-4 flex items-center gap-2">
+          <Heart className="w-4 h-4 text-[#00D4FF]" />
+          Engagement capturé (8 sem) — likes & commentaires
+        </h3>
+        {maxEngagement === 0 ? (
+          <p className="text-xs text-[#7B8A9A] text-center py-8">Aucun engagement capturé récemment</p>
+        ) : (
+          <svg viewBox="0 0 320 120" className="w-full h-32">
+            {/* Comments line (yellow) */}
+            <polyline
+              points={data.engagementTrend
+                .map((w, i) => {
+                  const x = (i / (data.engagementTrend.length - 1)) * 300 + 10;
+                  const y = 110 - (w.comments / maxEngagement) * 90;
+                  return `${x},${y}`;
+                })
+                .join(" ")}
+              fill="none"
+              stroke="#F4A100"
+              strokeWidth="2"
+            />
+            {/* Likes line (cyan) */}
+            <polyline
+              points={data.engagementTrend
+                .map((w, i) => {
+                  const x = (i / (data.engagementTrend.length - 1)) * 300 + 10;
+                  const y = 110 - (w.likes / maxEngagement) * 90;
+                  return `${x},${y}`;
+                })
+                .join(" ")}
+              fill="none"
+              stroke="#00D4FF"
+              strokeWidth="2"
+            />
+            {data.engagementTrend.map((w, i) => {
+              const x = (i / (data.engagementTrend.length - 1)) * 300 + 10;
+              const yLikes = 110 - (w.likes / maxEngagement) * 90;
+              const yComments = 110 - (w.comments / maxEngagement) * 90;
+              return (
+                <g key={i}>
+                  <circle cx={x} cy={yLikes} r="3" fill="#00D4FF" />
+                  <circle cx={x} cy={yComments} r="3" fill="#F4A100" />
+                </g>
+              );
+            })}
+          </svg>
+        )}
+        <div className="flex items-center gap-4 mt-3 text-xs">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-0.5 bg-[#00D4FF]"></span>
+            <span className="text-[#7B8A9A]">Likes</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-0.5 bg-[#F4A100]"></span>
+            <span className="text-[#7B8A9A]">Commentaires</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Top performing posts */}
+      {data.topPerformingPosts.length > 0 && (
+        <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-[#F0F4F8] mb-3 flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-yellow-400" />
+            Top 5 posts par engagement
+          </h3>
+          <div className="space-y-2">
+            {data.topPerformingPosts.map((post, idx) => (
+              <div key={post.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.02]">
+                <span className="text-xs font-bold text-[#7B8A9A] w-6">#{idx + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-[#F0F4F8] truncate">
+                    {post.contentType} · {post.agentId || "agent"}
+                  </p>
+                  <p className="text-[11px] text-[#7B8A9A]">
+                    {post.likes} likes · {post.comments} commentaires · {post.impressions} impressions
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-emerald-400">
+                  {(post.engagementRate * 100).toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface LeadTrendsData {
+  scoreDistribution: { label: string; count: number }[];
+  sourceBreakdown: { source: string; count: number }[];
+  weeklyAcquisition: { weekStart: string; count: number }[];
+  funnel: {
+    contacts: number;
+    leads: number;
+    contacted: number;
+    replied: number;
+    booked: number;
+    won: number;
+  };
+  engagementTrend: { weekStart: string; likes: number; comments: number }[];
+  topPerformingPosts: {
+    id: string;
+    contentType: string;
+    contentId: string;
+    agentId: string;
+    likes: number;
+    comments: number;
+    impressions: number;
+    engagementRate: number;
+    recordedAt: string;
+  }[];
+  summary: {
+    totalContacts: number;
+    avgScore: number;
+    qualifiedContacts: number;
+    hotContacts: number;
+  };
+}
+
+function SummaryCard({ label, value, accent }: { label: string; value: number; accent: string }) {
+  return (
+    <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
+      <p className="text-[11px] text-[#7B8A9A] uppercase tracking-wide">{label}</p>
+      <p className={`text-2xl font-bold mt-1 ${accent}`}>{value}</p>
     </div>
   );
 }

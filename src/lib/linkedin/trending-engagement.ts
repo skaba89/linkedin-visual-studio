@@ -326,16 +326,58 @@ export async function engageTrendingTopicsForUser(
       }
 
       // 3. Generate an expert comment
+      // Phase 6.1 — Use humanization pipeline if enabled, with voice samples
       const settings = await db.userSettings.findUnique({ where: { userId } });
       const tone = (settings?.engagementTone as ExpertTone) ?? "expert";
-      const comment = await generateExpertComment({
-        postText: target.snippet,
-        postAuthor: target.title,
-        tone,
-        icpSectors,
-      });
+      let commentText: string | null = null;
+      let commentModel = "unknown";
+      let passes = 1;
+      let humannessScore: number | null = null;
 
-      if (!comment) {
+      const voiceSamples = settings?.engagementVoiceSamples
+        ? (() => {
+            try {
+              const parsed = JSON.parse(settings.engagementVoiceSamples);
+              return Array.isArray(parsed) ? parsed.filter((s) => typeof s === "string") : [];
+            } catch {
+              return [];
+            }
+          })()
+        : [];
+
+      if (settings?.engagementHumanization !== false) {
+        // Phase 6.1 — Multi-pass humanized generation
+        const { generateHumanizedComment } = await import("@/lib/linkedin/comment-humanizer");
+        const humanized = await generateHumanizedComment(
+          {
+            postText: target.snippet,
+            postAuthor: target.title,
+            tone,
+            icpSectors,
+          },
+          voiceSamples.length >= 3 ? voiceSamples : undefined,
+        );
+        if (humanized) {
+          commentText = humanized.text;
+          commentModel = humanized.model;
+          passes = humanized.passes;
+          humannessScore = humanized.humannessScore.overall;
+        }
+      } else {
+        // Legacy single-pass generation
+        const comment = await generateExpertComment({
+          postText: target.snippet,
+          postAuthor: target.title,
+          tone,
+          icpSectors,
+        });
+        if (comment) {
+          commentText = comment.text;
+          commentModel = comment.model;
+        }
+      }
+
+      if (!commentText) {
         await db.trendingTopic.update({
           where: { id: topic.id },
           data: { status: "failed", error: "comment_generation_failed" },
@@ -343,6 +385,9 @@ export async function engageTrendingTopicsForUser(
         failed++;
         continue;
       }
+
+      // Build a unified object for downstream code
+      const comment = { text: commentText, tone, model: commentModel };
 
       // 4. Post the comment via LinkedIn API
       const commentBody = {
@@ -404,6 +449,12 @@ export async function engageTrendingTopicsForUser(
           status: "posted",
           commentUrn: commentUrn || null,
           postedAt: new Date(),
+          // Phase 6.1 — Audit metadata for humanization pipeline
+          // Stored in the model field with a structured suffix when humanization
+          // was used, so we can later filter/sort by quality in the UI
+          ...(humannessScore !== null
+            ? { model: `${comment.model}|humanized:passes=${passes},score=${humannessScore}` }
+            : {}),
         },
       });
 

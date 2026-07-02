@@ -87,6 +87,26 @@ interface EngagementSettings {
   engagementMaxDailyComments: number;
   engagementTone: "expert" | "analytical" | "contrarian" | "casual";
   engagementMinHoursBetween: number;
+  // Phase 6.1 — Voice fingerprint + humanization
+  engagementVoiceSamples?: string[];
+  engagementHumanization?: boolean;
+}
+
+interface CommentPreview {
+  comment: string;
+  tone: string;
+  model: string;
+  passes: number;
+  humannessScore: {
+    openingVariation: number;
+    specificity: number;
+    sentenceRhythm: number;
+    vocabularyNaturalness: number;
+    opinionStrength: number;
+    overall: number;
+    feedback: string[];
+  } | null;
+  voiceFingerprintApplied: boolean;
 }
 
 interface ExpertCommentVariant {
@@ -193,6 +213,8 @@ export default function EngagementView() {
         engagementMaxDailyComments: 3,
         engagementTone: "expert",
         engagementMinHoursBetween: 2,
+        engagementVoiceSamples: [],
+        engagementHumanization: true,
       });
     }
   }, []);
@@ -1055,6 +1077,31 @@ function AutoReplyTab({
               ))}
             </div>
           </div>
+
+          {/* Phase 6.1 — Humanization toggle */}
+          <div>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-sm font-medium text-white">Humanisation multi-passes</p>
+                <p className="text-xs text-gray-400">
+                  Audit IA + régénération jusqu'à 3 passes (score 7.5/10 minimum)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocal({ ...local, engagementHumanization: !local.engagementHumanization })}
+                className={`relative w-11 h-6 rounded-full transition-colors ${
+                  local.engagementHumanization ? "bg-[#00D4FF]" : "bg-[#1F2937]"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                    local.engagementHumanization ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
         </div>
 
         <button
@@ -1066,6 +1113,20 @@ function AutoReplyTab({
         </button>
       </div>
 
+      {/* Phase 6.1 — Voice Fingerprint */}
+      <VoiceFingerprintCard
+        samples={local.engagementVoiceSamples ?? []}
+        onChange={(samples) => setLocal({ ...local, engagementVoiceSamples: samples })}
+        onSave={() => onSave(local)}
+      />
+
+      {/* Phase 6.1 — Comment Preview */}
+      <CommentPreviewCard
+        tone={local.engagementTone}
+        humanizationEnabled={local.engagementHumanization ?? true}
+        voiceSamplesCount={local.engagementVoiceSamples?.length ?? 0}
+      />
+
       <div className="bg-[#0F1419] border border-[#1F2937] rounded-lg p-4">
         <h4 className="text-sm font-semibold text-white mb-2">Comment ça marche</h4>
         <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
@@ -1073,10 +1134,270 @@ function AutoReplyTab({
           <li>Le cron <code className="text-[#00D4FF]">trending-engage</code> (toutes les 2h) prend chaque sujet en attente</li>
           <li>Pour chaque sujet, il cherche un post LinkedIn pertinent via web search</li>
           <li>L'IA génère un commentaire expert (anti-détection: pas de tics, pas d'émojis, micro-détail spécifique)</li>
+          {local.engagementHumanization && (
+            <li className="text-[#00D4FF]">Phase 6.1 — Le commentaire est audit + régénéré jusqu'à 3 passes pour atteindre un score d'humain 7.5/10</li>
+          )}
           <li>Le commentaire est publié via l'API LinkedIn, dans le respect de vos limites</li>
           <li>Le sujet est marqué comme "commented" avec le texte et l'URN du commentaire</li>
         </ol>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Phase 6.1 — Voice Fingerprint card
+ *
+ * Lets the user paste 3-5 of their real LinkedIn comments. The samples are
+ * stored on UserSettings.engagementVoiceSamples and used by the humanizer
+ * to mimic the user's voice (avg sentence length, preferred openers,
+ * vocabulary, punctuation profile).
+ */
+function VoiceFingerprintCard({
+  samples,
+  onChange,
+  onSave,
+}: {
+  samples: string[];
+  onChange: (samples: string[]) => void;
+  onSave: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const addSample = () => {
+    const trimmed = draft.trim();
+    if (trimmed.length < 20) return;
+    if (trimmed.length > 500) return;
+    if (samples.length >= 5) return;
+    onChange([...samples, trimmed]);
+    setDraft("");
+  };
+
+  const removeSample = (idx: number) => {
+    onChange(samples.filter((_, i) => i !== idx));
+  };
+
+  const ready = samples.length >= 3;
+
+  return (
+    <div className="bg-[#0F1419] border border-[#1F2937] rounded-lg p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Sparkles className="w-5 h-5 text-[#00D4FF]" />
+        <h3 className="text-sm font-semibold text-white">Empreinte vocale</h3>
+        {ready && (
+          <span className="ml-auto text-xs px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-full">
+            {samples.length}/5 actives
+          </span>
+        )}
+        {!ready && (
+          <span className="ml-auto text-xs px-2 py-0.5 bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 rounded-full">
+            {samples.length}/5 — min 3
+          </span>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Collez 3 à 5 de vos VRAIS commentaires LinkedIn. L'IA en extrait votre signature vocale
+        (longueur moyenne de phrases, ouvertures préférées, vocabulaire récurrent) et l'imite
+        lors de la génération. Le commentaire produit ressemblera à VOTRE écriture, pas à un
+        expert générique.
+      </p>
+
+      {samples.length > 0 && (
+        <div className="space-y-2">
+          {samples.map((s, idx) => (
+            <div key={idx} className="flex items-start gap-2 bg-[#080C10] border border-[#1F2937] rounded-md p-3">
+              <p className="text-xs text-gray-300 flex-1 line-clamp-3">{s}</p>
+              <button
+                onClick={() => removeSample(idx)}
+                className="text-gray-500 hover:text-red-400 transition-colors"
+                aria-label="Supprimer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {samples.length < 5 && (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Collez un de vos commentaires LinkedIn ici (20-500 caractères)..."
+            rows={3}
+            className="w-full bg-[#080C10] border border-[#1F2937] rounded-md px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#00D4FF] resize-none"
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500">{draft.trim().length} caractères</span>
+            <button
+              onClick={addSample}
+              disabled={draft.trim().length < 20 || draft.trim().length > 500}
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#00D4FF] text-black rounded-md text-xs font-medium hover:bg-[#00B8D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Ajouter
+            </button>
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={onSave}
+        className="flex items-center gap-2 px-4 py-2 bg-[#00D4FF] text-black rounded-md text-sm font-medium hover:bg-[#00B8D9] transition-colors"
+      >
+        <Check className="w-4 h-4" />
+        Enregistrer l'empreinte
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Phase 6.1 — Comment Preview card
+ *
+ * Lets the user test the humanization pipeline by pasting a sample LinkedIn
+ * post and seeing the generated comment, its humanness score (5 criteria),
+ * and the number of passes the pipeline took.
+ */
+function CommentPreviewCard({
+  tone,
+  humanizationEnabled,
+  voiceSamplesCount,
+}: {
+  tone: string;
+  humanizationEnabled: boolean;
+  voiceSamplesCount: number;
+}) {
+  const [postText, setPostText] = useState("");
+  const [preview, setPreview] = useState<CommentPreview | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    if (postText.trim().length < 10) return;
+    setLoading(true);
+    setPreview(null);
+    try {
+      const res = await fetch("/api/data/engagement-settings/preview-comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postText }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPreview(data);
+    } catch (err) {
+      toast.error("Échec de génération du commentaire de preview", {
+        description: err instanceof Error ? err.message : "Erreur inconnue",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#0F1419] border border-[#1F2937] rounded-lg p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Sparkles className="w-5 h-5 text-[#00D4FF]" />
+        <h3 className="text-sm font-semibold text-white">Test du pipeline d'humanisation</h3>
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Collez un post LinkedIn pour voir le commentaire que l'IA génère, avec son score
+        d'humain sur 5 critères. {humanizationEnabled ? "Multi-passes activé." : "Multi-passes désactivé."}{" "}
+        Ton: <span className="text-[#00D4FF]">{tone}</span>.{" "}
+        {voiceSamplesCount >= 3 ? `Empreinte vocale active (${voiceSamplesCount}/5).` : "Pas d'empreinte vocale (min 3 samples)."}
+      </p>
+
+      <div className="space-y-2">
+        <textarea
+          value={postText}
+          onChange={(e) => setPostText(e.target.value)}
+          placeholder="Collez ici le texte d'un post LinkedIn..."
+          rows={5}
+          className="w-full bg-[#080C10] border border-[#1F2937] rounded-md px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#00D4FF] resize-none"
+        />
+        <button
+          onClick={generate}
+          disabled={postText.trim().length < 10 || loading}
+          className="flex items-center gap-2 px-4 py-2 bg-[#00D4FF] text-black rounded-md text-sm font-medium hover:bg-[#00B8D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
+          )}
+          {loading ? "Génération..." : "Générer un commentaire test"}
+        </button>
+      </div>
+
+      {preview && (
+        <div className="space-y-3 border-t border-[#1F2937] pt-4">
+          <div className="bg-[#080C10] border border-[#1F2937] rounded-md p-3">
+            <p className="text-xs text-gray-500 mb-2">Commentaire généré</p>
+            <p className="text-sm text-white leading-relaxed">{preview.comment}</p>
+          </div>
+
+          {preview.humannessScore && (
+            <div className="bg-[#080C10] border border-[#1F2937] rounded-md p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">Score d'humain</p>
+                <div className="flex items-center gap-2">
+                  <span className={`text-2xl font-bold ${
+                    preview.humannessScore.overall >= 8 ? "text-emerald-400" :
+                    preview.humannessScore.overall >= 7 ? "text-[#00D4FF]" :
+                    "text-yellow-400"
+                  }`}>
+                    {preview.humannessScore.overall.toFixed(1)}
+                  </span>
+                  <span className="text-xs text-gray-500">/ 10</span>
+                  <span className="text-xs text-gray-500 ml-2">({preview.passes} passe{preview.passes > 1 ? "s" : ""})</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-2 text-center">
+                {[
+                  { label: "Ouverture", value: preview.humannessScore.openingVariation },
+                  { label: "Spécificité", value: preview.humannessScore.specificity },
+                  { label: "Rythme", value: preview.humannessScore.sentenceRhythm },
+                  { label: "Vocabulaire", value: preview.humannessScore.vocabularyNaturalness },
+                  { label: "Opinion", value: preview.humannessScore.opinionStrength },
+                ].map((c) => (
+                  <div key={c.label} className="bg-[#0F1419] rounded p-2">
+                    <p className="text-xs text-gray-500 mb-1">{c.label}</p>
+                    <p className={`text-sm font-semibold ${
+                      c.value >= 8 ? "text-emerald-400" :
+                      c.value >= 6 ? "text-[#00D4FF]" :
+                      "text-yellow-400"
+                    }`}>{c.value.toFixed(1)}</p>
+                  </div>
+                ))}
+              </div>
+
+              {preview.humannessScore.feedback.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Feedback audit</p>
+                  <ul className="text-xs text-gray-400 space-y-0.5 list-disc list-inside">
+                    {preview.humannessScore.feedback.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 text-xs text-gray-500">
+            <span>Modèle: <span className="text-gray-400">{preview.model}</span></span>
+            {preview.voiceFingerprintApplied && (
+              <span className="px-2 py-0.5 bg-[#00D4FF]/10 text-[#00D4FF] border border-[#00D4FF]/30 rounded-full">
+                Empreinte vocale appliquée
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

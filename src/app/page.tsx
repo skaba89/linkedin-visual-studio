@@ -21,6 +21,8 @@ import IntegrationsView from "@/components/app/IntegrationsView";
 import EngagementView from "@/components/app/EngagementView";
 import BillingView from "@/components/app/BillingView";
 import TeamView from "@/components/app/TeamView";
+import ExperimentsView from "@/components/app/ExperimentsView";
+import CalendarView from "@/components/app/CalendarView";
 import { CommandPalette } from "@/components/app/CommandPalette";
 import { useHydrated } from "@/components/app/HydrationGate";
 import { Menu, X } from "lucide-react";
@@ -124,6 +126,10 @@ export default function Home() {
         return <BillingView />;
       case "team":
         return <TeamView />;
+      case "experiments":
+        return <ExperimentsView />;
+      case "calendar":
+        return <CalendarView />;
       default:
         return <DashboardView />;
     }
