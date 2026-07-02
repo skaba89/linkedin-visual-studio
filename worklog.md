@@ -925,3 +925,234 @@ Render Cron Jobs config (dashboard → Cron Jobs) — À AJOUTER:
 - reactor-capture: Schedule "0 */2 * * *"  Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/reactor-capture
 - trending-detect: Schedule "0 6 * * *"    Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/trending-detect
 - trending-engage: Schedule "30 */2 * * *" Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/trending-engage
+
+---
+Task ID: phase-3.9
+Agent: main (Super Z)
+Task: Fix React error #418 (hydration mismatch) + 500 errors on /api/data/reactors, /api/data/profile-visitors, /api/data/trending, /api/data/engagement-settings
+
+Work Log:
+- Investigated dev.log: identified two root causes
+  1. React #418 hydration error — Zustand persist middleware rehydrated from localStorage during initial client render, while server rendered with default state. This caused currentView to differ (server='dashboard', client='engagement') and triggered React hydration error #418.
+  2. 500 errors on engagement endpoints — Migration 20260702010000_add_engagement_intelligence was committed but NOT applied on the production DB after deploy. The 4 new tables + 4 new UserSettings columns did not exist, so every Prisma query against them threw P2010 → 500.
+- Fix 1 (R-018): Added skipHydration:true to useAppStore persist config — prevents automatic rehydration during render.
+- Fix 2 (R-018): New HydrationGate component (src/components/app/HydrationGate.tsx) wraps children in layout.tsx, manually calls useAppStore.persist.rehydrate() inside useEffect (post-mount), and exports useHydrated() hook.
+- Fix 3 (R-018): page.tsx now uses useHydrated() — before mount, always renders DashboardView (matches server output); after mount, switches to the persisted currentView.
+- Fix 4 (R-019): Extended src/lib/runtime-migration.ts to also ensure engagement intelligence tables (LinkedInReactor, TrendingTopic, ProfileVisitor, ExpertComment) + UserSettings engagement columns exist at boot, using idempotent CREATE TABLE IF NOT EXISTS + ALTER TABLE ADD COLUMN IF NOT EXISTS + DO $$ ... IF NOT EXISTS (constraint) statements.
+- Verified: npx tsc --noEmit (0 errors) + npx next build (clean)
+- Committed: 9c6728d
+
+Stage Summary:
+- React #418 hydration error RESOLVED — Zustand persist + HydrationGate pattern
+- 500 errors on engagement endpoints RESOLVED — runtime migration ensures tables exist at boot
+- Multi-tenant safety preserved (all queries scoped by userId)
+- No data loss (idempotent CREATE/ALTER statements)
+
+---
+Task ID: phase-4.1
+Agent: main (Super Z)
+Task: Phase 4.1 — Real-time Activity Feed via Server-Sent Events (SSE)
+
+Work Log:
+- Created /api/events/stream endpoint (src/app/api/events/stream/route.ts):
+  - Server-Sent Events (SSE) endpoint that pushes real-time activity events
+  - Polls DB every 3s for new ActivityLog, LinkedInReactor, ExpertComment, TrendingTopic, Notification rows
+  - Sends 5 event types: activity_log, reactor, expert_comment, trending_topic, notification
+  - Heartbeat every 25s (prevents Render proxy timeout)
+  - 55-minute max lifetime (browsers auto-reconnect via EventSource)
+  - Multi-tenant safe: every event is scoped by userId (requireUser at start)
+- Created useRealtimeFeed hook (src/hooks/use-realtime-feed.ts):
+  - Auto-reconnect with exponential backoff (1s → 30s max)
+  - Event ID deduplication via Last-Event-ID
+  - Buffered feed (last 100 events, configurable)
+  - Connection status: idle | connecting | open | closed | error
+- Created RealtimeFeed component (src/components/app/RealtimeFeed.tsx):
+  - Color-coded event icons (activity=blue, reactors=red, comments=purple, trending=green, notifs=yellow)
+  - Animated event rows (fade + slide-in via Tailwind 'animate-in')
+  - 'X new' indicator when scrolled up (auto-jumps to bottom on click)
+  - Connection status indicator (green pulse = live, yellow = connecting, red = error)
+  - Empty state with spinner + helpful copy
+  - Manual reconnect button on error
+  - Clear button to reset the feed
+- Replaced polling-based 'Activité en direct' section in DashboardView with the new SSE-powered RealtimeFeed
+- Added /api/events/stream to rate-limit skip list (long-lived connection)
+- Verified: tsc + next build clean
+
+Stage Summary:
+- 1 new SSE endpoint, 1 new hook, 1 new component
+- True real-time updates (~3s lag from DB write to UI)
+- Auto-reconnect on connection loss
+- Premium UX: animated rows, status indicator, smart scroll
+- Multi-tenant safe
+
+---
+Task ID: phase-4.2
+Agent: main (Super Z)
+Task: Phase 4.2 — Stripe billing & subscription tiers (Free/Pro/Business/Enterprise) with usage quotas
+
+Work Log:
+- Designed 4 plans with quotas + features:
+  - Free (€0/mo): 1 LinkedIn account, 10 posts/mo, 30 reactors/mo, 50 AI gens/mo, 100 CRM contacts
+  - Pro (€49/mo): 1 account, 100 posts, 500 reactors, 1k AI gens, 5k CRM contacts, AI comments on trending, A/B testing
+  - Business (€199/mo): 3 accounts, 500 posts, 2.5k reactors, 5k AI gens, unlimited CRM, external integrations, team workspaces (3 seats)
+  - Enterprise (€499/mo): unlimited everything, custom AI models, SLA, dedicated support
+- New Prisma models:
+  - UsageQuota: one row per user per billing period (periodStart/End, 6 counters)
+  - UserSettings extended: plan, stripeCustomerId, stripeSubscriptionId, subscriptionStatus, trialEndsAt, currentPeriodEnd
+- New migration 20260702020000_add_billing_subscription
+- Extended runtime-migration.ts to ensure billing tables/columns exist at boot
+- New lib files:
+  - src/lib/billing/plans.ts: PLANS constant + helpers (getPlan, planAllows, planAtLeast, comparePlans)
+  - src/lib/billing/quota.ts: checkQuota, incrementUsage (throws HttpError 402 QUOTA_EXCEEDED), decrementUsage, getAllQuotas
+  - src/lib/billing/stripe.ts: lazy Stripe client (returns null if STRIPE_SECRET_KEY unset), createCheckoutSession (7-day trial), createPortalSession, getPriceId, planFromPriceId
+- 5 new API routes:
+  - GET /api/billing/subscription: current plan + status
+  - POST /api/billing/checkout: create Stripe Checkout Session
+  - POST /api/billing/portal: create Stripe Billing Portal Session
+  - POST /api/billing/webhook: Stripe webhook handler (signature verified, handles checkout.session.completed, customer.subscription.updated/deleted, invoice.payment_failed)
+  - GET /api/billing/usage: current usage vs quota for 6 resources
+- New BillingView component:
+  - Current plan card (status, renewal date, manage subscription button → Stripe Portal)
+  - Usage progress bars (color-coded: green < 70%, yellow < 90%, red ≥ 90%)
+  - 4-plan picker with monthly/yearly toggle (yearly = ~2 months free)
+  - 'Recommended' badge on Pro plan
+  - Loading states during checkout redirect
+- Added 'stripe' dependency (^22.3.0)
+- Added /api/billing/webhook to AUTH_SKIP_ROUTES + rate-limit skip list
+- Updated .env.example with all Stripe env vars
+- Premium UX: new sidebar item 'Facturation' under INTELLIGENCE section
+
+Stage Summary:
+- 2 new Prisma models, 1 migration, 3 lib files, 5 API routes, 1 UI component
+- 4 plans × 2 intervals = 8 Stripe price IDs (configurable via env vars)
+- 6 quotas per plan enforced via incrementUsage()
+- Stripe client lazy-loads (works in dev without STRIPE_SECRET_KEY)
+- Webhook signature verified, idempotent via upsert()
+- 7-day free trial by default
+
+---
+Task ID: phase-4.3
+Agent: main (Super Z)
+Task: Phase 4.3 — External integrations (HubSpot, Pipedrive, Notion, Attio) for CRM sync
+
+Work Log:
+- New Prisma model Integration: stores provider, encrypted credentials (AES-256-GCM), sync state (lastSyncAt, lastSyncStatus, lastSyncError, totalSynced), auto-sync settings
+- New migration 20260702030000_add_integrations
+- Extended runtime-migration.ts to ensure Integration table exists at boot
+- New lib src/lib/integrations/:
+  - providers.ts: 5 provider definitions (HubSpot, Pipedrive, Notion, Attio, Salesforce placeholder) with authFields + docsUrl + features
+  - sync.ts: IntegrationAdapter interface, 4 adapter implementations
+    - HubSpot: contacts sync via API key, dedup by email
+    - Pipedrive: persons sync via API key + companyDomain, dedup by email
+    - Notion: database entries sync via API key + databaseId, dedup by LinkedIn URL
+    - Attio: people records sync via API key, dedup by email (with 409 fallback)
+  - Credentials encryption (encryptCredentials/decryptCredentials using existing ENCRYPTION_KEY)
+  - syncIntegration(integrationId): runs sync for one integration (idempotent, partial sync on individual failures)
+  - syncAllIntegrations(): bulk sync for cron
+  - testIntegrationConnection(provider, credentials): validates without saving
+- 4 new API routes:
+  - GET/POST /api/integrations: list + create (validates credentials via test call before saving)
+  - DELETE/PATCH /api/integrations/[id]: remove + update (re-encrypts new credentials if provided)
+  - POST /api/integrations/[id]/sync: trigger manual sync, returns SyncResult
+  - POST /api/integrations/test: test connection without saving (for the setup modal)
+- New cron route /api/cron/integrations-sync (every 6h): calls syncAllIntegrations()
+- Multi-tenant safe (requireUser + assertOwnership on every route)
+- Sync is idempotent (dedup by email or LinkedIn URL)
+- Partial sync support (continues on individual contact failures, errors logged)
+- Verified: tsc + next build clean
+
+Stage Summary:
+- 1 new Prisma model, 1 migration, 2 lib files, 4 API routes + 1 cron route
+- 4 working adapters (HubSpot, Pipedrive, Notion, Attio)
+- Credentials encrypted at rest with ENCRYPTION_KEY
+- Idempotent sync (dedup by email/LinkedIn URL)
+- Auto-sync every 6h via cron
+- Salesforce placeholder ready for future OAuth implementation
+
+---
+Task ID: phase-4.4
+Agent: main (Super Z)
+Task: Phase 4.4 — Team workspaces & role-based access (admin/member/viewer)
+
+Work Log:
+- New Prisma models:
+  - Workspace: id, name, slug (unique), ownerId
+  - WorkspaceMember: junction User <-> Workspace with role (admin/member/viewer), unique on (workspaceId, userId)
+  - WorkspaceInvitation: pending invitations with signed token (32 hex chars), 7-day expiry
+- New UserSettings column: currentWorkspaceId (null = personal mode)
+- New migration 20260702040000_add_team_workspaces
+- Extended runtime-migration.ts to ensure all 3 workspace tables + currentWorkspaceId column exist at boot
+- New lib src/lib/workspaces/index.ts:
+  - createWorkspace(userId, name): plan-gated (Business+), creates workspace + owner as admin
+  - listUserWorkspaces(userId): all workspaces the user belongs to, with role + memberCount
+  - getCurrentWorkspace(userId): the active workspace or null (auto-clears if membership revoked)
+  - switchWorkspace(userId, workspaceId|null): toggle team/personal mode
+  - getAccessibleUserIds(userId): user IDs whose data the current user can see (own ID + workspace members' IDs in team mode)
+  - checkPermission(userId, action): role-based permission check
+    - admin: manage_members, view_billing, edit_settings, full CRUD
+    - member: full CRUD on workspace data
+    - viewer: read-only
+  - inviteMember(workspaceId, email, role, invitedBy): 
+    - 7-day expiry
+    - Plan-gated: Business = 3 seats max, Enterprise = unlimited
+    - Checks for existing membership + pending invitation
+  - acceptInvitation(token, userId): verifies email match, creates membership + clears invitation
+  - removeMember(workspaceId, memberId, removedBy): owner cannot be removed
+  - updateMemberRole(workspaceId, memberId, newRole, updatedBy): owner's role cannot be changed
+  - listMembers / listInvitations / revokeInvitation
+- 7 new API routes:
+  - GET/POST /api/workspaces: list + create
+  - POST /api/workspaces/current: switch active workspace
+  - GET/PATCH/DELETE /api/workspaces/[id]: details + update (admin) + delete (owner only)
+  - GET/POST /api/workspaces/[id]/members: list + invite (admin only)
+  - PATCH/DELETE /api/workspaces/[id]/members/[memberId]: change role + remove (admin only)
+  - GET /api/workspaces/[id]/invitations: list pending (admin only)
+  - GET/POST /api/workspaces/invitations/[token]/accept: peek + accept
+- New TeamView component (src/components/app/TeamView.tsx):
+  - Workspace switcher (Personal mode vs workspaces) with visual selection
+  - Create workspace modal
+  - Members list with:
+    - Avatar (initials fallback)
+    - Email + name
+    - Role badge (color-coded: admin=cyan, member=green, viewer=gray)
+    - Owner badge with Crown icon
+    - Role change dropdown (admin only, not for owner)
+    - Remove button (admin only, not for owner)
+  - Invite member modal (email + 3-button role selector)
+  - Pending invitations list with copy-to-clipboard invite link
+  - Plan gate notice (Business+ required for team workspaces)
+- Premium UX: new sidebar item 'Équipe' under INTELLIGENCE section
+- ViewType union extended with 'team'
+- CommandPalette: new 'Équipe' command with keywords
+- Verified: tsc + next build clean
+
+Stage Summary:
+- 3 new Prisma models, 1 migration, 1 lib file, 7 API routes, 1 UI component
+- 3 roles (admin/member/viewer) with permission matrix
+- Plan-gated (Business+ required, with seat limits per plan)
+- Email-based invitations with 7-day expiry + signed tokens
+- Multi-tenant safe: every query scoped by current workspace membership
+- Premium UI with smooth transitions, role badges, copy-to-clipboard
+
+---
+Task ID: phase-4-summary
+Agent: main (Super Z)
+Task: Phase 4 complete — Real-time feed + Stripe billing + External integrations + Team workspaces
+
+Work Log:
+- All 4 sub-phases committed and pushed to GitHub
+- Final commit hashes: 9c6728d (fixes), dce8f09 (4.1+4.2), phase-4.3 commit, phase-4.4 commit
+- Each phase verified with tsc --noEmit (0 errors) + next build (clean)
+- All runtime migrations ensure new tables exist at boot (idempotent CREATE TABLE IF NOT EXISTS + DO $$ ... IF NOT EXISTS constraint pattern)
+
+Stage Summary:
+- Phase 4.1: SSE real-time feed (3s lag, auto-reconnect, animated UI)
+- Phase 4.2: Stripe billing with 4 plans × 6 quotas × 2 intervals, webhook handler, usage tracking
+- Phase 4.3: 4 external CRM integrations (HubSpot, Pipedrive, Notion, Attio) with encrypted credentials + auto-sync
+- Phase 4.4: Team workspaces with 3 roles, invitations, plan-gated seat limits
+- HERMÈS is now a complete premium SaaS: real-time + billing + integrations + team collaboration
+- NOT YET DEPLOYED on Render — user must Manual Deploy
+- New Render Cron Jobs to add:
+  - integrations-sync: Schedule "0 */6 * * *" Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/integrations-sync
+- New Render env vars to add (optional, for billing):
+  - STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_YEARLY, STRIPE_PRICE_BUSINESS_MONTHLY, STRIPE_PRICE_BUSINESS_YEARLY, STRIPE_PRICE_ENTERPRISE_MONTHLY, STRIPE_PRICE_ENTERPRISE_YEARLY
