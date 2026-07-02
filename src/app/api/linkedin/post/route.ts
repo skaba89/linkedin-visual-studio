@@ -5,6 +5,8 @@ import {
   guardLinkedInAction,
   complianceBlockedResponse,
 } from "@/lib/linkedin/compliance-guard";
+import { db } from "@/lib/db";
+import { requireUser } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   try {
@@ -96,6 +98,27 @@ export async function POST(request: NextRequest) {
     }
 
     const responseData = await postResponse.json();
+
+    // ─── Persist the LinkedIn URN so the metrics sync cron can fetch
+    // likes/comments later. We store it on a LinkedInPost row — if the
+    // user wants to track performance, they need this URN stored.
+    // Fire-and-forget so we don't block the success response.
+    const postUrn = responseData?.activity || responseData?.id || "";
+    if (postUrn) {
+      try {
+        const user = await requireUser();
+        await db.linkedInPost.create({
+          data: {
+            userId: user.id,
+            text: text.trim(),
+            visibility,
+            linkedinUrn: postUrn,
+          },
+        });
+      } catch (err) {
+        console.error("[linkedin-post] Failed to persist LinkedInPost row:", err);
+      }
+    }
 
     // ─── Compliance: record successful action ──────────────────────────
     // Increment the per-user daily post counter so the next call can be

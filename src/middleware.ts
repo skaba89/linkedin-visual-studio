@@ -21,6 +21,7 @@ const AUTH_SKIP_ROUTES = [
   "/api/setup/",            // One-time setup endpoints (migration trigger, ensure-user-columns, etc.)
   "/api/csp-report",        // Endpoint de reporting CSP (POST)
   "/api/email/track",       // Public email tracking endpoint (open pixel + click redirect)
+  "/api/cron/",             // Cron jobs — auth via x-cron-secret header (CRON_SECRET env var)
 ];
 
 function shouldSkipAuth(pathname: string): boolean {

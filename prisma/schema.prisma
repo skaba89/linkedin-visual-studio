@@ -252,15 +252,19 @@ model LinkedInAuth {
 }
 
 model LinkedInPost {
-  id         String   @id @default(cuid())
-  userId     String
-  text       String
-  visibility String   @default("PUBLIC")
-  likes      Int      @default(0)
-  comments   Int      @default(0)
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String
+  text         String
+  visibility   String   @default("PUBLIC")
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  linkedinUrn  String?  // URN returned by LinkedIn after publishing — used for metrics sync
+  metricsSyncedAt DateTime? // last time we fetched likes/comments from LinkedIn
+  createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model ScheduledPost {
