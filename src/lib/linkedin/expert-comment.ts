@@ -86,8 +86,11 @@ export interface ExpertCommentOutput {
  * AI tics that MUST NOT appear in the comment. These are the most common
  * "tells" that reveal AI-generated LinkedIn comments. We check both the
  * raw output and after sanitization.
+ *
+ * Phase 5.2 — Enhanced with French-specific tics and additional patterns.
  */
 const AI_TICS = [
+  // English tics
   /\bgreat point\b/i,
   /\bspot on\b/i,
   /\bi completely agree\b/i,
@@ -119,6 +122,45 @@ const AI_TICS = [
   /\bawesome\b/i,
   /\bfascinating\b/i,
   /\bremarkable\b/i,
+  // French tics — Phase 5.2
+  /\btrès pertinent\b/i,
+  /\bexcellent article\b/i,
+  /\bmerci pour ce partage\b/i,
+  /\bmerci pour le partage\b/i,
+  /\bsuper post\b/i,
+  /\bsuperbe article\b/i,
+  /\barticle très intéressant\b/i,
+  /\bpost très intéressant\b/i,
+  /\bun grand merci\b/i,
+  /\bbravo pour\b/i,
+  /\bquelle pertinence\b/i,
+  /\bà méditer\b/i,
+  /\bmatter à réflexion\b/i,
+  /\bde quoi réfléchir\b/i,
+  /\bje suis entièrement d'accord\b/i,
+  /\bje partage totalement\b/i,
+  /\bje souscris à\b/i,
+  /\btout à fait d'accord\b/i,
+  /\babsolument d'accord\b/i,
+  /\bchange la donne\b/i,
+  /\brévolutionnaire\b/i,
+  /\binnovant\b/i,
+  /\btransparent\b/i,
+  /\bil est clair que\b/i,
+  /\bil convient de noter que\b/i,
+  /\bdans un monde de plus en plus\b/i,
+  /\bdans notre société actuelle\b/i,
+  /\bde nos jours\b/i,
+  /\bforce est de constater\b/i,
+  /\bpoint fondamental\b/i,
+  /\bélément clé\b/i,
+  /\bfacteur clé\b/i,
+  /\bvéritable game[- ]?changer\b/i,
+  /\bnectar de\b/i,
+  /\bpépite\b/i,
+  /\bsymphonie\b/i,
+  /\btapisserie\b/i,
+  /\bvaste panorama\b/i,
 ];
 
 /**
@@ -175,6 +217,41 @@ export function sanitizeExpertComment(raw: string): { text: string; fixedViolati
 }
 
 /**
+ * Pool of opening phrases the AI is encouraged to use. We pick one at random
+ * and inject it into the prompt as a hint. This breaks the model's tendency
+ * to start every comment with "I" or "This" and makes each comment feel
+ * different.
+ *
+ * Phase 5.2 — Added to enhance comment variety and natural feel.
+ */
+const OPENING_PHRASES = [
+  "Un chiffre qui m'a frappé récemment",
+  "Sur un projet similaire",
+  "Le point sur lequel je nuancerais",
+  "Une observation contre-intuitive",
+  "À reculons, je suis d'accord",
+  "Sur le terrain, on voit l'inverse",
+  "Trois clients m'ont remonté la même chose",
+  "Ce qui manque à l'argument",
+  "J'ai testé ça en production",
+  "L'an dernier, sur un dossier comparable",
+  "D'abord, un constat",
+  "Le détail qu'on oublie",
+  "Sur la marge, pas d'accord",
+  "Vu de l'opérationnel",
+  "Concrètement",
+  "En creusant un peu",
+  "Sur ce point précis",
+  "Une nuance importante",
+  "Ça rejoint ce qu'on observe",
+  "L'inverse est plus juste",
+];
+
+function pickRandomOpener(): string {
+  return OPENING_PHRASES[Math.floor(Math.random() * OPENING_PHRASES.length)];
+}
+
+/**
  * Build the system prompt for expert comment generation.
  *
  * The prompt is engineered with NEGATIVE instructions (what NOT to do)
@@ -196,6 +273,8 @@ function buildSystemPrompt(tone: ExpertTone, userContext?: string, icpSectors?: 
     casual: `Ton casual: conversationnel, 2 phrases max, référence une expérience perso courte ("je l'ai vu chez un client la semaine dernière"). Pas de jargon.`,
   };
 
+  const openerHint = pickRandomOpener();
+
   return `Tu es un expert francophone qui commente des posts LinkedIn B2B. Le commentaire doit être INDÉTECTABLE comme généré par une IA. Voici les règles strictes:
 
 CONTRAINTES ABSOLUES (toute violation = commentaire rejeté):
@@ -214,6 +293,7 @@ ANTI-TICS INTERDITS (génère un commentaire SANS ces tics):
 - "Excellent article", "Thanks for sharing", "Great insights", "Food for thought"
 - "Game-changer", "Revolutionary", "Groundbreaking", "Amazing", "Incredible", "Fascinating", "Remarkable", "Invaluable"
 - "Couldn't agree more", "Nailed it", "Hit the nail on the head"
+- FRANÇAIS : "Très pertinent", "Merci pour ce partage", "Super post", "Article très intéressant", "Bravo pour", "À méditer", "Je suis entièrement d'accord", "Je partage totalement", "Tout à fait d'accord", "Change la donne", "Révolutionnaire", "Innovant", "Il est clair que", "Il convient de noter que", "De nos jours", "Force est de constater", "Point fondamental", "Élément clé", "Pépite"
 
 ${toneSpecs[tone]}
 
@@ -225,6 +305,8 @@ OBLIGATIONS:
 - Varie la longueur des phrases (mix court 3-6 mots + plus long 10-20 mots).
 - Apporte un point de vue, ne te contente pas d'approuver.
 - Langue: français naturel, pas scolaire. Légère imperfection acceptée (un "du coup", un "franchement", un "en vrai").
+- Commence par UNE de ces phrases (adaptée au contexte) : "${openerHint}"
+  Si elle ne colle pas au contexte, inspire-t'en pour créer une ouverture similaire mais différente.
 
 Réponds UNIQUEMENT avec le texte du commentaire, sans guillemets, sans préfixe, sans explication.`;
 }

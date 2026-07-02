@@ -1,54 +1,98 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Copy, Terminal, Server, Key, FolderTree } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  UserPlus,
+  Linkedin,
+  Sparkles,
+  Target,
+  Zap,
+  ExternalLink,
+  HelpCircle,
+} from "lucide-react";
+import { toast } from "@/lib/toast";
+import { useAppStore } from "@/store/appStore";
 
+/**
+ * HERMÈS — SetupView (Phase 5.3)
+ *
+ * Onboarding checklist for new SaaS users. Replaces the old CLI-based
+ * setup (which was for the legacy npm package version of HERMÈS).
+ *
+ * The 5 steps cover:
+ *   1. Create your account (NextAuth credentials login)
+ *   2. Connect your LinkedIn account (OAuth)
+ *   3. Configure your AI provider (Groq recommended — free + fast)
+ *   4. Define your ICP (Ideal Customer Profile) for lead scoring
+ *   5. Generate your first post (test the AI agent)
+ *
+ * Each step has a CTA button that navigates the user to the relevant view
+ * or opens an external link (LinkedIn Developer, Groq console, etc.).
+ */
 const steps = [
   {
     num: "01",
-    icon: Server,
-    title: "Prérequis — Node.js 22+ et un VPS",
+    icon: UserPlus,
+    title: "Créez votre compte",
     description:
-      "Vérifiez que Node.js 22 ou supérieur est installé sur votre machine ou votre VPS. Recommandé : un VPS dédié (DigitalOcean, Hetzner, AWS Lightsail) pour que les agents tournent en continu.",
-    tip: "Choisissez un VPS à au moins 2 vCPU et 4 Go de RAM. Budget typique : 8 à 15 €/mois. Stockez toutes vos clés API dans des variables d'environnement, jamais en dur dans le code.",
-    code: `node --version  # doit afficher v22+\nnpm --version   # doit afficher 10+`,
+      "Si vous n'avez pas encore de compte, cliquez sur \"Se connecter\" dans la barre latérale et créez un compte avec votre email. Toutes vos données sont isolées (multi-tenant) et chiffrées.",
+    tip: "Le compte démo (demo@hermes.app) est disponible pour tester l'interface avant de créer votre propre compte. Mais vos données LinkedIn ne seront pas sauvegardées dessus.",
+    ctaLabel: "Aller à la connexion",
+    ctaView: "settings" as const,
     done: false,
   },
   {
     num: "02",
-    icon: Terminal,
-    title: "Installer HERMÈS via npm",
+    icon: Linkedin,
+    title: "Connectez votre compte LinkedIn",
     description:
-      "Lancez les commandes ci-dessous pour installer le gateway, le configurer comme service système et démarrer l'interface web locale.",
-    tip: "L'interface web est accessible sur http://localhost:18789. Depuis cette interface, vous pouvez créer des agents, installer des skills et monitorer les logs en temps réel.",
-    code: `# Installer HERMÈS globalement\nnpm install -g hermes-ai@latest\n\n# Initialiser le service et installer le démon système\nhermes onboard --install-daemon\n\n# Connecter vos canaux (LinkedIn, Slack, Telegram…)\nhermes channels login\n\n# Démarrer le gateway (port par défaut : 18789)\nhermes gateway --port 18789\n\n# Vérifier l'état du service\nhermes status\nhermes doctor`,
+      "HERMÈS utilise l'API officielle LinkedIn pour publier vos posts, récupérer les likes/comments, et scorer les réacteurs. La connexion OAuth prend 30 secondes.",
+    tip: "Vos tokens LinkedIn sont chiffrés en base (AES-256-GCM) et automatiquement rafraîchis toutes les 24h. Vous pouvez révoquer l'accès à tout moment depuis LinkedIn ou depuis HERMÈS.",
+    ctaLabel: "Connecter LinkedIn",
+    ctaView: "linkedin" as const,
     done: false,
   },
   {
     num: "03",
-    icon: Key,
-    title: "Configurer les clés API et le fichier de config",
+    icon: Sparkles,
+    title: "Configurez votre provider IA",
     description:
-      "Éditez le fichier de configuration principal ~/.hermes/hermes.json pour renseigner vos clés API, définir les modèles IA à utiliser et autoriser les canaux.",
-    tip: "Utilisez toujours des variables d'environnement plutôt que des clés en dur. Les providers gratuits (Groq, Gemini, Cerebras, SambaNova) sont recommandés pour démarrer sans frais.",
-    code: `// ~/.hermes/hermes.json\n{\n  "provider": "groq",\n  "model": "llama-3.3-70b-versatile",\n  "provider_api_keys": {\n    "groq":       "$GROQ_API_KEY",\n    "google":     "$GOOGLE_API_KEY",\n    "openrouter": "$OPENROUTER_API_KEY",\n    "cerebras":   "$CEREBRAS_API_KEY",\n    "deepseek":   "$DEEPSEEK_API_KEY",\n    "anthropic":  "$ANTHROPIC_API_KEY",\n    "openai":     "$OPENAI_API_KEY"\n  },\n  "channels": ["slack", "discord", "telegram"],\n  "security": {\n    "allow_shell": true,\n    "allow_browser": true,\n    "forbidden_commands": ["rm -rf", "drop table"]\n  }\n}`,
+      "HERMÈS supporte Groq (recommandé, gratuit), OpenAI, Anthropic, OpenRouter, DeepSeek, et d'autres. Récupérez une clé API Groq gratuite (https://console.groq.com/keys) et collez-la dans les Paramètres.",
+    tip: "Groq offre 1000+ requêtes gratuites par jour avec le modèle llama-3.3-70b-versatile — largement suffisant pour générer 10-20 posts + 50 commentaires par jour. Pour usage intensif, basculez sur OpenAI GPT-4o ou Anthropic Claude 3.5 Sonnet.",
+    ctaLabel: "Configurer l'IA",
+    ctaView: "settings" as const,
+    externalUrl: "https://console.groq.com/keys",
     done: false,
   },
   {
     num: "04",
-    icon: FolderTree,
-    title: "Créer les 3 agents et la structure de dossiers",
+    icon: Target,
+    title: "Définissez votre ICP (client idéal)",
     description:
-      "Chaque agent vit dans son propre dossier avec son fichier SKILL.md (définition des tâches) et son fichier HEARTBEAT.md (planification).",
-    tip: "Le dossier data/ est le point central de communication entre vos 3 agents. L'agent Contenu y écrit les métriques, le Qualif y écrit les leads scorés, le Prospection y lit les leads à contacter.",
-    code: `# Créer les 3 agents depuis la CLI\nhermes new-agent --name contenu-bot\nhermes new-agent --name qualif-bot\nhermes new-agent --name prospection-bot\n\n# Structure générée automatiquement\nagents/\n├── contenu-bot/\n│   ├── SKILL.md        # Définition des tâches\n│   └── HEARTBEAT.md    # Planning d'exécution\n├── qualif-bot/\n│   ├── SKILL.md\n│   └── HEARTBEAT.md\n├── prospection-bot/\n│   ├── SKILL.md\n│   └── HEARTBEAT.md\n└── data/              # Dossier partagé entre agents\n    ├── network.json\n    └── qualified.json`,
+      "L'ICP (Ideal Customer Profile) permet à l'agent Qualification de scorer automatiquement les réacteurs de vos posts. Plus l'ICP est précis, meilleurs sont les leads remontés.",
+    tip: "Un bon ICP contient : 3-5 intitulés de poste (ex: \"Head of Growth\", \"CEO SaaS B2B\"), 3-5 secteurs (ex: \"SaaS\", \"Fintech\", \"MarTech\"), et la taille d'entreprise cible (ex: 10-200 employés). Évitez les ICP trop larges (\"tous les décideurs\") qui diluent le scoring.",
+    ctaLabel: "Configurer l'ICP",
+    ctaView: "icp" as const,
+    done: false,
+  },
+  {
+    num: "05",
+    icon: Zap,
+    title: "Générez votre premier post",
+    description:
+      "Testez l'agent Contenu en générant votre premier post LinkedIn. Vous pouvez éditer le brouillon, planifier la publication, ou la publier immédiatement. Une fois publié, les métriques (likes, comments) sont synchronisées automatiquement.",
+    tip: "Pour maximiser l'engagement, publiez entre 8h-10h ou 17h-19h (heure de Paris) les mardi/mercredi/jeudi. Évitez le week-end sauf si votre audience est très active alors.",
+    ctaLabel: "Générer un post",
+    ctaView: "agent-contenu" as const,
     done: false,
   },
 ];
 
 export default function SetupView() {
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
-  const [copiedStep, setCopiedStep] = useState<string | null>(null);
+  const setCurrentView = useAppStore((s) => s.setCurrentView);
 
   const toggleStep = (num: string) => {
     setCompletedSteps((prev) => {
@@ -62,19 +106,33 @@ export default function SetupView() {
     });
   };
 
-  const copyCode = (code: string, stepNum: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedStep(stepNum);
-    setTimeout(() => setCopiedStep(null), 2000);
+  const copyCode = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copié dans le presse-papier");
+  };
+
+  const handleCta = (step: typeof steps[number]) => {
+    if (step.ctaView) {
+      setCurrentView(step.ctaView);
+    }
+    if (step.externalUrl) {
+      window.open(step.externalUrl, "_blank", "noopener,noreferrer");
+    }
+    if (!completedSteps.has(step.num)) {
+      toggleStep(step.num);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-[#F0F4F8] tracking-[-0.5px]">Installation & Configuration</h1>
+        <h1 className="text-2xl font-semibold text-[#F0F4F8] tracking-[-0.5px]">
+          Onboarding — 5 étapes pour démarrer
+        </h1>
         <p className="text-sm text-[#7B8A9A] mt-1">
-          Déployez HERMÈS en 4 étapes — environ 15 minutes
+          Configurez HERMÈS en environ 10 minutes pour automatiser votre
+          acquisition LinkedIn.
         </p>
       </div>
 
@@ -92,6 +150,24 @@ export default function SetupView() {
           {completedSteps.size}/{steps.length} terminées
         </span>
       </div>
+
+      {/* Completion banner */}
+      {completedSteps.size === steps.length && (
+        <div className="bg-[#00C48C]/10 border border-[#00C48C]/30 rounded-xl px-5 py-4 flex items-center gap-3">
+          <CheckCircle2 className="w-5 h-5 text-[#00C48C] flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-[#00C48C]">
+              Onboarding terminé !
+            </p>
+            <p className="text-xs text-[#7B8A9A] mt-0.5">
+              HERMÈS est prêt. Vos agents vont maintenant travailler en
+              arrière-plan pour générer du contenu, qualifier des leads, et
+              engager votre audience. Suivez l'activité en temps réel depuis le
+              Dashboard.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Steps */}
       <div className="space-y-4">
@@ -114,14 +190,22 @@ export default function SetupView() {
                       : "bg-[#18212F] border-white/[0.06] text-[#7B8A9A]"
                   }`}
                 >
-                  {isDone ? <CheckCircle2 className="w-4 h-4" /> : (
-                    <span className="font-mono text-xs font-medium">{step.num}</span>
+                  {isDone ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <span className="font-mono text-xs font-medium">
+                      {step.num}
+                    </span>
                   )}
                 </button>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <step.icon className="w-4 h-4 text-[#00D4FF]" />
-                    <h3 className={`text-sm font-semibold ${isDone ? "text-[#7B8A9A] line-through" : "text-[#F0F4F8]"}`}>
+                    <h3
+                      className={`text-sm font-semibold ${
+                        isDone ? "text-[#7B8A9A] line-through" : "text-[#F0F4F8]"
+                      }`}
+                    >
                       {step.title}
                     </h3>
                   </div>
@@ -131,38 +215,37 @@ export default function SetupView() {
               {/* Step Content */}
               {!isDone && (
                 <div className="px-5 pb-5 space-y-3">
-                  <p className="text-[13px] text-[#7B8A9A] leading-relaxed">{step.description}</p>
+                  <p className="text-[13px] text-[#7B8A9A] leading-relaxed">
+                    {step.description}
+                  </p>
 
-                  {/* Code block */}
-                  <div className="bg-[#080C10] border border-white/[0.06] rounded-lg overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                      <span className="text-[11px] text-[#7B8A9A] font-mono">Terminal</span>
-                      <button
-                        onClick={() => copyCode(step.code, step.num)}
-                        className="text-[11px] text-[#7B8A9A] hover:text-[#00D4FF] flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        {copiedStep === step.num ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3 text-[#00C48C]" />
-                            <span className="text-[#00C48C]">Copié !</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            Copier
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <pre className="p-4 text-[12px] leading-relaxed text-[#F0F4F8] overflow-x-auto font-mono whitespace-pre">
-                      {step.code}
-                    </pre>
+                  {/* CTA Button */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleCta(step)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium text-black bg-[#00D4FF] hover:bg-[#00D4FF]/90 transition-colors cursor-pointer"
+                    >
+                      {step.ctaLabel}
+                      {step.externalUrl && (
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => copyCode(`Étape ${step.num}: ${step.title}`)}
+                      className="text-[11px] text-[#7B8A9A] hover:text-[#00D4FF] flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      Copier le récap
+                    </button>
                   </div>
 
                   {/* Tip */}
                   <div className="bg-[#00C48C]/6 border border-[#00C48C]/15 rounded-lg p-3">
                     <p className="text-[12px] text-[#7B8A9A] leading-relaxed">
-                      <span className="text-[#00C48C] font-semibold">Conseil :</span> {step.tip}
+                      <span className="text-[#00C48C] font-semibold">
+                        Conseil :
+                      </span>{" "}
+                      {step.tip}
                     </p>
                   </div>
                 </div>
@@ -170,6 +253,25 @@ export default function SetupView() {
             </div>
           );
         })}
+      </div>
+
+      {/* Help footer */}
+      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4 flex items-start gap-3">
+        <HelpCircle className="w-5 h-5 text-[#00D4FF] flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-[#F0F4F8] mb-1">
+            Besoin d'aide ?
+          </p>
+          <p className="text-xs text-[#7B8A9A] leading-relaxed">
+            Consultez le guide de déploiement complet dans le fichier{" "}
+            <code className="px-1 py-0.5 bg-[#18212F] rounded text-[#00D4FF] font-mono">
+              DEPLOYMENT.md
+            </code>{" "}
+            à la racine du dépôt GitHub. Vous y trouverez toutes les
+            instructions pour configurer LinkedIn OAuth, Stripe, les cron jobs
+            Render, et le dépannage des erreurs courantes.
+          </p>
+        </div>
       </div>
     </div>
   );
