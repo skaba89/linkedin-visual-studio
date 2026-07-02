@@ -764,3 +764,43 @@ Render Cron Jobs config (dashboard → Cron Jobs):
 - metrics-sync:  Schedule "0 * * * *"     Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/metrics-sync
 - token-refresh: Schedule "0 3 * * *"     Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/token-refresh
 
+
+---
+Task ID: phase-2-premium-ux
+Agent: Main Agent (Claude)
+Task: Phase 2 — Premium UX. Top 5 audit gaps: toasts, kill simulation framing, security fix, command palette, notification bell.
+
+Work Log:
+- Audit complet UI/UX via subagent Explore — identifié 10 domaines, top 5 priorisé par impact/effort.
+- #1 Toasts (Sonner):
+  - layout.tsx: remplacé Radix <Toaster> par Sonner <Toaster> (themed dark, top-right, richColors, closeButton).
+  - src/lib/toast.ts: wrapper expose success/error/info/warning/loading/promise.
+  - src/lib/api-fetch.ts: wrapper fetch() qui auto-fire toasts sur success/error/loading (réutilisable pour les 58 fetch calls).
+  - Câblé toast.success/error dans 5 vues majeures: LinkedInView (publish, schedule, cancel), CRMView (contact + deal CRUD, advance), EmailView (send), AnalyticsView (create experiment), IntegrationsView (webhook create/delete/test).
+- #2 Security fix — demo creds:
+  - UserMenu.tsx LoginModal: était pré-rempli avec demo@hermes.app + auto-fill password + affichait les creds sur le form. Tout supprimé. Le compte démo existe toujours (seeded par auth-config.ts) mais n'est plus visible publiquement.
+- #3 Kill 'simulation' framing:
+  - DashboardView.tsx: remplacé la barre 'Lancer la simulation / Pause / x1·x2·x4' par une System Status Bar read-only (Système actif/en veille, agent count, dernière activité relative time, bouton 'Exécuter maintenant').
+  - Nouveau hook src/hooks/use-system-status.ts: poll /api/data/orchestrator + /api/data/activity-logs + /api/data/metrics toutes les 30s. Fallback sur le store si l'orchestrator n'est pas initialisé.
+  - Supprimé les trends fake hardcoded ('+2', '+0.4%', '+8', '+3') des metric cards — remplacé par badge 'live' neutre.
+  - Empty state du activity feed: 'Lancez la simulation' → 'Vos agents s'activent automatiquement'.
+  - Ajouté bouton 'Actualiser' pour refetch manuel.
+- #4 Command Palette (Cmd+K):
+  - Nouveau src/components/app/CommandPalette.tsx — palette fuzzy-search listant les 23 navItems groupés par section.
+  - cmdk + Dialog primitives déjà existaient mais n'étaient pas utilisés — câblés.
+  - Shortcut global Cmd+K / Ctrl+K enregistré sur window.
+  - Trigger discoverable ajouté en haut du Sidebar avec badge '⌘K'.
+- #5 Notification Bell:
+  - Nouveau src/components/app/NotificationBell.tsx — icône cloche avec badge rouge unread count, dropdown preview 5 plus récents, 'Tout marquer lu', 'Voir toutes les notifications'.
+  - Poll /api/data/notifications?unreadOnly=true toutes les 60s.
+  - Monté dans le footer du Sidebar à côté de UserMenu (était accessible uniquement en naviguant à la vue Notifications).
+
+Stage Summary:
+- 15 fichiers changés, ~1100 lignes ajoutées
+- 5 nouveaux fichiers: CommandPalette, NotificationBell, use-system-status, api-fetch, toast
+- 10 fichiers modifiés: layout, page, Sidebar, UserMenu, DashboardView, LinkedInView, CRMView, EmailView, AnalyticsView, IntegrationsView
+- tsc --noEmit: 0 erreur
+- vitest run: 252 tests passent (12 suites)
+- Commit: 59be923 poussé sur GitHub
+- PAS ENCORE DÉPLOYÉ sur Render
+
