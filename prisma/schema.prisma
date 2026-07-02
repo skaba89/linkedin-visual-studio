@@ -68,6 +68,7 @@ model User {
   profileVisitors      ProfileVisitor[]
   expertComments       ExpertComment[]
   usageQuotas          UsageQuota[]
+  integrations         Integration[]
 }
 
 model UserSettings {
@@ -752,6 +753,53 @@ model WebhookDelivery {
 
   @@index([userId, webhookId])
   @@index([userId, createdAt])
+}
+
+// ─── Phase 4.3 — External CRM Integrations ────────────────────────────
+// Stores credentials + sync state for outbound integrations to external
+// CRMs (HubSpot, Pipedrive, Notion, Attio). Each integration syncs
+// HERMÈS contacts + deals outward — we don't import from external CRMs
+// (HERMÈS is the source of truth for LinkedIn-sourced leads).
+//
+// Credentials are stored encrypted (using the same ENCRYPTION_KEY as
+// LinkedIn tokens). The `credentials` column holds an AES-256-GCM
+// encrypted JSON blob with the provider-specific auth fields.
+//
+// Sync state:
+//   - lastSyncAt:    when the last sync completed (null = never synced)
+//   - lastSyncStatus: success | partial | failed
+//   - lastSyncError:  error message if lastSyncStatus = failed
+//   - totalSynced:    cumulative count of records synced (for stats)
+//   - syncSettings:   JSON blob with per-provider settings (e.g., which
+//                     HubSpot pipeline to sync deals to)
+
+model Integration {
+  id              String    @id @default(cuid())
+  userId          String
+  provider        String    // hubspot | pipedrive | notion | attio | salesforce
+  name            String    @default("")  // user-friendly label
+  status          String    @default("active")  // active | paused | error | disconnected
+  // Encrypted credentials (AES-256-GCM JSON blob)
+  // Contains provider-specific auth: { apiKey, accessToken, refreshToken, ownerId, ... }
+  credentials     String    @default("")
+  // Per-provider settings (JSON): { pipelineId, contactMapping, dealMapping, ... }
+  syncSettings    String    @default("{}")
+  // Sync state
+  lastSyncAt      DateTime?
+  lastSyncStatus  String    @default("none")  // none | success | partial | failed
+  lastSyncError   String?
+  totalSynced     Int       @default(0)
+  // Auto-sync schedule
+  autoSyncEnabled Boolean   @default(true)
+  autoSyncCron    String    @default("0 */6 * * *")  // every 6 hours by default
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId, status])
+  @@index([userId, provider])
 }
 
 // ─── Orchestrator state persistence ──────────────────────────────────
