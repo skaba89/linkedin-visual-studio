@@ -67,6 +67,7 @@ model User {
   trendingTopics       TrendingTopic[]
   profileVisitors      ProfileVisitor[]
   expertComments       ExpertComment[]
+  usageQuotas          UsageQuota[]
 }
 
 model UserSettings {
@@ -83,10 +84,59 @@ model UserSettings {
   engagementMaxDailyComments Int    @default(3)      // hard cap (also bounded by compliance dailyComments)
   engagementTone            String  @default("expert") // expert | analytical | contrarian | casual
   engagementMinHoursBetween Float  @default(2)       // min hours between two AI-posted comments
+  // Phase 4.2 — Billing & Subscription
+  // Stored on UserSettings because every user has exactly one settings row
+  // (1-to-1 with User). Avoids a separate Subscription table join on every
+  // billing-gated request.
+  //   plan:                  free | pro | business | enterprise
+  //   stripeCustomerId:      Stripe customer ID (cus_...)
+  //   stripeSubscriptionId:  Stripe subscription ID (sub_...)
+  //   subscriptionStatus:    trialing | active | past_due | canceled | incomplete
+  //   trialEndsAt:           when the trial expires (free → invite to upgrade)
+  //   currentPeriodEnd:      when the current billing period ends
+  plan                  String   @default("free") // free | pro | business | enterprise
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  subscriptionStatus    String   @default("none") // none | trialing | active | past_due | canceled | incomplete
+  trialEndsAt           DateTime?
+  currentPeriodEnd      DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Phase 4.2 — Usage tracking for billing quotas.
+/// One row per user per billing period (month). Tracks how many resources
+/// the user has consumed this period, so we can enforce plan limits.
+///
+/// Quotas enforced:
+///   - postsPublished:        LinkedIn posts generated + published
+///   - commentsPosted:        AI expert comments posted on trending topics
+///   - reactorsCaptured:      Reactors captured from LinkedIn (likes + comments)
+///   - aiGenerations:         Total AI API calls (chat completions, embeddings)
+///   - profileVisitors:       Manual profile visitor imports
+///   - crmContacts:           CRM contacts created (synced from reactors/visitors)
+///
+/// Reset on each billing period rollover (handled by a cron job).
+model UsageQuota {
+  id                String   @id @default(cuid())
+  userId            String
+  periodStart       DateTime // start of the billing period (usually 1st of month)
+  periodEnd         DateTime // end of the billing period
+  postsPublished    Int      @default(0)
+  commentsPosted    Int      @default(0)
+  reactorsCaptured  Int      @default(0)
+  aiGenerations     Int      @default(0)
+  profileVisitors   Int      @default(0)
+  crmContacts       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart])
+  @@index([userId, periodEnd])
 }
 
 model AgentConfig {

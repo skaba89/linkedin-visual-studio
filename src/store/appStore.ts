@@ -27,7 +27,8 @@ export type ViewType =
   | "workflows"
   | "notifications"
   | "integrations"
-  | "engagement";
+  | "engagement"
+  | "billing";
 
 export interface Agent {
   id: string;

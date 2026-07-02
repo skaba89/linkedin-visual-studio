@@ -168,6 +168,14 @@ export function resolveCategory(
   pathname: string,
   method: string,
 ): RateLimitCategory | null {
+  // Stripe webhook — no rate limit (Stripe controls the call rate)
+  if (pathname === "/api/billing/webhook") {
+    return null;
+  }
+  // SSE stream — no rate limit (one long-lived connection per user)
+  if (pathname === "/api/events/stream") {
+    return null;
+  }
   // Register (POST only) — checked BEFORE the broader auth fallback so it wins
   if (pathname === "/api/auth/register" && method === "POST") {
     return "register";

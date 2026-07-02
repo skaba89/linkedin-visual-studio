@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Clock,
 } from "lucide-react";
+import { RealtimeFeed } from "@/components/app/RealtimeFeed";
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bg: string }> = {
   active: { label: "Actif", color: "text-[#00C48C]", bg: "bg-[#00C48C]/10 border-[#00C48C]/20" },
@@ -406,76 +407,11 @@ export default function DashboardView() {
         </div>
       )}
 
-      {/* Live Activity Feed */}
-      <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${systemStatus.running ? "bg-[#00C48C] animate-pulse" : "bg-[#7B8A9A]"}`} />
-            <h3 className="text-sm font-semibold text-[#F0F4F8]">Activité en direct</h3>
-            {recentLogs.length > 0 && (
-              <span className="text-[11px] text-[#7B8A9A]">{recentLogs.length} entrée{recentLogs.length !== 1 ? "s" : ""}</span>
-            )}
-          </div>
-          <button
-            onClick={() => setCurrentView("monitoring")}
-            className="flex items-center gap-1 text-[12px] text-[#00D4FF] hover:text-[#00D4FF]/80 transition-colors cursor-pointer"
-          >
-            Voir tout <ChevronRight className="w-3 h-3" />
-          </button>
-        </div>
-
-        {recentLogs.length === 0 ? (
-          <div className="text-center py-8">
-            <Circle className="w-8 h-8 text-[#7B8A9A]/30 mx-auto mb-2" />
-            <p className="text-[13px] text-[#7B8A9A]">Aucune activité pour le moment</p>
-            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Vos agents s&apos;activent automatiquement — les premières exécutions apparaîtront ici</p>
-          </div>
-        ) : (
-          <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar">
-            {recentLogs.map((log) => {
-              const time = new Date(log.timestamp);
-              const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}:${time.getSeconds().toString().padStart(2, "0")}`;
-              const typeColor = activityTypeColors[log.type];
-
-              return (
-                <div
-                  key={log.id}
-                  className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02] transition-colors"
-                >
-                  {/* Color indicator */}
-                  <div
-                    className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                    style={{ backgroundColor: typeColor }}
-                  />
-
-                  {/* Time */}
-                  <span className="font-mono text-[11px] text-[#7B8A9A] flex-shrink-0 mt-0.5">{timeStr}</span>
-
-                  {/* Agent badge */}
-                  <span
-                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
-                    style={{
-                      color: typeColor,
-                      backgroundColor: `${typeColor}11`,
-                      border: `1px solid ${typeColor}22`,
-                    }}
-                  >
-                    {log.agentName}
-                  </span>
-
-                  {/* Message */}
-                  <span className="text-[13px] text-[#F0F4F8] flex-1 min-w-0">{log.message}</span>
-
-                  {/* Details */}
-                  {log.details && (
-                    <span className="text-[11px] text-[#7B8A9A] flex-shrink-0">{log.details}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* Live Activity Feed — Phase 4.1: SSE-powered real-time feed
+          Replaces the polling-based "Activité en direct" section with a
+          true real-time stream via Server-Sent Events. Events appear
+          within ~3 seconds of being recorded in the database. */}
+      <RealtimeFeed maxHeight="420px" />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import WorkflowView from "@/components/app/WorkflowView";
 import NotificationsView from "@/components/app/NotificationsView";
 import IntegrationsView from "@/components/app/IntegrationsView";
 import EngagementView from "@/components/app/EngagementView";
+import BillingView from "@/components/app/BillingView";
 import { CommandPalette } from "@/components/app/CommandPalette";
 import { useHydrated } from "@/components/app/HydrationGate";
 import { Menu, X } from "lucide-react";
@@ -118,6 +119,8 @@ export default function Home() {
         return <IntegrationsView />;
       case "engagement":
         return <EngagementView />;
+      case "billing":
+        return <BillingView />;
       default:
         return <DashboardView />;
     }

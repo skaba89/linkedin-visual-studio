@@ -22,6 +22,7 @@ const AUTH_SKIP_ROUTES = [
   "/api/csp-report",        // Endpoint de reporting CSP (POST)
   "/api/email/track",       // Public email tracking endpoint (open pixel + click redirect)
   "/api/cron/",             // Cron jobs — auth via x-cron-secret header (CRON_SECRET env var)
+  "/api/billing/webhook",   // Stripe webhook — auth via Stripe-Signature header (STRIPE_WEBHOOK_SECRET)
 ];
 
 function shouldSkipAuth(pathname: string): boolean {

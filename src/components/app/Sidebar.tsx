@@ -20,6 +20,7 @@ import {
   Bell,
   Globe,
   Sparkles,
+  CreditCard,
 } from "lucide-react";
 import UserMenu from "@/components/app/UserMenu";
 import { CommandPaletteTrigger } from "@/components/app/CommandPalette";
@@ -43,6 +44,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType; section?
   { id: "linkedin", label: "LinkedIn", icon: Linkedin, section: "CANAUX" },
   { id: "email", label: "Email", icon: Mail },
   { id: "engagement", label: "Engagement IA", icon: Sparkles, section: "INTELLIGENCE" },
+  { id: "billing", label: "Facturation", icon: CreditCard, section: "INTELLIGENCE" },
   { id: "monitoring", label: "Monitoring", icon: BarChart3, section: "SYSTÈME" },
   { id: "orchestrator", label: "Orchestrateur", icon: Radio },
   { id: "analytics", label: "Analytics & ROI", icon: BarChart3 },

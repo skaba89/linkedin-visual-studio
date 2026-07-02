@@ -40,6 +40,8 @@ import {
   Globe,
   Settings,
   Search,
+  Sparkles,
+  CreditCard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -74,6 +76,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "workflows", label: "Automatisations", icon: GitBranch, section: "Automatisation", keywords: "workflows" },
   { id: "notifications", label: "Notifications", icon: Bell, section: "Système" },
   { id: "integrations", label: "Intégrations", icon: Globe, section: "Système", keywords: "webhooks slack discord" },
+  { id: "engagement", label: "Engagement IA", icon: Sparkles, section: "Intelligence", keywords: "réacteurs tendances commentaires" },
+  { id: "billing", label: "Facturation", icon: CreditCard, section: "Intelligence", keywords: "plan abonnement stripe usage quota" },
   { id: "settings", label: "Paramètres", icon: Settings, section: "Système", keywords: "config" },
 ];
 
