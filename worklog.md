@@ -709,3 +709,58 @@ Stage Summary:
 - Verification: `npx tsc --noEmit` passes clean; `npx vitest run` — all 252 tests across 12 suites pass
 - Commit: f46eb70 `fix(workflows): parse JSON fields + raise auth rate limit`
 - NOT YET DEPLOYED on Render — user needs to Manual Deploy to take effect
+
+---
+Task ID: phase-1.5-cron
+Agent: Main Agent (Claude)
+Task: Phase 1.5/1.6/1.7 — Cron infrastructure, LinkedIn metrics sync, LinkedIn token refresh
+
+Work Log:
+- Récupéré le repo distant (b56bdb3) qui contient déjà R-012 (no emojis in AI content) — la demande précédente de l'utilisateur est donc déjà satisfaite.
+- Cherry-pické le commit Phase 1 (6feb1bd) par-dessus le remote. 6 conflits résolus (imports, syntaxe trailing comma, /api/email/track ajouté au middleware, etc.).
+- Régénéré le client Prisma (le schema.prisma source dit String pour nodes/edges/tags mais le client généré avait Json? — mismatch corrigé).
+- Corrigé 4 erreurs TypeScript restantes après cherry-pick:
+  - compliance/linkedin-compliance.ts: ajouté initializedForUserId(userId) — pattern singleton multi-tenant safe
+  - compliance-guard.ts: utilisé initializedForUserId au lieu de l'ancienne API (userId, action) à 2 args qui n'existe plus
+  - workflow-engine.ts: ajouté param userId à executeWorkflow() (manquait — executeGraph/executeNode/executeAction l'avaient déjà)
+  - workflow-engine.ts: remplacé fromJson/toJson/JsonValue (helpers supprimés du remote) par parseJsonField/stringifyJsonField pour Contact.tags
+- Phase 1.5 — Cron infrastructure:
+  - Créé src/lib/cron/auth.ts avec verifyCronSecret() (constant-time comparison, fail-closed si CRON_SECRET unset)
+  - Créé /api/cron/agents (POST + GET) — publishAllDuePosts() toutes les 5 min
+  - Créé /api/cron/metrics-sync — syncAllUsersMetrics() toutes les heures
+  - Créé /api/cron/token-refresh — refreshAllExpiringTokens() daily 3am UTC
+  - Ajouté /api/cron/ au middleware AUTH_SKIP_ROUTES
+- Phase 1.6 — LinkedIn metrics sync:
+  - Créé src/lib/linkedin/metrics-sync.ts avec syncUserLinkedInMetrics + recomputeUserMetrics + syncAllUsersMetrics
+  - Ajouté champs linkedinUrn + metricsSyncedAt + index(userId, createdAt) à LinkedInPost
+  - Créé migration 20260702000000_add_linkedin_post_urn
+  - Modifié /api/linkedin/post pour persister linkedinUrn après publication
+  - Sync: fetch /v2/socialActions/{urn}/likes + /comments, update LinkedInPost, recompute aggregate Metrics.tauxEngagement
+- Phase 1.7 — LinkedIn token refresh:
+  - Créé src/lib/linkedin/token-refresh.ts avec refreshLinkedInToken + refreshAllExpiringTokens
+  - Window de refresh: 7 jours avant expiration
+  - Appel POST /oauth/v2/accessToken avec grant_type=refresh_token
+  - Déchiffre le token existant, l'utilise comme refresh_token, re-chiffre le nouveau token
+- Phase 1.5 — Scheduled posts cron:
+  - Extrait publishDuePosts() dans src/lib/linkedin/scheduled-posts.ts (était inline dans /api/linkedin/schedule)
+  - Marque status='publishing' avant l'appel LinkedIn pour éviter double-publish en cas de cron concurrent
+  - Persiste linkedinUrn + LinkedInPost row après publication réussie (pour que metrics sync puisse tracker)
+
+Stage Summary:
+- 13 fichiers changés, ~1000 lignes ajoutées
+- 3 nouvelles routes cron: /api/cron/agents, /api/cron/metrics-sync, /api/cron/token-refresh
+- 4 nouvelles libs: cron/auth, linkedin/metrics-sync, linkedin/token-refresh, linkedin/scheduled-posts
+- 1 migration: add_linkedin_post_urn (linkedinUrn + metricsSyncedAt + index)
+- tsc --noEmit: 0 erreur
+- vitest run: 252 tests passent (12 suites)
+- 3 commits poussés sur GitHub: 852289b (TS fixes post-cherry-pick), 3075163 (cron infra)
+- PAS ENCORE DÉPLOYÉ sur Render — l'utilisateur doit:
+  1. Configurer les 3 Render Cron Jobs (voir ci-dessous)
+  2. Ajouter les env vars: CRON_SECRET, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET
+  3. Déclencher un Manual Deploy sur Render
+
+Render Cron Jobs config (dashboard → Cron Jobs):
+- agents:        Schedule "*/5 * * * *"   Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/agents
+- metrics-sync:  Schedule "0 * * * *"     Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/metrics-sync
+- token-refresh: Schedule "0 3 * * *"     Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/token-refresh
+
