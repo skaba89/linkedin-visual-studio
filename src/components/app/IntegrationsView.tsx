@@ -31,6 +31,7 @@ import {
   Activity,
   Settings,
 } from "lucide-react";
+import { toast } from "@/lib/toast";
 
 type TabType = "webhooks" | "deliveries" | "setup";
 
@@ -65,13 +66,20 @@ export default function IntegrationsView() {
 
   const registerWebhook = async () => {
     try {
-      await fetch("/api/data/webhooks", {
+      const res = await fetch("/api/data/webhooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newWebhook),
       });
-    } catch { /* fallback */ }
-    webhookEngine.registerWebhook(newWebhook);
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      toast.success("Webhook créé", { description: newWebhook.name });
+    } catch (err) {
+      // fallback to local engine
+      webhookEngine.registerWebhook(newWebhook);
+      toast.warning("Webhook créé localement", {
+        description: err instanceof Error ? err.message : "API indisponible",
+      });
+    }
     setShowCreateDialog(false);
     setNewWebhook({ name: "", provider: "custom", url: "", events: [] });
     fetchData();
@@ -79,21 +87,29 @@ export default function IntegrationsView() {
 
   const toggleWebhook = async (id: string) => {
     try {
-      await fetch("/api/data/webhooks", {
+      const res = await fetch("/api/data/webhooks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action: "toggle" }),
       });
-    } catch { /* fallback */ }
-    webhookEngine.toggleWebhook(id);
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+    } catch {
+      webhookEngine.toggleWebhook(id);
+    }
     fetchData();
   };
 
   const deleteWebhook = async (id: string) => {
     try {
-      await fetch(`/api/data/webhooks?id=${id}`, { method: "DELETE" });
-    } catch { /* fallback */ }
-    webhookEngine.deleteWebhook(id);
+      const res = await fetch(`/api/data/webhooks?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      toast.success("Webhook supprimé");
+    } catch (err) {
+      webhookEngine.deleteWebhook(id);
+      toast.error("Webhook supprimé localement", {
+        description: err instanceof Error ? err.message : "API indisponible",
+      });
+    }
     fetchData();
   };
 
@@ -106,6 +122,11 @@ export default function IntegrationsView() {
       });
       const data = await res.json();
       setTestResult(data.delivery);
+      if (data.delivery?.status === "delivered") {
+        toast.success("Webhook testé", { description: "Délivré avec succès" });
+      } else {
+        toast.warning("Webhook testé", { description: `Statut: ${data.delivery?.status ?? "inconnu"}` });
+      }
     } catch {
       const delivery = await webhookEngine.testWebhook(id);
       setTestResult(delivery);

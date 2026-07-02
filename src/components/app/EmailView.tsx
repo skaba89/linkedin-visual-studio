@@ -43,6 +43,7 @@ import {
   renderEmailTemplate,
 } from "@/lib/email/types";
 import { computeEmailStats } from "@/lib/email/email-engine";
+import { toast } from "@/lib/toast";
 
 type EmailTab = "sequences" | "inbox" | "compose";
 
@@ -357,12 +358,26 @@ export default function EmailView() {
       { subject: data.subject, body: data.body } as EmailTemplate,
       { prenom: contact?.prenom, nom: contact?.nom, entreprise: contact?.entreprise, poste: contact?.poste, secteur: contact?.secteur }
     );
-    await fetch("/api/data/email-send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contactId: data.contactId, subject: rendered.subject, body: rendered.body, sequenceId: data.sequenceId }),
-    });
-    fetchData();
+    try {
+      const res = await fetch("/api/data/email-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: data.contactId, subject: rendered.subject, body: rendered.body, sequenceId: data.sequenceId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? `Erreur ${res.status}`);
+      }
+      const result = await res.json();
+      toast.success("Email envoyé", {
+        description: result?.sentAt ? `Délivré à ${contact?.email ?? "destinataire"}` : undefined,
+      });
+      fetchData();
+    } catch (err) {
+      toast.error("Échec de l'envoi de l'email", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
+      });
+    }
   };
 
   // Filtered messages

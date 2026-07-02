@@ -2,6 +2,7 @@
 
 import { useAppStore, type AgentStatus, type ActivityLog } from "@/store/appStore";
 import { formatNumber } from "@/lib/format";
+import { useSystemStatus, type SystemAgent } from "@/hooks/use-system-status";
 import {
   Play,
   Pause,
@@ -18,6 +19,8 @@ import {
   ChevronRight,
   Circle,
   Sparkles,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bg: string }> = {
@@ -35,7 +38,37 @@ const activityTypeColors: Record<ActivityLog["type"], string> = {
 };
 
 export default function DashboardView() {
-  const { agents, metrics, leads, setCurrentView, isSimulating, setIsSimulating, simulationSpeed, setSimulationSpeed, activityLogs, runAgentNow, generatedPosts, generatedMessages, executingAgent, generatedComments, marketBriefings, nurturingActions, performanceInsights, connectionRequests } = useAppStore();
+  const { leads, setCurrentView, runAgentNow, agents: storeAgents, generatedPosts, generatedMessages, executingAgent, generatedComments, marketBriefings, nurturingActions, performanceInsights, connectionRequests } = useAppStore();
+  const systemStatus = useSystemStatus();
+
+  // Use real server-driven agent list when available, fall back to the store
+  // (which still has the old static seed data) when the orchestrator hasn't
+  // been initialized yet. This keeps the dashboard visible even before the
+  // user has set up any agents.
+  const agents: SystemAgent[] = systemStatus.agents.length > 0
+    ? systemStatus.agents
+    : storeAgents.map((a) => ({
+        id: a.id,
+        num: a.num,
+        name: a.name,
+        role: a.role,
+        status: a.status,
+        lastRun: a.lastRun ?? null,
+        nextRun: a.nextRun ?? null,
+      }));
+
+  // Real metrics from server (when available); fall back to store metrics
+  // for fields not covered by /api/data/metrics.
+  const metrics = {
+    postsPublished: systemStatus.metrics.postsPublished,
+    tauxEngagement: systemStatus.metrics.tauxEngagement,
+    leadsQualifies: systemStatus.metrics.leadsQualifies || leads.filter((l) => l.statut === "replied" || l.statut === "booked").length,
+    rdvsGeneres: systemStatus.metrics.rdvsGeneres || leads.filter((l) => l.statut === "booked").length,
+    impressionsMoy: 0, // LinkedIn doesn't expose this for personal posts
+    profilsCollectes: systemStatus.metrics.profilsCollectes,
+    messagesEnvoyes: systemStatus.metrics.messagesEnvoyes,
+    tauxReponse: 0, // not yet tracked
+  };
 
   const newLeads = leads.filter((l) => l.statut === "new").length;
   const contactedLeads = leads.filter((l) => l.statut === "contacted").length;
@@ -43,7 +76,19 @@ export default function DashboardView() {
   const bookedLeads = leads.filter((l) => l.statut === "booked").length;
 
   const activeAgentCount = agents.filter((a) => a.status === "active").length;
-  const recentLogs = activityLogs.slice(0, 8);
+
+  // Real activity logs from server (preferred) — fall back to store logs
+  const recentLogs = systemStatus.activityLogs.length > 0
+    ? systemStatus.activityLogs.map((l) => ({
+        id: l.id,
+        agentId: l.agentId,
+        agentName: l.agentName,
+        type: l.type,
+        message: l.message,
+        details: l.details,
+        timestamp: l.timestamp,
+      })) as ActivityLog[]
+    : useAppStore.getState().activityLogs.slice(0, 8);
 
   const handleRunAll = () => {
     agents.forEach((agent) => {
@@ -53,75 +98,69 @@ export default function DashboardView() {
     });
   };
 
+  const handleRefresh = () => {
+    systemStatus.refresh();
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-[#F0F4F8] tracking-[-0.5px]">Dashboard</h1>
-        <p className="text-sm text-[#7B8A9A] mt-1">Vue d&apos;ensemble de votre système HERMÈS</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#F0F4F8] tracking-[-0.5px]">Dashboard</h1>
+          <p className="text-sm text-[#7B8A9A] mt-1">Vue d&apos;ensemble de votre système HERMÈS</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={systemStatus.loading}
+          className="flex items-center gap-1.5 text-[12px] font-medium text-[#7B8A9A] hover:text-[#F0F4F8] transition-colors cursor-pointer disabled:opacity-50"
+          title="Rafraîchir les données"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${systemStatus.loading ? "animate-spin" : ""}`} />
+          Actualiser
+        </button>
       </div>
 
-      {/* Simulation Control Bar */}
+      {/* System Status Bar — replaces the old "Simulation Control" bar.
+          This is a read-only reflection of server state driven by the
+          /api/cron/agents cron job. No more "Lancer la simulation" button. */}
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Play/Pause button */}
-          {isSimulating ? (
-            <button
-              onClick={() => setIsSimulating(false)}
-              className="flex items-center gap-1.5 text-[13px] font-medium text-[#F4A100] bg-[#F4A100]/10 border border-[#F4A100]/20 px-3 py-1.5 rounded-lg hover:bg-[#F4A100]/15 transition-colors cursor-pointer"
-            >
-              <Pause className="w-3.5 h-3.5" /> Pause simulation
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsSimulating(true)}
-              className="flex items-center gap-1.5 text-[13px] font-medium text-[#00C48C] bg-[#00C48C]/10 border border-[#00C48C]/20 px-3 py-1.5 rounded-lg hover:bg-[#00C48C]/15 transition-colors cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5" /> Lancer la simulation
-            </button>
-          )}
-
-          {/* Speed selector */}
-          <div className="flex items-center gap-1 bg-[#18212F] border border-white/[0.04] rounded-lg p-0.5">
-            {[1, 2, 4].map((speed) => (
-              <button
-                key={speed}
-                onClick={() => setSimulationSpeed(speed)}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                  simulationSpeed === speed
-                    ? "bg-[#00D4FF]/15 text-[#00D4FF]"
-                    : "text-[#7B8A9A] hover:text-[#F0F4F8]"
-                }`}
-              >
-                x{speed}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Live status indicator */}
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${systemStatus.running ? "bg-[#00C48C] animate-pulse" : "bg-[#7B8A9A]"}`} />
+            <span className={`text-[13px] font-medium ${systemStatus.running ? "text-[#00C48C]" : "text-[#7B8A9A]"}`}>
+              {systemStatus.running ? "Système actif" : "Système en veille"}
+            </span>
           </div>
 
-          {/* Run all agents */}
+          {/* Active agent count */}
+          <div className="flex items-center gap-1.5 text-[12px] text-[#7B8A9A]">
+            <Zap className="w-3.5 h-3.5 text-[#00D4FF]" />
+            <span className="text-[#F0F4F8] font-medium">{activeAgentCount}</span> agent{activeAgentCount !== 1 ? "s" : ""} actif{activeAgentCount !== 1 ? "s" : ""}
+          </div>
+
+          {/* Last activity */}
+          <div className="flex items-center gap-1.5 text-[12px] text-[#7B8A9A]">
+            <Clock className="w-3.5 h-3.5" />
+            Dernière activité&nbsp;: <span className="text-[#F0F4F8]">{systemStatus.lastActivityLabel}</span>
+          </div>
+
+          {/* Run all (manual trigger) */}
           <button
             onClick={handleRunAll}
-            className="flex items-center gap-1.5 text-[13px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer"
+            disabled={activeAgentCount === 0}
+            className="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-[#00D4FF] bg-[#00D4FF]/10 border border-[#00D4FF]/20 px-3 py-1.5 rounded-lg hover:bg-[#00D4FF]/15 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Exécuter manuellement tous les agents actifs"
           >
-            <Zap className="w-3.5 h-3.5" /> Run all agents
+            <Zap className="w-3.5 h-3.5" /> Exécuter maintenant
           </button>
-
-          {/* Status indicator */}
-          <div className="flex items-center gap-2 ml-auto text-[12px]">
-            {isSimulating ? (
-              <>
-                <div className="w-2 h-2 rounded-full bg-[#00C48C] animate-pulse" />
-                <span className="text-[#00C48C] font-medium">Simulation en cours</span>
-                <span className="text-[#7B8A9A]">— {activeAgentCount} agent{activeAgentCount !== 1 ? "s" : ""} actif{activeAgentCount !== 1 ? "s" : ""}</span>
-              </>
-            ) : (
-              <>
-                <div className="w-2 h-2 rounded-full bg-[#7B8A9A]" />
-                <span className="text-[#7B8A9A] font-medium">Simulation arrêtée</span>
-              </>
-            )}
-          </div>
         </div>
+
+        {/* Helper text — explains that the system runs via cron, not simulation */}
+        <p className="mt-3 text-[11px] text-[#7B8A9A]/70 leading-relaxed">
+          Vos agents s&apos;exécutent automatiquement via tâches planifiées serveur — pas besoin de garder cet onglet ouvert.
+        </p>
       </div>
 
       {/* Agent Status Cards */}
@@ -162,35 +201,35 @@ export default function DashboardView() {
         })}
       </div>
 
-      {/* Metrics Grid */}
+      {/* Metrics Grid — real data from /api/data/metrics, no fake trends */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           icon={FileText}
           label="Posts publiés"
           value={metrics.postsPublished.toString()}
-          sub="/semaine"
-          trend="+2"
+          sub="total"
+          trend={systemStatus.loading ? "…" : "live"}
         />
         <MetricCard
           icon={TrendingUp}
           label="Taux engagement"
-          value={`${metrics.tauxEngagement}%`}
-          sub="impressions moy."
-          trend="+0.4%"
+          value={`${metrics.tauxEngagement.toFixed(1)}%`}
+          sub="moyenne posts"
+          trend={systemStatus.loading ? "…" : "live"}
         />
         <MetricCard
           icon={Users}
           label="Leads qualifiés"
           value={metrics.leadsQualifies.toString()}
           sub={`+${newLeads} nouveaux`}
-          trend="+8"
+          trend={systemStatus.loading ? "…" : "live"}
         />
         <MetricCard
           icon={CalendarCheck}
           label="RDVs générés"
           value={metrics.rdvsGeneres.toString()}
-          sub="/semaine"
-          trend="+3"
+          sub="total"
+          trend={systemStatus.loading ? "…" : "live"}
         />
       </div>
 
@@ -253,7 +292,7 @@ export default function DashboardView() {
             <div className="space-y-2">
               <MetricRow label="Profils collectés" value={metrics.profilsCollectes.toString()} target="—"/>
               <MetricRow label="Leads qualifiés" value={metrics.leadsQualifies.toString()} target="20-40/sem" />
-              <MetricRow label="Taux qualif." value={`${Math.round((metrics.leadsQualifies / metrics.profilsCollectes) * 100)}%`} target="15-25%" />
+              <MetricRow label="Taux qualif." value={metrics.profilsCollectes > 0 ? `${Math.round((metrics.leadsQualifies / metrics.profilsCollectes) * 100)}%` : "—"} target="15-25%" />
             </div>
           </div>
           {/* Agent Prospection */}
@@ -371,10 +410,10 @@ export default function DashboardView() {
       <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isSimulating ? "bg-[#00C48C] animate-pulse" : "bg-[#7B8A9A]"}`} />
+            <div className={`w-2 h-2 rounded-full ${systemStatus.running ? "bg-[#00C48C] animate-pulse" : "bg-[#7B8A9A]"}`} />
             <h3 className="text-sm font-semibold text-[#F0F4F8]">Activité en direct</h3>
-            {activityLogs.length > 0 && (
-              <span className="text-[11px] text-[#7B8A9A]">{activityLogs.length} entrée{activityLogs.length !== 1 ? "s" : ""}</span>
+            {recentLogs.length > 0 && (
+              <span className="text-[11px] text-[#7B8A9A]">{recentLogs.length} entrée{recentLogs.length !== 1 ? "s" : ""}</span>
             )}
           </div>
           <button
@@ -389,7 +428,7 @@ export default function DashboardView() {
           <div className="text-center py-8">
             <Circle className="w-8 h-8 text-[#7B8A9A]/30 mx-auto mb-2" />
             <p className="text-[13px] text-[#7B8A9A]">Aucune activité pour le moment</p>
-            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Lancez la simulation ou activez un agent pour commencer</p>
+            <p className="text-[11px] text-[#7B8A9A]/60 mt-1">Vos agents s&apos;activent automatiquement — les premières exécutions apparaîtront ici</p>
           </div>
         ) : (
           <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar">
@@ -454,14 +493,24 @@ function MetricCard({
   sub: string;
   trend: string;
 }) {
+  // "live" or "…" trends are shown as neutral status badges (no green arrow),
+  // because we don't have real historical deltas yet — fake "+2" / "+8" trends
+  // were removed to avoid misleading the user.
+  const isNeutral = trend === "live" || trend === "…";
   return (
     <div className="bg-[#0F1520] border border-white/[0.06] rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
         <Icon className="w-4 h-4 text-[#7B8A9A]" />
-        <span className="text-[11px] font-medium text-[#00C48C] flex items-center gap-0.5">
-          <ArrowUpRight className="w-3 h-3" />
-          {trend}
-        </span>
+        {isNeutral ? (
+          <span className="text-[10px] font-medium text-[#7B8A9A] uppercase tracking-wider">
+            {trend === "…" ? "" : "live"}
+          </span>
+        ) : (
+          <span className="text-[11px] font-medium text-[#00C48C] flex items-center gap-0.5">
+            <ArrowUpRight className="w-3 h-3" />
+            {trend}
+          </span>
+        )}
       </div>
       <div className="font-mono text-2xl font-medium text-[#F0F4F8] tracking-[-1px]">{value}</div>
       <div className="text-xs text-[#7B8A9A] mt-1">{label} <span className="text-[#7B8A9A]/60">· {sub}</span></div>

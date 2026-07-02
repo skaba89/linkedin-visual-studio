@@ -38,6 +38,7 @@ import {
   formatPipelineValue,
   computePipelineSummary,
 } from "@/lib/crm/crm-engine";
+import { toast } from "@/lib/toast";
 
 type CRMTab = "pipeline" | "contacts" | "deals";
 
@@ -344,45 +345,65 @@ export default function CRMView() {
 
   // Contact CRUD
   const saveContact = async (data: Partial<ContactData>) => {
-    if (editingContact) {
-      await fetch("/api/data/contacts", {
-        method: "PUT",
+    const isEdit = Boolean(editingContact);
+    try {
+      const res = await fetch("/api/data/contacts", {
+        method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingContact.id, ...data }),
+        body: JSON.stringify(isEdit ? { id: editingContact!.id, ...data } : data),
       });
-    } else {
-      await fetch("/api/data/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? `Erreur ${res.status}`);
+      }
+      setEditingContact(null);
+      fetchData();
+      toast.success(isEdit ? "Contact mis à jour" : "Contact créé", {
+        description: `${data.prenom ?? ""} ${data.nom ?? ""}`.trim() || undefined,
+      });
+    } catch (err) {
+      toast.error(isEdit ? "Échec de la mise à jour" : "Échec de la création", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
       });
     }
-    setEditingContact(null);
-    fetchData();
   };
 
   const deleteContact = async (id: string) => {
-    await fetch(`/api/data/contacts?id=${id}`, { method: "DELETE" });
-    fetchData();
+    try {
+      const res = await fetch(`/api/data/contacts?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      fetchData();
+      toast.success("Contact supprimé");
+    } catch (err) {
+      toast.error("Échec de la suppression", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
+      });
+    }
   };
 
   // Deal CRUD
   const saveDeal = async (data: Partial<DealData>) => {
-    if (editingDeal) {
-      await fetch("/api/data/deals", {
-        method: "PUT",
+    const isEdit = Boolean(editingDeal);
+    try {
+      const res = await fetch("/api/data/deals", {
+        method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingDeal.id, ...data }),
+        body: JSON.stringify(isEdit ? { id: editingDeal!.id, ...data } : data),
       });
-    } else {
-      await fetch("/api/data/deals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? `Erreur ${res.status}`);
+      }
+      setEditingDeal(null);
+      fetchData();
+      toast.success(isEdit ? "Deal mis à jour" : "Deal créé", {
+        description: data.titre ?? undefined,
+      });
+    } catch (err) {
+      toast.error(isEdit ? "Échec de la mise à jour" : "Échec de la création", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
       });
     }
-    setEditingDeal(null);
-    fetchData();
   };
 
   const advanceDeal = async (dealId: string) => {
@@ -393,17 +414,33 @@ export default function CRMView() {
     if (idx === -1 || idx >= stageOrder.length - 1) return;
     const nextStage = stageOrder[idx + 1];
     const probMap: Record<DealStage, number> = { prospect: 10, qualification: 25, proposition: 50, negociation: 75, closed_won: 100, closed_lost: 0 };
-    await fetch("/api/data/deals", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: dealId, stage: nextStage, probabilite: probMap[nextStage] }),
-    });
-    fetchData();
+    try {
+      const res = await fetch("/api/data/deals", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: dealId, stage: nextStage, probabilite: probMap[nextStage] }),
+      });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      fetchData();
+      toast.success("Deal avancé", { description: `Étape: ${nextStage}` });
+    } catch (err) {
+      toast.error("Échec de l'avance du deal", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
+      });
+    }
   };
 
   const deleteDeal = async (id: string) => {
-    await fetch(`/api/data/deals?id=${id}`, { method: "DELETE" });
-    fetchData();
+    try {
+      const res = await fetch(`/api/data/deals?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      fetchData();
+      toast.success("Deal supprimé");
+    } catch (err) {
+      toast.error("Échec de la suppression", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
+      });
+    }
   };
 
   // Filtered contacts

@@ -18,6 +18,7 @@ import EmailView from "@/components/app/EmailView";
 import WorkflowView from "@/components/app/WorkflowView";
 import NotificationsView from "@/components/app/NotificationsView";
 import IntegrationsView from "@/components/app/IntegrationsView";
+import { CommandPalette } from "@/components/app/CommandPalette";
 import { Menu, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
@@ -111,6 +112,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#080C10] text-white">
+      {/* Command Palette (Cmd+K) — global, mounted once at the app shell */}
+      <CommandPalette />
+
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
         <Sidebar />

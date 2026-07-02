@@ -20,6 +20,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
+import { toast } from "@/lib/toast";
 
 type Tab = "roi" | "ab-testing" | "feedback";
 
@@ -134,20 +135,31 @@ export default function AnalyticsView() {
 
   const createExperiment = async () => {
     if (!newExp.name) return;
-    await fetch("/api/data/experiments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...newExp,
-        variants: [
-          { id: "control", name: "Contrôle", description: "Version actuelle", config: {}, trafficPercent: 50 },
-          { id: "variant-a", name: "Variante A", description: "Nouvelle version", config: {}, trafficPercent: 50 },
-        ],
-      }),
-    });
-    setNewExp({ name: "", description: "", targetAgentId: "", type: "ab" });
-    setShowCreateExp(false);
-    fetchData();
+    try {
+      const res = await fetch("/api/data/experiments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newExp,
+          variants: [
+            { id: "control", name: "Contrôle", description: "Version actuelle", config: {}, trafficPercent: 50 },
+            { id: "variant-a", name: "Variante A", description: "Nouvelle version", config: {}, trafficPercent: 50 },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? `Erreur ${res.status}`);
+      }
+      setNewExp({ name: "", description: "", targetAgentId: "", type: "ab" });
+      setShowCreateExp(false);
+      fetchData();
+      toast.success("Expérience créée", { description: newExp.name });
+    } catch (err) {
+      toast.error("Échec de la création de l'expérience", {
+        description: err instanceof Error ? err.message : "Erreur réseau",
+      });
+    }
   };
 
   const getHealthColor = (health: number) => {

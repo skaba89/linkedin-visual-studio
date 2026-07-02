@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-provider";
 
 const geistSans = Geist({
@@ -46,7 +46,19 @@ export default async function RootLayout({
       >
         <AuthProvider>
           {children}
-          <Toaster />
+          <SonnerToaster
+            position="top-right"
+            richColors
+            closeButton
+            toastOptions={{
+              duration: 4000,
+              classNames: {
+                toast: "bg-[#0F1520] border-white/[0.08] text-[#F0F4F8]",
+                title: "text-[#F0F4F8] font-medium",
+                description: "text-[#7B8A9A]",
+              },
+            }}
+          />
         </AuthProvider>
         {/* Le nonce est exposé aux composants client via cet attribut
             pour qu'ils puissent le passer aux <Script> tags si besoin. */}

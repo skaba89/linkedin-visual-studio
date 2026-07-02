@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import {
   Loader2,
@@ -96,19 +96,19 @@ export default function UserMenu() {
  * `__Secure-next-auth.session-token` et recharge la page (callbackUrl: "/").
  */
 function LoginModal({ onClose }: { onClose: () => void }) {
-  const [email, setEmail] = useState("demo@hermes.app");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pré-remplit le mot de passe démo si l'email est celui du compte démo
-  // (aide les utilisateurs à tester l'app sans chercher le mot de passe).
-  useEffect(() => {
-    if (email === "demo@hermes.app" && !password) {
-      setPassword("Demo-Hermes-2024");
-    }
-  }, [email, password]);
+  // NOTE (security): we used to pre-fill `demo@hermes.app` and auto-fill the
+  // demo password. We removed this because:
+  //   1. A real SaaS never shows shared demo credentials on the login form.
+  //   2. Pre-filling trains users to type the wrong password on real forms.
+  //   3. It leaked the demo password to anyone who opened the login page.
+  // The demo account still exists (seeded by auth-config.ts on first boot)
+  // — admins can share its credentials privately with trial users.
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,19 +235,9 @@ function LoginModal({ onClose }: { onClose: () => void }) {
           </button>
         </form>
 
-        <div className="mt-4 pt-4 border-t border-white/[0.04]">
-          <p className="text-[10px] text-[#7B8A9A] text-center leading-relaxed">
-            <strong className="text-[#7B8A9A]">Compte démo :</strong>
-            <br />
-            <code className="text-[#00D4FF]">demo@hermes.app</code>
-            <br />
-            <code className="text-[#00D4FF]">Demo-Hermes-2024</code>
-          </p>
-        </div>
-
         <button
           onClick={onClose}
-          className="mt-3 w-full text-[11px] text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"
+          className="mt-4 w-full text-[11px] text-[#7B8A9A] hover:text-[#F0F4F8] cursor-pointer"
         >
           Annuler
         </button>

@@ -21,6 +21,8 @@ import {
   Globe,
 } from "lucide-react";
 import UserMenu from "@/components/app/UserMenu";
+import { CommandPaletteTrigger } from "@/components/app/CommandPalette";
+import { NotificationBell } from "@/components/app/NotificationBell";
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType; section?: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -91,8 +93,17 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Search trigger (Cmd+K) — discoverable entry point to the command palette */}
+      <div className="px-3 pt-3 pb-1">
+        <CommandPaletteTrigger onClick={() => {
+          // Dispatch a synthetic Cmd+K keydown so the CommandPalette opens
+          // (it's the single source of truth for open state)
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+        }} />
+      </div>
+
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
+      <nav className="flex-1 overflow-y-auto py-2 px-3">
         {navItems.map((item) => (
           <div key={item.id}>
             {item.section && (
@@ -126,8 +137,16 @@ export default function Sidebar() {
 
       {/* Footer — R-011: UserMenu replaces the static "agents configurés" line.
           Without a visible login button, users had no way to authenticate,
-          so every LinkedIn OAuth attempt failed with "Connexion requis". */}
-      <UserMenu />
+          so every LinkedIn OAuth attempt failed with "Connexion requis".
+          The NotificationBell shows unread count + dropdown preview. */}
+      <div className="flex items-stretch gap-1 px-2 pb-2">
+        <div className="flex-1 min-w-0 [&>div]:!border-0 [&>div]:!px-2 [&>div]:!py-2">
+          <UserMenu />
+        </div>
+        <div className="flex items-center">
+          <NotificationBell />
+        </div>
+      </div>
     </aside>
   );
 }

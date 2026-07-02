@@ -20,6 +20,7 @@ import type {
   BestTimeSlot,
   PostAnalysis,
 } from "@/lib/linkedin-ai";
+import { toast } from "@/lib/toast";
 import {
   Linkedin,
   Link2,
@@ -474,13 +475,20 @@ function PublierTab({ prefillTopic, prefillPostText, onClearPrefill }: { prefill
         body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Erreur lors de la publication"); return; }
+      if (!res.ok) {
+        setError(data.error || "Erreur lors de la publication");
+        toast.error("Échec de la publication", { description: data.error || `Erreur ${res.status}` });
+        return;
+      }
       setSuccess(true);
       addLinkedInPost({ id: data.postId || `post-${Date.now()}`, text: postText, createdAt: new Date().toISOString(), likes: 0, comments: 0, visibility });
       setPostText("");
+      toast.success("Post publié sur LinkedIn", { description: "Visible sur votre profil public" });
       setTimeout(() => setSuccess(false), 3000);
-    } catch {
-      setError("Erreur réseau lors de la publication");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur réseau";
+      setError(msg);
+      toast.error("Échec de la publication", { description: msg });
     } finally {
       setPublishing(false);
     }
@@ -497,7 +505,11 @@ function PublierTab({ prefillTopic, prefillPostText, onClearPrefill }: { prefill
         body: JSON.stringify({ text: postText, visibility, linkedinId: linkedInProfile.id, scheduledAt }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Erreur lors de la planification"); return; }
+      if (!res.ok) {
+        setError(data.error || "Erreur lors de la planification");
+        toast.error("Échec de la planification", { description: data.error || `Erreur ${res.status}` });
+        return;
+      }
       addScheduledPost({
         id: data.postId || `sched-${Date.now()}`,
         text: postText,
@@ -510,9 +522,12 @@ function PublierTab({ prefillTopic, prefillPostText, onClearPrefill }: { prefill
       setScheduledAt("");
       setScheduleMode(false);
       setSuccess(true);
+      toast.success("Post planifié", { description: data.message ?? "Sera publié automatiquement à l'heure prévue" });
       setTimeout(() => setSuccess(false), 3000);
-    } catch {
-      setError("Erreur réseau lors de la planification");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur réseau";
+      setError(msg);
+      toast.error("Échec de la planification", { description: msg });
     } finally {
       setScheduling(false);
     }
@@ -761,9 +776,17 @@ function PlanifierTab() {
   const handleCancel = async (id: string) => {
     setCancelling(id);
     try {
-      await fetch(`/api/linkedin/schedule?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/linkedin/schedule?id=${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        toast.error("Échec de l'annulation", { description: data?.error ?? `Erreur ${res.status}` });
+        return;
+      }
       removeScheduledPost(id);
-    } catch { /* */ } finally {
+      toast.success("Post planifié annulé");
+    } catch (err) {
+      toast.error("Échec de l'annulation", { description: err instanceof Error ? err.message : "Erreur réseau" });
+    } finally {
       setCancelling(null);
     }
   };
