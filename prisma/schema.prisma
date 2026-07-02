@@ -62,6 +62,11 @@ model User {
   complianceState      ComplianceState?
   feedbackRules        FeedbackRule[]
   eventHistory         EventHistory[]
+  // Phase 3 — Engagement Intelligence
+  linkedInReactors     LinkedInReactor[]
+  trendingTopics       TrendingTopic[]
+  profileVisitors      ProfileVisitor[]
+  expertComments       ExpertComment[]
 }
 
 model UserSettings {
@@ -73,6 +78,11 @@ model UserSettings {
   allowShell        Boolean  @default(true)
   allowBrowser      Boolean  @default(true)
   forbiddenCommands String     @default("[]")
+  // Phase 3 — Engagement Intelligence
+  engagementAutoReply       Boolean @default(false) // opt-in toggle for auto-reply on trending topics
+  engagementMaxDailyComments Int    @default(3)      // hard cap (also bounded by compliance dailyComments)
+  engagementTone            String  @default("expert") // expert | analytical | contrarian | casual
+  engagementMinHoursBetween Float  @default(2)       // min hours between two AI-posted comments
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -472,6 +482,9 @@ model Contact {
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   deals          Deal[]
   emailMessages  EmailMessage[]
+  // Phase 3 — Engagement Intelligence back-relations
+  reactorLinks   LinkedInReactor[] @relation("ReactorContact")
+  visitorLinks   ProfileVisitor[]  @relation("VisitorContact")
 
   @@index([userId, email])
   @@index([userId, entreprise])
@@ -762,4 +775,135 @@ model EventHistory {
 
   @@index([userId, eventType])
   @@index([userId, createdAt])
+}
+
+// ─── Phase 3 — Engagement Intelligence ────────────────────────────────
+// Captures every like + comment on the user's LinkedIn posts, so they can
+// be synced into the CRM as warm leads (someone who engaged with your
+// content is by definition a warm lead). Multi-tenant safe: every row is
+// scoped by userId.
+
+model LinkedInReactor {
+  id                  String   @id @default(cuid())
+  userId              String
+  postUrn             String   // LinkedIn URN of the post that was reacted to
+  postId              String?  // optional FK to LinkedInPost.id (nullable for posts not tracked in our DB)
+  // Reactor identity
+  reactorLinkedInId   String   // LinkedIn person ID (extracted from actor URN)
+  reactorName         String   @default("")
+  reactorHeadline     String?  // job title / company from profile
+  reactorProfileUrl   String?  // https://www.linkedin.com/in/...
+  reactorAvatarUrl    String?
+  // Action details
+  action              String   // "like" | "comment"
+  commentText         String?  // only when action = "comment"
+  commentUrn          String?  // LinkedIn URN of the comment itself (for reply threading)
+  capturedAt          DateTime @default(now())
+  // CRM sync state
+  syncedToCrmAt       DateTime?
+  contactId           String?  // FK to Contact once synced
+  // Manual override
+  ignored             Boolean  @default(false) // user can mark a reactor as "not a lead"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull, name: "ReactorContact")
+
+  @@unique([userId, postUrn, reactorLinkedInId, action])
+  @@index([userId, action])
+  @@index([userId, syncedToCrmAt])
+  @@index([userId, capturedAt])
+}
+
+// Trending topics detected by AI in the user's niche. Each topic can be
+// "engaged" by the auto-reply engine, which generates an expert-mode
+// comment and posts it on a relevant trending post.
+
+model TrendingTopic {
+  id              String   @id @default(cuid())
+  userId          String
+  topic           String   // 3-5 word label, e.g. "AI agents B2B prospection"
+  angle           String   @default("")  // specific angle to approach
+  heat            String   @default("warm") // hot | warm | rising
+  suggestedHook   String   @default("")
+  sourceUrl       String?  // URL of the source article/post that inspired this topic
+  detectedAt      DateTime @default(now())
+  // Engagement state
+  status          String   @default("new") // new | selected | commented | archived | failed
+  targetPostUrn   String?  // LinkedIn URN of the post we commented on
+  targetPostExcerpt String? @default("")  // first 200 chars of the target post
+  commentText     String?  // the expert comment we generated + posted
+  commentUrn      String?  // LinkedIn URN of the posted comment
+  postedAt        DateTime?
+  error           String?  // populated when status = "failed"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, detectedAt])
+}
+
+// Manual import of profile visitors. LinkedIn does NOT expose profile
+// visitors via the standard API for personal accounts (only the Premium
+// "Who viewed your profile" feature in the LinkedIn UI). So we let the
+// user manually paste visitors they copy from their LinkedIn Premium
+// dashboard, and treat them as warm leads (score=60).
+
+model ProfileVisitor {
+  id              String   @id @default(cuid())
+  userId          String
+  visitorName     String
+  visitorHeadline String?  // "Head of Growth @ Acme"
+  visitorProfileUrl String? // https://www.linkedin.com/in/...
+  visitedAt       DateTime @default(now()) // when the visit happened (user-supplied)
+  source          String   @default("manual") // manual | premium_export
+  note            String?
+  // CRM sync state
+  syncedToCrmAt   DateTime?
+  contactId       String?
+  ignored         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull, name: "VisitorContact")
+
+  @@index([userId, visitedAt])
+  @@index([userId, syncedToCrmAt])
+}
+
+// Audit trail of every expert comment generated + posted by the AI.
+// This is separate from GeneratedComment (which is user-curated) because
+// the engagement engine runs autonomously and we want a clean audit log.
+
+model ExpertComment {
+  id              String   @id @default(cuid())
+  userId          String
+  source          String   @default("trending") // trending | reactor_reply | manual
+  // Source references
+  trendingTopicId String?
+  reactorId       String?
+  // Target
+  targetPostUrn   String
+  targetPostExcerpt String  @default("")
+  // Generated content
+  commentText     String
+  tone            String   @default("expert")
+  model           String   @default("")
+  // Posting state
+  status          String   @default("generated") // generated | posted | failed
+  commentUrn      String?
+  postedAt        DateTime?
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([userId, source])
 }

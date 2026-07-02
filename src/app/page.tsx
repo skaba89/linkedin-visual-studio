@@ -18,6 +18,7 @@ import EmailView from "@/components/app/EmailView";
 import WorkflowView from "@/components/app/WorkflowView";
 import NotificationsView from "@/components/app/NotificationsView";
 import IntegrationsView from "@/components/app/IntegrationsView";
+import EngagementView from "@/components/app/EngagementView";
 import { CommandPalette } from "@/components/app/CommandPalette";
 import { Menu, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -105,6 +106,8 @@ export default function Home() {
         return <NotificationsView />;
       case "integrations":
         return <IntegrationsView />;
+      case "engagement":
+        return <EngagementView />;
       default:
         return <DashboardView />;
     }

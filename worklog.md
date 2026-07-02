@@ -804,3 +804,124 @@ Stage Summary:
 - Commit: 59be923 poussé sur GitHub
 - PAS ENCORE DÉPLOYÉ sur Render
 
+
+---
+Task ID: phase-3-engagement-intelligence
+Agent: Main Agent (Claude)
+Task: Phase 3 — Engagement Intelligence. Capture post reactors (likes/comments → CRM), capture profile visitors (manual import — LinkedIn Premium API limitation), detect trending topics, auto-reply with expert-mode AI comments that are indistinguishable from human writing.
+
+Work Log:
+- Audité l'existant: lib/linkedin/metrics-sync.ts capture déjà les comptes de likes/comments mais pas l'identité des réacteurs. Pas de modèle pour les réacteurs, les tendances, ni les visiteurs de profil. Pas de mécanisme d'auto-réply.
+
+Phase 3.1 — Prisma schema:
+- 4 nouveaux modèles: LinkedInReactor, TrendingTopic, ProfileVisitor, ExpertComment
+- LinkedInReactor: capture every like/comment with reactor identity (LinkedIn ID, name, headline, profile URL, avatar), action type, comment text + URN, CRM sync state (syncedToCrmAt, contactId), ignored flag
+- TrendingTopic: topic + angle + heat + suggestedHook + status (new|selected|commented|archived|failed) + targetPostUrn + commentText + commentUrn + postedAt + error
+- ProfileVisitor: manual import (LinkedIn Premium dashboard copy) with visitor identity, visitedAt, source (manual|premium_export), CRM sync state
+- ExpertComment: audit trail of every AI-generated + posted comment (source, trendingTopicId, reactorId, targetPostUrn, commentText, tone, model, status, commentUrn, postedAt, error)
+- UserSettings extension: engagementAutoReply (Boolean), engagementMaxDailyComments (Int 1-5), engagementTone (expert|analytical|contrarian|casual), engagementMinHoursBetween (Float 1-24)
+- Migration SQL: 20260702010000_add_engagement_intelligence
+- Unique constraint on LinkedInReactor: (userId, postUrn, reactorLinkedInId, action) for idempotent upserts
+
+Phase 3.2 — reactor-capture.ts:
+- captureReactorsForUser(userId): for each LinkedInPost with linkedinUrn not captured in last 4h, fetch /v2/socialActions/{urn}/likes + /comments with projection=(elements*($URN,actor,actor~(firstName,lastName,headline,picture))) — single round-trip per reactor (avoids N+1 profile fetches)
+- Upsert reactors on the unique key (userId, postUrn, reactorLinkedInId, action) — idempotent
+- Token-expired handling: abort user's sync entirely on 401
+- Rate-limit polite: 300ms delay between LinkedIn API calls
+- MAX_POSTS_PER_USER = 30 per cron tick (rate-limit budget)
+- captureReactorsForAllUsers(): bulk for cron
+
+Phase 3.3 — reactor-crm-sync.ts:
+- syncReactorsToCrmForUser(userId, limit): for each unsynced reactor, find or create a Contact
+- Deduplication: (1) by LinkedIn profile URL match, (2) by case-insensitive prenom+nom match
+- Like reactors → score=60, Comment reactors → score=75 (stronger engagement signal)
+- New contacts get tags=["linkedin", "reactor", "<action>"] for CRM filtering
+- Comment reactors get a note with the comment text (truncated to 280 chars)
+- syncReactorsToCrmForAllUsers(): bulk for cron (after capture)
+
+Phase 3.4 — expert-comment.ts (AI anti-detection):
+- 30+ AI tics blacklisted: "Great point", "Spot on", "I completely agree", "Well said", "Indeed", "Absolutely", "100%", "This!", "So true", "Excellent article", "Thanks for sharing", "Great insights", "Food for thought", "Game-changer", "Revolutionary", "Groundbreaking", "Amazing", "Incredible", "Fascinating", "Remarkable", "Invaluable", "Couldn't agree more", "Nailed it", "Hit the nail on the head"
+- sanitizeExpertComment(raw): post-processes AI output to remove violations
+  - Strip emojis (R-012 double-defense)
+  - Replace em-dashes (—) and double-hyphens (--) with single hyphens (ChatGPT tell)
+  - Remove AI tics by deleting the matching phrase + trailing punctuation
+  - Collapse multiple spaces/newlines
+  - Fix leading orphan punctuation (", and..." → "And...")
+  - Capitalize first letter
+  - Ensure trailing punctuation
+- generateExpertComment(input): server-side AI call with anti-detection system prompt
+  - Temperature 0.85 (slightly higher than default to escape model's most-likely phrasings)
+  - maxTokens 220 (forces brevity)
+  - Negative instructions (what NOT to do) — LLMs follow negative instructions more reliably for style
+  - Obligation: include ONE micro-detail (number, name, date, tool name, counter-intuitive observation)
+  - 4 tones: expert (analytical + opinionated), analytical (decompose claim), contrarian (polite disagreement on one point), casual (conversational, 2 phrases max)
+- generateExpertCommentVariants(input, count=3): generate up to 3 variants in different tones (interactive path)
+- 21 unit tests in src/lib/__tests__/expert-comment.test.ts: tic removal, em-dash replacement, emoji stripping, whitespace cleanup, leading punctuation fix, trailing punctuation, first-letter capitalization, idempotency, realistic fixtures
+
+Phase 3.5 — trending-engagement.ts:
+- detectTrendingTopicsForUser(userId): web search for "LinkedIn trending topics {icpSectors} {year}", AI structures into TrendingTopic rows, deduplicates against topics detected in last 7 days
+- engageTrendingTopicsForUser(userId, maxTopics=3):
+  - Pre-flight compliance check (UserSettings.engagementAutoReply + maxDailyComments + minHoursBetween + LinkedIn compliance module)
+  - For each unsynced TrendingTopic (status=new):
+    1. Web search for relevant LinkedIn/medium posts in the user's niche
+    2. Score candidates (LinkedIn URLs get +100, medium +20, HBR +25, snippets with numbers +10)
+    3. Pick the top candidate, extract post URN from URL
+    4. Generate expert comment via generateExpertComment() with the user's preferred tone
+    5. POST the comment via LinkedIn /v2/socialActions/{urn}/comments API
+    6. Record the ExpertComment audit trail (status=posted, commentUrn, postedAt)
+    7. Record the action in the compliance module
+    8. Update TrendingTopic status=commented + commentText + commentUrn + postedAt
+  - 30s sleep between topics to space out the comments
+  - Re-checks compliance before each topic (quota may have been hit mid-run)
+- engageTrendingTopicsForAllUsers(): bulk for cron, only for users with engagementAutoReply=true
+- extractPostUrnFromUrl(): parses LinkedIn URLs like /posts/username_activity-1234567890 or /feed/update/urn:li:activity:1234567890
+
+Phase 3.6 — Cron routes:
+- /api/cron/reactor-capture (POST + GET): every 2h, captureReactorsForAllUsers() + syncReactorsToCrmForAllUsers()
+- /api/cron/trending-detect (POST + GET): daily 6am UTC, detectTrendingTopicsForAllUsers()
+- /api/cron/trending-engage (POST + GET): every 2h, engageTrendingTopicsForAllUsers() — only for users with engagementAutoReply=true
+- All protected by x-cron-secret header (verifyCronSecret), maxDuration=300
+
+Phase 3.7 — API data routes:
+- GET /api/data/reactors: list reactors (filter by action, unsynced, ignored)
+- POST /api/data/reactors/sync-crm: trigger CRM sync for unsynced reactors
+- PATCH/DELETE /api/data/reactors/[id]: update ignored flag or hard-delete
+- GET/POST /api/data/trending: list trending topics or manually create one
+- POST /api/data/trending/[id]/generate-comment: generate up to 3 expert comment variants WITHOUT posting (interactive path)
+- GET/POST /api/data/profile-visitors: list or manually add a visitor (auto-creates CRM contact with score=60)
+- PATCH/DELETE /api/data/profile-visitors/[id]: update ignored flag or hard-delete
+- GET/PUT /api/data/engagement-settings: read or update engagement preferences (autoReply, maxDailyComments, tone, minHoursBetween)
+- GET /api/data/expert-comments: list AI-generated comments audit trail
+- All multi-tenant safe (requireUser + assertOwnership)
+
+Phase 3.8 — UI EngagementView:
+- 4 tabs: Réacteurs | Visiteurs | Tendances | Auto-Reply
+- Réacteurs tab: stat cards (total, likes, comments, unsynced), "Sync vers CRM" button, list of reactors with avatar/name/headline/comment text/CRM link/ignore button/LinkedIn profile link
+- Visiteurs tab: manual add form (name, headline, URL, note) + list of imported visitors with CRM link
+- Tendances tab: manual add form (topic, angle, hook) + list of trending topics with heat badge, status badge, source link, "Générer un commentaire expert" button that displays 3 variants in different tones (with character count + auto-fix count)
+- Auto-Reply tab: opt-in toggle, maxDailyComments input (1-5), minHoursBetween input (1-24), tone selector (4 buttons), "Comment ça marche" explainer
+- New nav item "Engagement IA" (Sparkles icon) in Sidebar under new "INTELLIGENCE" section
+- ViewType union extended with "engagement"
+- page.tsx switch updated to render EngagementView
+
+Stage Summary:
+- 21 fichiers changés, ~2500 lignes ajoutées
+- 4 nouveaux modèles Prisma (LinkedInReactor, TrendingTopic, ProfileVisitor, ExpertComment)
+- 1 migration SQL: 20260702010000_add_engagement_intelligence
+- 4 nouvelles libs: linkedin/reactor-capture, linkedin/reactor-crm-sync, linkedin/expert-comment, linkedin/trending-engagement
+- 3 nouvelles routes cron: /api/cron/reactor-capture, /api/cron/trending-detect, /api/cron/trending-engage
+- 7 nouvelles routes data: /api/data/reactors (+ sync-crm + [id]), /api/data/trending (+ [id]/generate-comment), /api/data/profile-visitors (+ [id]), /api/data/engagement-settings, /api/data/expert-comments
+- 1 nouveau composant UI: EngagementView.tsx (~700 lignes, 4 tabs)
+- Sidebar + page.tsx + ViewType étendus
+- 21 nouveaux tests unitaires (expert-comment sanitizer) — total 273 tests passent
+- tsc --noEmit: 0 erreur
+- next build: clean (0 warning, 0 error)
+- PAS ENCORE DÉPLOYÉ sur Render — l'utilisateur doit:
+  1. Manual Deploy sur Render
+  2. Configurer 3 nouveaux Render Cron Jobs (voir ci-dessous)
+  3. Les env vars existantes suffisent (CRON_SECRET, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET déjà requis en Phase 1.5)
+
+Render Cron Jobs config (dashboard → Cron Jobs) — À AJOUTER:
+- reactor-capture: Schedule "0 */2 * * *"  Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/reactor-capture
+- trending-detect: Schedule "0 6 * * *"    Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/trending-detect
+- trending-engage: Schedule "30 */2 * * *" Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/trending-engage
