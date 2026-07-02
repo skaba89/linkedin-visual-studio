@@ -1156,3 +1156,129 @@ Stage Summary:
   - integrations-sync: Schedule "0 */6 * * *" Command: curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://linkedin-visual-studio.onrender.com/api/cron/integrations-sync
 - New Render env vars to add (optional, for billing):
   - STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_YEARLY, STRIPE_PRICE_BUSINESS_MONTHLY, STRIPE_PRICE_BUSINESS_YEARLY, STRIPE_PRICE_ENTERPRISE_MONTHLY, STRIPE_PRICE_ENTERPRISE_YEARLY
+
+---
+Task ID: phase-3.10
+Agent: main (Super Z)
+Task: Fix React #418 hydration error + 500 errors on engagement endpoints (round 2)
+
+Work Log:
+- Investigated React error #418 (hydration mismatch on <html> tag)
+- Found root cause: layout.tsx has a <script nonce={nonce}> tag where nonce is
+  server-only (set by middleware via x-nonce header). During client hydration,
+  nonce is undefined, causing React 19 to throw #418 on the attribute mismatch.
+- Fix: added suppressHydrationWarning to the nonce script tag in layout.tsx
+- Fix: added suppressHydrationWarning to <html> tag in global-error.tsx
+  (was missing, while root layout had it — mismatch on global error render)
+
+- Reviewed engagement routes error handling: pattern was
+  `try/catch { if (isHttpError(err)) return ...; throw err; }` which re-threw
+  Prisma errors to Next.js as opaque 500s with no response body.
+- Added handleRouteError() helper to src/lib/http-error.ts that:
+  - Serializes HttpError to its JSON body + status
+  - Maps Prisma error codes to proper HTTP responses (P2002→409, P2025→404,
+    P2003→409, P2011/P2012→422, others→500 with diagnostic details)
+  - Logs unknown errors with stack trace for diagnosis
+- Updated 9 engagement routes to use handleRouteError:
+  - /api/data/reactors (GET)
+  - /api/data/reactors/[id] (PATCH, DELETE)
+  - /api/data/reactors/sync-crm (POST)
+  - /api/data/profile-visitors (GET, POST)
+  - /api/data/profile-visitors/[id] (PATCH, DELETE)
+  - /api/data/trending (GET, POST)
+  - /api/data/trending/[id]/generate-comment (POST)
+  - /api/data/engagement-settings (GET, PUT)
+  - /api/data/expert-comments (GET)
+
+- Added diagnostic endpoint /api/setup/ensure-engagement-tables (unauthenticated):
+  - Force-runs ensureUserColumns(true) to re-create any missing tables/columns
+  - Verifies all 9 engagement/billing/workspace tables exist
+  - Verifies all 7 UserSettings engagement/billing/workspace columns exist
+  - Returns a JSON report showing what was found/missing
+  - Operators can call this after deploy to fix 500s:
+    curl https://linkedin-visual-studio.onrender.com/api/setup/ensure-engagement-tables
+
+- Updated ensureUserColumns() to accept a `force` parameter that bypasses
+  the hasRun guard. This allows the diagnostic endpoint to re-run the
+  migration even if it already ran at boot (where it may have silently failed).
+
+Verification:
+- npx tsc --noEmit: 0 errors
+- npx next build: clean (0 warnings, 0 errors)
+- Committed and pushed to GitHub (commit fef68db)
+
+Stage Summary:
+- React #418 hydration error fixed (suppressHydrationWarning on nonce script)
+- 9 engagement routes now properly map Prisma errors to 4xx responses
+- New diagnostic endpoint lets operators self-heal the schema post-deploy
+- All changes pushed to GitHub, ready for Render Manual Deploy
+
+---
+Task ID: phase-5
+Agent: main (Super Z)
+Task: Phase 5 — Production hardening (deployment guide + AI quality + SaaS onboarding)
+
+Work Log:
+- Created DEPLOYMENT.md (comprehensive 10-section deployment guide):
+  - Architecture diagram (Render web service + Neon PostgreSQL + 6 cron jobs)
+  - Step-by-step PostgreSQL (Neon) setup
+  - Render web service configuration (build/start commands, health check)
+  - Full env vars table (obligatory + LinkedIn + cron + LLM + Stripe)
+  - First deployment + log verification
+  - LinkedIn OAuth setup (developer app, redirect URL, scopes)
+  - Stripe billing setup (8 prices, webhook)
+  - 6 Render Cron Jobs with exact schedules and curl commands:
+    1. agents (every 5 min)
+    2. metrics-sync (daily 6h UTC)
+    3. token-refresh (daily 4h UTC)
+    4. reactor-capture (2x/day 9h+21h UTC)
+    5. trending-detect (3x/day 8h+14h+20h UTC)
+    6. trending-engage (3x/day 30min after detect)
+    7. integrations-sync (every 6h)
+  - Post-deploy verification checklist
+  - Troubleshooting (8 common errors with solutions)
+  - Final 11-item production checklist
+
+- Enhanced expert comment engine (src/lib/linkedin/expert-comment.ts):
+  - Added 35+ French-specific AI tics to the AI_TICS blocklist:
+    "très pertinent", "merci pour ce partage", "super post",
+    "article très intéressant", "je suis entièrement d'accord",
+    "je partage totalement", "tout à fait d'accord", "change la donne",
+    "révolutionnaire", "innovant", "il est clair que",
+    "il convient de noter que", "de nos jours", "force est de constater",
+    "point fondamental", "élément clé", "pépite", etc.
+  - New OPENING_PHRASES pool (20 expert openers) — randomly injected
+    into the system prompt to break the model's tendency to start every
+    comment with "I" or "This". Examples:
+    "Un chiffre qui m'a frappé récemment", "Sur le terrain, on voit l'inverse",
+    "Trois clients m'ont remonté la même chose", "Ce qui manque à l'argument",
+    "J'ai testé ça en production", etc.
+  - Enhanced system prompt with French tics blocklist + opener hint
+  - All 21 existing tests still pass
+
+- Updated SetupView (src/components/app/SetupView.tsx):
+  - Removed the old CLI-based setup (was: "npm install -g hermes-ai",
+    "hermes onboard --install-daemon", ~/.hermes/hermes.json config, etc.)
+  - New 5-step SaaS onboarding checklist:
+    1. Create your account (NextAuth credentials login)
+    2. Connect LinkedIn (OAuth flow)
+    3. Configure AI provider (Groq recommended, with external link to console.groq.com)
+    4. Define ICP (Ideal Customer Profile for lead scoring)
+    5. Generate your first post (Agent Contenu)
+  - Each step has a CTA button that navigates to the relevant view
+  - Completion banner when all 5 steps done
+  - Help footer pointing to DEPLOYMENT.md
+  - Reuses the existing progress bar UI pattern
+
+Verification:
+- npx tsc --noEmit: 0 errors
+- npx next build: clean (0 warnings, 0 errors)
+- npx vitest run src/lib/__tests__/expert-comment.test.ts: 21/21 passed
+- Committed (18eb27d) and pushed to GitHub
+
+Stage Summary:
+- DEPLOYMENT.md: complete production guide (Render + Neon + LinkedIn + Stripe + 6 cron jobs)
+- Expert comment engine v2: 35+ French tics + 20-varied openers + enhanced prompt
+- SetupView: SaaS onboarding (5 steps with CTAs, replaces legacy CLI instructions)
+- HERMÈS is now production-ready: deployable on Render with full documentation
+- Next steps for user: Manual Deploy on Render + configure 6 cron jobs + LinkedIn OAuth
