@@ -20,6 +20,7 @@ import NotificationsView from "@/components/app/NotificationsView";
 import IntegrationsView from "@/components/app/IntegrationsView";
 import EngagementView from "@/components/app/EngagementView";
 import BillingView from "@/components/app/BillingView";
+import TeamView from "@/components/app/TeamView";
 import { CommandPalette } from "@/components/app/CommandPalette";
 import { useHydrated } from "@/components/app/HydrationGate";
 import { Menu, X } from "lucide-react";
@@ -121,6 +122,8 @@ export default function Home() {
         return <EngagementView />;
       case "billing":
         return <BillingView />;
+      case "team":
+        return <TeamView />;
       default:
         return <DashboardView />;
     }

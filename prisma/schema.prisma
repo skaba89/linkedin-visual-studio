@@ -69,6 +69,9 @@ model User {
   expertComments       ExpertComment[]
   usageQuotas          UsageQuota[]
   integrations         Integration[]
+  // Phase 4.4 — Team Workspaces
+  ownedWorkspaces      Workspace[] @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
 }
 
 model UserSettings {
@@ -101,6 +104,10 @@ model UserSettings {
   subscriptionStatus    String   @default("none") // none | trialing | active | past_due | canceled | incomplete
   trialEndsAt           DateTime?
   currentPeriodEnd      DateTime?
+  // Phase 4.4 — Team Workspaces
+  // When set, the user is in "team mode" and sees data from all members
+  // of this workspace. When null, the user is in "personal mode".
+  currentWorkspaceId    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -800,6 +807,83 @@ model Integration {
   @@unique([userId, provider])
   @@index([userId, status])
   @@index([userId, provider])
+}
+
+// ─── Phase 4.4 — Team Workspaces ──────────────────────────────────────
+// A Workspace is a team container. Multiple users can be members of the
+// same workspace, with different roles (admin, member, viewer).
+//
+// Data sharing model:
+//   - When a user is in "personal mode" (no currentWorkspaceId), they
+//     only see their own data (existing behavior).
+//   - When a user sets a currentWorkspaceId, queries return data from
+//     all members of that workspace (team mode).
+//   - The owner's plan determines the workspace's seat limit and quotas.
+//
+// Roles:
+//   - admin:  can manage members, change settings, view billing
+//   - member: full CRUD on workspace data (contacts, deals, posts)
+//   - viewer: read-only access to workspace data
+//
+// Invitations:
+//   - The owner invites users by email
+//   - The invitee receives an email with a signed token
+//   - On accept, a WorkspaceMember row is created with the chosen role
+//   - Tokens expire after 7 days
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique  // URL-friendly identifier (e.g., "acme-growth")
+  ownerId     String   // the User who created the workspace (always an admin)
+  // Plan is inherited from the owner's UserSettings.plan
+  // (no separate workspace plan — keeps billing simple)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  owner       User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     WorkspaceMember[]
+  invitations WorkspaceInvitation[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  userId       String
+  role         String   @default("member")  // admin | member | viewer
+  invitedBy    String?
+  joinedAt     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId, role])
+  @@index([userId])
+}
+
+model WorkspaceInvitation {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  email        String    // invitee's email
+  role         String    @default("member")  // admin | member | viewer
+  token        String    @unique  // signed token for the invite URL
+  invitedBy    String    // User ID of the inviter
+  status       String    @default("pending")  // pending | accepted | revoked | expired
+  expiresAt    DateTime  // 7 days from creation
+  acceptedAt   DateTime?
+  acceptedBy   String?   // User ID of the invitee (once accepted)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([email, status])
 }
 
 // ─── Orchestrator state persistence ──────────────────────────────────
