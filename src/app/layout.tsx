@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-provider";
+import { HydrationGate } from "@/components/app/HydrationGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,7 +46,9 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#080C10] text-white`}
       >
         <AuthProvider>
-          {children}
+          <HydrationGate>
+            {children}
+          </HydrationGate>
           <SonnerToaster
             position="top-right"
             richColors

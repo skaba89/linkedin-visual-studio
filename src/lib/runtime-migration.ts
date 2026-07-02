@@ -99,6 +99,189 @@ export async function ensureUserColumns(): Promise<void> {
     //    since we use TEXT now). This prevents confusion in future migrations.
     //    We use DROP TYPE IF EXISTS which is idempotent.
     `DROP TYPE IF EXISTS "Role";`,
+
+    // ─── Phase 3 — Engagement Intelligence tables ───────────────────────────
+    // These ensure the 4 engagement tables + UserSettings engagement columns
+    // exist even if migration 20260702010000_add_engagement_intelligence hasn't
+    // been applied (which is the root cause of the 500 errors on
+    // /api/data/reactors, /api/data/profile-visitors, /api/data/trending,
+    // /api/data/engagement-settings right after a fresh deploy).
+
+    // 6. UserSettings engagement columns (Phase 3)
+    `ALTER TABLE "UserSettings"
+       ADD COLUMN IF NOT EXISTS "engagementAutoReply"       BOOLEAN NOT NULL DEFAULT false,
+       ADD COLUMN IF NOT EXISTS "engagementMaxDailyComments" INTEGER NOT NULL DEFAULT 3,
+       ADD COLUMN IF NOT EXISTS "engagementTone"            TEXT    NOT NULL DEFAULT 'expert',
+       ADD COLUMN IF NOT EXISTS "engagementMinHoursBetween" DOUBLE PRECISION NOT NULL DEFAULT 2;`,
+
+    // 7. LinkedInReactor table (Phase 3)
+    `CREATE TABLE IF NOT EXISTS "LinkedInReactor" (
+      "id"                  TEXT   NOT NULL,
+      "userId"              TEXT   NOT NULL,
+      "postUrn"             TEXT   NOT NULL,
+      "postId"              TEXT,
+      "reactorLinkedInId"   TEXT   NOT NULL,
+      "reactorName"         TEXT   NOT NULL DEFAULT '',
+      "reactorHeadline"     TEXT,
+      "reactorProfileUrl"   TEXT,
+      "reactorAvatarUrl"    TEXT,
+      "action"              TEXT   NOT NULL,
+      "commentText"         TEXT,
+      "commentUrn"          TEXT,
+      "capturedAt"          TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "syncedToCrmAt"       TIMESTAMP(3),
+      "contactId"           TEXT,
+      "ignored"             BOOLEAN NOT NULL DEFAULT false,
+      "createdAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt"           TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "LinkedInReactor_pkey" PRIMARY KEY ("id")
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "LinkedInReactor_userId_postUrn_reactorLinkedInId_actio_key"
+       ON "LinkedInReactor"("userId", "postUrn", "reactorLinkedInId", "action");`,
+    `CREATE INDEX IF NOT EXISTS "LinkedInReactor_userId_action_idx"
+       ON "LinkedInReactor"("userId", "action");`,
+    `CREATE INDEX IF NOT EXISTS "LinkedInReactor_userId_syncedToCrmAt_idx"
+       ON "LinkedInReactor"("userId", "syncedToCrmAt");`,
+    `CREATE INDEX IF NOT EXISTS "LinkedInReactor_userId_capturedAt_idx"
+       ON "LinkedInReactor"("userId", "capturedAt");`,
+
+    // 8. TrendingTopic table (Phase 3)
+    `CREATE TABLE IF NOT EXISTS "TrendingTopic" (
+      "id"                TEXT   NOT NULL,
+      "userId"            TEXT   NOT NULL,
+      "topic"             TEXT   NOT NULL,
+      "angle"             TEXT   NOT NULL DEFAULT '',
+      "heat"              TEXT   NOT NULL DEFAULT 'warm',
+      "suggestedHook"     TEXT   NOT NULL DEFAULT '',
+      "sourceUrl"         TEXT,
+      "detectedAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "status"            TEXT   NOT NULL DEFAULT 'new',
+      "targetPostUrn"     TEXT,
+      "targetPostExcerpt" TEXT,
+      "commentText"       TEXT,
+      "commentUrn"        TEXT,
+      "postedAt"          TIMESTAMP(3),
+      "error"             TEXT,
+      "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt"         TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "TrendingTopic_pkey" PRIMARY KEY ("id")
+    );`,
+    `CREATE INDEX IF NOT EXISTS "TrendingTopic_userId_status_idx"
+       ON "TrendingTopic"("userId", "status");`,
+    `CREATE INDEX IF NOT EXISTS "TrendingTopic_userId_detectedAt_idx"
+       ON "TrendingTopic"("userId", "detectedAt");`,
+
+    // 9. ProfileVisitor table (Phase 3)
+    `CREATE TABLE IF NOT EXISTS "ProfileVisitor" (
+      "id"                TEXT   NOT NULL,
+      "userId"            TEXT   NOT NULL,
+      "visitorName"       TEXT   NOT NULL,
+      "visitorHeadline"   TEXT,
+      "visitorProfileUrl" TEXT,
+      "visitedAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "source"            TEXT   NOT NULL DEFAULT 'manual',
+      "note"              TEXT,
+      "syncedToCrmAt"     TIMESTAMP(3),
+      "contactId"         TEXT,
+      "ignored"           BOOLEAN NOT NULL DEFAULT false,
+      "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt"         TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "ProfileVisitor_pkey" PRIMARY KEY ("id")
+    );`,
+    `CREATE INDEX IF NOT EXISTS "ProfileVisitor_userId_visitedAt_idx"
+       ON "ProfileVisitor"("userId", "visitedAt");`,
+    `CREATE INDEX IF NOT EXISTS "ProfileVisitor_userId_syncedToCrmAt_idx"
+       ON "ProfileVisitor"("userId", "syncedToCrmAt");`,
+
+    // 10. ExpertComment table (Phase 3)
+    `CREATE TABLE IF NOT EXISTS "ExpertComment" (
+      "id"                TEXT   NOT NULL,
+      "userId"            TEXT   NOT NULL,
+      "source"            TEXT   NOT NULL DEFAULT 'trending',
+      "trendingTopicId"   TEXT,
+      "reactorId"         TEXT,
+      "targetPostUrn"     TEXT   NOT NULL,
+      "targetPostExcerpt" TEXT   NOT NULL DEFAULT '',
+      "commentText"       TEXT   NOT NULL,
+      "tone"              TEXT   NOT NULL DEFAULT 'expert',
+      "model"             TEXT   NOT NULL DEFAULT '',
+      "status"            TEXT   NOT NULL DEFAULT 'generated',
+      "commentUrn"        TEXT,
+      "postedAt"          TIMESTAMP(3),
+      "error"             TEXT,
+      "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt"         TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "ExpertComment_pkey" PRIMARY KEY ("id")
+    );`,
+    `CREATE INDEX IF NOT EXISTS "ExpertComment_userId_status_idx"
+       ON "ExpertComment"("userId", "status");`,
+    `CREATE INDEX IF NOT EXISTS "ExpertComment_userId_createdAt_idx"
+       ON "ExpertComment"("userId", "createdAt");`,
+    `CREATE INDEX IF NOT EXISTS "ExpertComment_userId_source_idx"
+       ON "ExpertComment"("userId", "source");`,
+
+    // 11. Foreign keys for engagement tables (only add if they don't exist)
+    //     Using DO $$ ... IF NOT EXISTS (constraint) ... to be idempotent.
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'LinkedInReactor_userId_fkey'
+      ) THEN
+        ALTER TABLE "LinkedInReactor"
+          ADD CONSTRAINT "LinkedInReactor_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'LinkedInReactor_contactId_fkey'
+      ) THEN
+        ALTER TABLE "LinkedInReactor"
+          ADD CONSTRAINT "LinkedInReactor_contactId_fkey"
+          FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'TrendingTopic_userId_fkey'
+      ) THEN
+        ALTER TABLE "TrendingTopic"
+          ADD CONSTRAINT "TrendingTopic_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'ProfileVisitor_userId_fkey'
+      ) THEN
+        ALTER TABLE "ProfileVisitor"
+          ADD CONSTRAINT "ProfileVisitor_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'ProfileVisitor_contactId_fkey'
+      ) THEN
+        ALTER TABLE "ProfileVisitor"
+          ADD CONSTRAINT "ProfileVisitor_contactId_fkey"
+          FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'ExpertComment_userId_fkey'
+      ) THEN
+        ALTER TABLE "ExpertComment"
+          ADD CONSTRAINT "ExpertComment_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      END IF;
+    END $$;`,
   ];
 
   let succeeded = 0;
@@ -117,7 +300,7 @@ export async function ensureUserColumns(): Promise<void> {
     }
   }
 
-  log.info("Runtime User-column migration complete", {
+  log.info("Runtime schema migration complete (User columns + engagement tables)", {
     succeeded,
     failed,
   });

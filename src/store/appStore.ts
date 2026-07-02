@@ -1228,6 +1228,15 @@ export const useAppStore = create<AppState>()(
     {
       name: "hermes-app-store",
       version: 6,
+      // R-018 — skipHydration prevents Zustand from rehydrating from
+      // localStorage during the initial render. This is critical for SSR:
+      // without it, the server renders with the default state (e.g.,
+      // currentView="dashboard") while the client immediately rehydrates
+      // from localStorage (e.g., currentView="engagement"), causing
+      // React error #418 (hydration mismatch).
+      // Rehydration is now triggered manually via useStore.persist.rehydrate()
+      // in a useEffect inside app/page.tsx (see HydrationGate).
+      skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Record<string, unknown>;
         // Migrate v5 → v6: remove fake data, reset metrics to zero, clear fake leads

@@ -20,12 +20,14 @@ import NotificationsView from "@/components/app/NotificationsView";
 import IntegrationsView from "@/components/app/IntegrationsView";
 import EngagementView from "@/components/app/EngagementView";
 import { CommandPalette } from "@/components/app/CommandPalette";
+import { useHydrated } from "@/components/app/HydrationGate";
 import { Menu, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAgentSimulation } from "@/hooks/useAgentSimulation";
 
 export default function Home() {
   const { currentView, setCurrentView, setLinkedInConnected } = useAppStore();
+  const hydrated = useHydrated();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
   const linkedInHandled = useRef(false);
@@ -59,6 +61,14 @@ export default function Home() {
   }, [setLinkedInConnected, setCurrentView]);
 
   const renderView = () => {
+    // R-018 — Before hydration completes, always render the DashboardView.
+    // This guarantees the server-rendered HTML matches the initial client
+    // render, preventing React error #418 (hydration mismatch) that was
+    // happening because the client was rehydrating `currentView` from
+    // localStorage before React finished hydrating.
+    if (!hydrated) {
+      return <DashboardView />;
+    }
     switch (currentView) {
       case "dashboard":
         return <DashboardView />;
