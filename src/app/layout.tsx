@@ -64,9 +64,14 @@ export default async function RootLayout({
           />
         </AuthProvider>
         {/* Le nonce est exposé aux composants client via cet attribut
-            pour qu'ils puissent le passer aux <Script> tags si besoin. */}
+            pour qu'ils puissent le passer aux <Script> tags si besoin.
+            R-018 / Phase 3.9 — suppressHydrationWarning: le nonce est généré
+            côté serveur par le middleware et n'existe pas côté client lors de
+            l'hydration. Sans ce flag, React 19 lève l'erreur #418 (hydration
+            mismatch sur l'attribut nonce du <script>). */}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `window.__HERMES_NONCE__=${JSON.stringify(nonce)};`,
           }}

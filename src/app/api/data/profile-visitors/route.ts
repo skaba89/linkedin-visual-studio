@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { HttpError, isHttpError } from "@/lib/http-error";
+import { handleRouteError } from "@/lib/http-error";
 import { stripEmojis } from "@/lib/sanitize-text";
 import { stringifyJsonField } from "@/lib/json-field";
 
@@ -53,10 +53,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(visitors);
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }
 
@@ -126,9 +123,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(visitor, { status: 201 });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }

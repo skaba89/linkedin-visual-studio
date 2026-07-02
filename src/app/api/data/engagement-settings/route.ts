@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { HttpError, isHttpError } from "@/lib/http-error";
+import { handleRouteError } from "@/lib/http-error";
 
 const VALID_TONES = ["expert", "analytical", "contrarian", "casual"];
 
@@ -33,10 +33,7 @@ export async function GET() {
       engagementMinHoursBetween: settings.engagementMinHoursBetween,
     });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }
 
@@ -79,9 +76,6 @@ export async function PUT(req: NextRequest) {
       engagementMinHoursBetween: settings.engagementMinHoursBetween,
     });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }

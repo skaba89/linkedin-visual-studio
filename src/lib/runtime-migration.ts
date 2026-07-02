@@ -45,9 +45,20 @@ let hasRun = false;
  *
  * Also fix the `role` column type if it was created as ENUM instead of TEXT.
  * This is a runtime fallback for when prisma migrate deploy fails.
+ *
+ * Phase 3.9: also ensures all engagement tables (LinkedInReactor, TrendingTopic,
+ * ProfileVisitor, ExpertComment) + UserSettings engagement columns exist.
+ * Phase 4.2: also ensures billing tables (UsageQuota) + UserSettings billing columns.
+ * Phase 4.3: also ensures Integration table.
+ * Phase 4.4: also ensures Workspace tables + UserSettings.currentWorkspaceId.
+ *
+ * @param force — if true, re-run even if already run in this process.
+ *                Used by the /api/setup/ensure-engagement-tables endpoint
+ *                to fix a broken deployment where the boot-time migration
+ *                silently failed.
  */
-export async function ensureUserColumns(): Promise<void> {
-  if (hasRun) return;
+export async function ensureUserColumns(force: boolean = false): Promise<void> {
+  if (hasRun && !force) return;
   hasRun = true;
 
   const statements = [

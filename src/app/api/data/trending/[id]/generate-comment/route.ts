@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, assertOwnership } from "@/lib/session";
 import { generateExpertCommentVariants } from "@/lib/linkedin/expert-comment";
-import { HttpError, isHttpError } from "@/lib/http-error";
+import { handleRouteError } from "@/lib/http-error";
 
 export async function POST(
   req: NextRequest,
@@ -67,9 +67,6 @@ export async function POST(
       })),
     });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }

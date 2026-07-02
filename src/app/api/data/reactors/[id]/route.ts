@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, assertOwnership } from "@/lib/session";
-import { HttpError, isHttpError } from "@/lib/http-error";
+import { handleRouteError } from "@/lib/http-error";
 
 export async function PATCH(
   req: NextRequest,
@@ -30,10 +30,7 @@ export async function PATCH(
 
     return NextResponse.json(updated);
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }
 
@@ -51,9 +48,6 @@ export async function DELETE(
     await db.linkedInReactor.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }

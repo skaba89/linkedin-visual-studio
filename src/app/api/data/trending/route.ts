@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { HttpError, isHttpError } from "@/lib/http-error";
+import { handleRouteError } from "@/lib/http-error";
 import { stripEmojis } from "@/lib/sanitize-text";
 
 export async function GET(req: NextRequest) {
@@ -30,10 +30,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(topics);
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }
 
@@ -62,9 +59,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(topic, { status: 201 });
   } catch (err) {
-    if (isHttpError(err)) {
-      return NextResponse.json(err.toJSON(), { status: err.status });
-    }
-    throw err;
+    return handleRouteError(err);
   }
 }

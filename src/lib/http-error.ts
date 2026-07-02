@@ -27,6 +27,8 @@
  * rate-limited responses (RFC 7231 §7.1.3).
  */
 
+import { NextResponse } from "next/server";
+
 export type HttpErrorCode =
   // Auth
   | "AUTH_REQUIRED"
@@ -282,4 +284,100 @@ export class HttpError extends Error {
  */
 export function isHttpError(err: unknown): err is HttpError {
   return err instanceof HttpError;
+}
+
+/**
+ * Type guard for Prisma errors (objects with a `code` field starting with "P").
+ */
+function isPrismaError(err: unknown): err is { code: string; meta?: unknown; message: string } {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as Record<string, unknown>;
+  return typeof e.code === "string" && e.code.startsWith("P");
+}
+
+/**
+ * Map a Prisma error code to an HttpError with the appropriate status.
+ *
+ * P2002 (unique constraint)  → 409 CONFLICT
+ * P2003 (FK violation)       → 409 CONFLICT
+ * P2011 (required relation)  → 422 VALIDATION_ERROR
+ * P2012 (missing value)      → 422 VALIDATION_ERROR
+ * P2025 (record not found)   → 404 NOT_FOUND
+ * anything else              → 500 INTERNAL_ERROR
+ */
+function mapPrismaToHttp(err: { code: string; meta?: unknown; message: string }): HttpError {
+  switch (err.code) {
+    case "P2002":
+      return new HttpError(409, "A record with this value already exists", "CONFLICT", {
+        details: { prismaCode: err.code, meta: err.meta },
+      });
+    case "P2003":
+      return new HttpError(409, "Cannot modify: related records exist", "CONFLICT", {
+        details: { prismaCode: err.code, meta: err.meta },
+      });
+    case "P2011":
+      return new HttpError(422, "Cannot null a required field", "VALIDATION_ERROR", {
+        details: { prismaCode: err.code, meta: err.meta },
+      });
+    case "P2012":
+      return new HttpError(422, "Missing required field", "VALIDATION_ERROR", {
+        details: { prismaCode: err.code, meta: err.meta },
+      });
+    case "P2025":
+      return new HttpError(404, "Record not found", "NOT_FOUND", {
+        details: { prismaCode: err.code },
+      });
+    default:
+      // P1001 (connection), P1010 (permission), P1017 (server closed), etc.
+      // These are 500-tier — log them with the code for diagnosis.
+      return new HttpError(500, "Database error", "INTERNAL_ERROR", {
+        details: { prismaCode: err.code, message: err.message.substring(0, 200) },
+      });
+  }
+}
+
+/**
+ * Unified route error handler.
+ *
+ * Usage:
+ *   export async function GET() {
+ *     try {
+ *       // ... route logic
+ *     } catch (err) {
+ *       return handleRouteError(err);
+ *     }
+ *   }
+ *
+ * Behavior:
+ *   - HttpError     → JSON response with its own status + body
+ *   - Prisma errors → mapped to 4xx (P2002→409, P2025→404, etc.)
+ *   - Other errors  → 500 INTERNAL_ERROR (logged via console.error)
+ *
+ * Replaces the previous pattern of `if (isHttpError(err)) ...; throw err;`
+ * which re-threw Prisma errors to Next.js as generic 500s with no body.
+ */
+export function handleRouteError(err: unknown): NextResponse {
+  if (isHttpError(err)) {
+    return NextResponse.json(err.toJSON(), { status: err.status });
+  }
+
+  if (isPrismaError(err)) {
+    const mapped = mapPrismaToHttp(err);
+    // eslint-disable-next-line no-console
+    console.error("[route-error] Prisma error mapped", {
+      code: err.code,
+      message: err.message,
+      mappedStatus: mapped.status,
+    });
+    return NextResponse.json(mapped.toJSON(), { status: mapped.status });
+  }
+
+  // Unknown error — log with stack, return generic 500
+  // eslint-disable-next-line no-console
+  console.error("[route-error] Unhandled error", {
+    message: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+  const internal = HttpError.internal();
+  return NextResponse.json(internal.toJSON(), { status: internal.status });
 }
